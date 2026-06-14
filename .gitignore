@@ -1,0 +1,44 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# generated data / caches (never commit)
+*.db
+*.db-wal
+*.db-shm
+.smartmoney_cusip_cache.json
+.smartmoney_resolution_cache.json
+cusip_overrides.json
+
+# secrets / local env — never commit
+.env
+*.pem
+*.key
+secrets*
+
+
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# données générées / caches (jamais committer)
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+confluence-*.json
+.smartmoney_cusip_cache.json
+.smartmoney_resolution_cache.json
+cusip_overrides.json
+
+# secrets / env local (jamais committer)
+.env
+*.pem
+*.key
+secrets*
+

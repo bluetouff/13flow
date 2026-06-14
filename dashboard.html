@@ -1,0 +1,1136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>13FLOW · Confluence — 13F × Form 4</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0c1611; --bg-2:#0f1c16; --panel:#13241c; --panel-2:#16291f; --line:#1f3329; --line-soft:#182a20;
+    --text:#eaf5ef; --muted:#a9c4b7; --faint:#6f897d; --ink:#081310;
+    --accent:#19c187; --accent-2:#36d39b; --accent-soft:rgba(25,193,135,.12);
+    --amber:#e0a534; --amber-2:#c2891b; --amber-soft:rgba(224,165,52,.13);
+    --up:#19c187; --down:#ef6a52; --gold:var(--amber);
+    --sans:'Hanken Grotesk',system-ui,sans-serif;
+    --display:'Bricolage Grotesque',var(--sans);
+    --mono:'Geist Mono',ui-monospace,monospace;
+    --shadow:0 1px 2px rgba(0,0,0,.35), 0 20px 46px -22px rgba(0,0,0,.72);
+    --shadow-sm:0 1px 2px rgba(0,0,0,.35);
+    --r:18px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--text); font-family:var(--sans); font-size:14px;
+    -webkit-font-smoothing:antialiased; letter-spacing:-.005em;
+    background-image:
+      radial-gradient(58% 48% at 88% -6%, rgba(25,193,135,.16), transparent 64%),
+      radial-gradient(50% 42% at -2% 102%, rgba(224,165,52,.11), transparent 60%);
+    background-attachment:fixed;
+  }
+  a{color:inherit;text-decoration:none}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+  .up{color:var(--up)} .down{color:var(--down)} .gold{color:var(--accent)}
+
+  /* shell */
+  .app{display:grid;grid-template-columns:248px 1fr;min-height:100vh}
+  .rail{padding:26px 20px;position:sticky;top:0;height:100vh;
+    border-right:1px solid var(--line);background:rgba(15,28,22,.55);backdrop-filter:blur(12px)}
+  .brand{font-family:var(--display);font-weight:800;font-size:22px;line-height:1;letter-spacing:-.03em}
+  .brand .dot{color:var(--accent)}
+  .logo{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text)}
+  .logo .wm{font-family:var(--display);font-weight:800;font-size:21px;letter-spacing:-.02em}
+  .logo .wm .fl{color:var(--accent)} .logo .wm .ow{color:var(--amber)}
+  .logo svg{filter:drop-shadow(0 2px 9px rgba(25,193,135,.28))}
+  .brand-sub{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--faint);
+    text-transform:uppercase;margin-top:9px}
+  nav{margin-top:34px;display:flex;flex-direction:column;gap:4px}
+  .nav-item{display:flex;align-items:center;gap:12px;padding:10px 13px;border-radius:12px;
+    color:var(--muted);font-weight:500;cursor:pointer;transition:all .15s ease}
+  .nav-item:hover{color:var(--text);background:var(--panel-2)}
+  .nav-item.active{color:var(--accent-2);background:var(--accent-soft);font-weight:600}
+  .nav-item.active .ico{color:var(--accent)}
+  .ico{width:18px;height:18px;display:grid;place-items:center;font-family:var(--mono);font-size:13px;color:var(--faint)}
+  .rail-foot{position:absolute;bottom:22px;left:20px;right:20px;font-size:11px;color:var(--faint)}
+  .footlink{display:inline-block;margin-top:12px;color:var(--accent);font-weight:600;font-size:12px;text-decoration:none}
+  .footlink:hover{color:var(--accent-2)}
+  .badge{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10px;
+    letter-spacing:.08em;padding:5px 10px;border:1px solid var(--line);border-radius:999px;background:var(--panel-2)}
+  .badge .led{width:6px;height:6px;border-radius:50%;background:var(--faint)}
+  .badge.live .led{background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+
+  /* main */
+  main{padding:30px 44px 80px;max-width:1200px}
+  .masthead{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+  .masthead h1{font-family:var(--display);font-weight:800;font-size:30px;margin:0;letter-spacing:-.03em}
+  .masthead .kicker{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--accent);margin-bottom:9px;font-weight:500}
+  .masthead .meta{text-align:right;font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.7}
+  .rule-thin{height:0;margin:24px 0 26px}
+  .view-title{font-size:14px;color:var(--muted);margin:2px 0 22px;max-width:640px}
+
+  /* metric strip */
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:30px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;box-shadow:var(--shadow-sm)}
+  .stat .l{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-weight:600}
+  .stat .v{font-family:var(--mono);font-size:26px;margin-top:9px;letter-spacing:-.02em}
+  .stat .v small{font-size:12px;color:var(--muted);font-family:var(--sans)}
+
+  /* panels */
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow)}
+  .panel-h{display:flex;align-items:baseline;justify-content:space-between;padding:18px 20px 14px}
+  .panel-h h3{margin:0;font-family:var(--display);font-size:17px;font-weight:700;letter-spacing:-.02em}
+  .panel-h .hint{font-family:var(--mono);font-size:10px;color:var(--faint);letter-spacing:.06em}
+
+  /* rows */
+  .row{display:flex;align-items:center;gap:14px;padding:13px 20px;border-top:1px solid var(--line-soft);transition:background .12s}
+  .row:hover{background:var(--panel-2)}
+  .tk{font-family:var(--mono);font-weight:600;font-size:12px;color:var(--accent-2);min-width:52px;
+    background:var(--accent-soft);padding:4px 8px;border-radius:7px;text-align:center}
+  .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font-weight:500}
+  .nm small{color:var(--faint);font-family:var(--mono);font-size:11px;font-weight:400}
+  .count{font-family:var(--display);font-size:22px;font-weight:700;line-height:1;letter-spacing:-.02em}
+  .count small{font-family:var(--sans);font-size:9px;color:var(--muted);display:block;text-transform:uppercase;letter-spacing:.1em;font-weight:600;margin-top:2px}
+  .chips{display:flex;gap:5px;flex-wrap:wrap;max-width:240px;justify-content:flex-end}
+  .chip{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:999px;color:var(--muted);background:var(--panel-2);border:1px solid var(--line)}
+  .chip.new{background:var(--accent-soft);color:var(--accent-2);border-color:transparent}
+  .tag{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:999px;letter-spacing:.02em;font-weight:500}
+  .tag.NEW{background:rgba(25,193,135,.16);color:var(--accent-2)}
+  .tag.EXIT{background:rgba(239,106,82,.16);color:var(--down)}
+  .tag.ADD{background:rgba(25,193,135,.12);color:var(--accent-2)}
+  .tag.TRIM{background:rgba(169,196,183,.12);color:var(--muted)}
+
+  /* fund grid */
+  .fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(252px,1fr));gap:16px}
+  .fcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px;cursor:pointer;
+    transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease;box-shadow:var(--shadow-sm)}
+  .fcard:hover{transform:translateY(-3px);box-shadow:var(--shadow);border-color:var(--accent)}
+  .fcard .mgr{font-family:var(--mono);font-size:10px;color:var(--faint);letter-spacing:.08em;text-transform:uppercase}
+  .fcard h4{font-family:var(--display);font-size:20px;font-weight:700;margin:7px 0 16px;letter-spacing:-.02em}
+  .fcard .aum{font-family:var(--mono);font-size:22px;letter-spacing:-.02em}
+  .fcard .sub{font-size:12px;color:var(--muted);margin-top:4px}
+  .spark{margin-top:14px;display:block}
+
+  /* tables */
+  table{width:100%;border-collapse:collapse}
+  th{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--faint);font-weight:600;
+    text-align:right;padding:13px 16px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel)}
+  th.l,td.l{text-align:left}
+  td{padding:13px 16px;border-bottom:1px solid var(--line-soft);font-family:var(--mono);font-size:13px}
+  tr:hover td{background:var(--panel-2)}
+  .wbar{height:6px;background:var(--line-soft);border-radius:999px;overflow:hidden;min-width:84px}
+  .wbar i{display:block;height:100%;background:var(--accent);border-radius:999px}
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+
+  /* detail / controls */
+  .back{font-family:var(--mono);font-size:11px;color:var(--muted);cursor:pointer;margin-bottom:18px;display:inline-block;
+    padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:var(--panel-2);transition:.14s}
+  .back:hover{color:var(--accent-2);border-color:var(--accent)}
+  .fund-hd{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:6px}
+  .fund-hd h2{font-family:var(--display);font-size:30px;font-weight:800;margin:0;letter-spacing:-.03em}
+  .pnl{font-family:var(--mono);font-size:26px;letter-spacing:-.02em}
+  .movechips{display:flex;flex-wrap:wrap;gap:9px;margin:20px 0 28px}
+  .mc{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;padding:9px 13px;font-family:var(--mono);font-size:12px;box-shadow:var(--shadow-sm)}
+  .selectbar{display:flex;flex-wrap:wrap;gap:9px;margin-bottom:22px}
+  .pick{font-family:var(--sans);font-weight:500;font-size:13px;padding:9px 15px;border:1px solid var(--line);
+    border-radius:999px;cursor:pointer;color:var(--muted);background:var(--panel-2);transition:.14s}
+  .pick:hover{color:var(--text);border-color:var(--muted)}
+  .pick.on{border-color:transparent;color:var(--accent-2);background:var(--accent-soft);font-weight:600}
+  .heat{width:100%;text-align:center;border-radius:8px;padding:7px 0;font-family:var(--mono);font-size:12px}
+
+  /* alerts */
+  .alert{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:14px;padding:17px 19px;margin-bottom:14px;box-shadow:var(--shadow-sm)}
+  .alert .ah{display:flex;justify-content:space-between;font-family:var(--mono);font-size:11px;color:var(--muted)}
+  .alert h4{font-family:var(--display);font-size:17px;margin:9px 0 13px;font-weight:700;letter-spacing:-.02em}
+  .alert .ml{display:flex;gap:9px;margin:6px 0;font-family:var(--mono);font-size:12px;align-items:center}
+  .empty{color:var(--faint);font-family:var(--mono);font-size:12px;padding:44px;text-align:center}
+
+  /* motion */
+  .fade{animation:fadeup .5s cubic-bezier(.2,.7,.2,1) both}
+  .fgrid .fcard:nth-child(1){animation-delay:.02s}.fgrid .fcard:nth-child(2){animation-delay:.06s}
+  .fgrid .fcard:nth-child(3){animation-delay:.10s}.fgrid .fcard:nth-child(4){animation-delay:.14s}
+  .fgrid .fcard:nth-child(5){animation-delay:.18s}.fgrid .fcard:nth-child(6){animation-delay:.22s}
+  @keyframes fadeup{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  @media (max-width:760px){.app{grid-template-columns:1fr}.rail{display:none}.cols{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}main{padding:22px}}
+  /* auth */
+  .userbox{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-family:var(--mono);font-size:11px}
+  .userbox .em{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+  .tierpill{font-size:9px;padding:2px 7px;border-radius:999px;text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+  .tierpill.free{background:var(--panel-2);color:var(--muted);border:1px solid var(--line)}
+  .tierpill.paid{background:var(--accent-soft);color:var(--accent-2)}
+  .btn{font-family:var(--sans);font-weight:600;font-size:13px;padding:9px 14px;border-radius:10px;border:none;
+    background:var(--accent);color:#04130c;cursor:pointer;transition:.14s}
+  .btn:hover{background:var(--accent-2)}
+  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--text)}
+  .btn.ghost:hover{border-color:var(--muted)}
+  .btn.sm{padding:6px 11px;font-size:12px}
+  .btn.danger{background:transparent;border:1px solid var(--line);color:var(--down)}
+  .btn:disabled{opacity:.5;cursor:default}
+  .modal{position:fixed;inset:0;background:rgba(18,20,24,.45);backdrop-filter:blur(3px);
+    display:none;align-items:center;justify-content:center;z-index:50}
+  .modal.open{display:flex}
+  .auth-card{background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:30px;
+    width:360px;max-width:92vw;box-shadow:var(--shadow)}
+  .auth-card h3{font-family:var(--display);font-size:22px;font-weight:800;margin:0 0 4px;letter-spacing:-.02em}
+  .auth-card p{color:var(--muted);font-size:13px;margin:0 0 20px}
+  .field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+  .field label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+  .field input{font-family:var(--sans);font-size:14px;padding:11px 13px;border:1px solid var(--line);
+    border-radius:10px;background:var(--panel-2);color:var(--text);outline:none}
+  .field input:focus{border-color:var(--accent);background:var(--panel)}
+  .auth-err{color:var(--down);font-size:12px;min-height:16px;margin:2px 0 12px}
+  .auth-switch{font-size:12px;color:var(--muted);margin-top:14px;text-align:center}
+  .auth-switch a{color:var(--accent-2);cursor:pointer;font-weight:600}
+  .addsub{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:14px 18px;border-top:1px solid var(--line-soft)}
+  .addsub select,.addsub input{font-family:var(--sans);font-size:12px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel-2);color:var(--text)}
+  /* pricing */
+  .plans{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:6px 0 8px}
+  .plan{border:1px solid var(--line);border-radius:16px;padding:18px}
+  .plan.featured{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+  .plan-name{font-family:var(--display);font-weight:700;font-size:16px;display:flex;align-items:center;gap:8px}
+  .plan-price{font-family:var(--mono);font-size:30px;letter-spacing:-.02em;margin:8px 0 14px}
+  .plan-price span{font-size:13px;color:var(--muted)}
+  .plan-feats{list-style:none;padding:0;margin:0 0 16px;font-size:13px;color:var(--text)}
+  .plan-feats li{padding:5px 0 5px 22px;position:relative}
+  .plan-feats li:before{content:"✓";position:absolute;left:0;color:var(--accent);font-weight:700}
+  .plan-feats li.off{color:var(--faint)} .plan-feats li.off:before{content:"–";color:var(--faint)}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);opacity:0;
+    background:var(--ink,#15171c);color:#fff;padding:13px 20px;border-radius:12px;font-weight:600;font-size:14px;
+    box-shadow:var(--shadow);transition:.3s;z-index:60;pointer-events:none}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  /* ===== Confluence (13FLOW) — all scoped under .cfl to avoid clashing with other screens ===== */
+  .cfl .pillrow{display:flex;gap:6px;margin:2px 0 18px}
+  .cfl .pill{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--muted);border:1px solid var(--line);background:var(--panel-2);padding:6px 13px;border-radius:999px;cursor:pointer;transition:.15s}
+  .cfl .pill:hover{color:var(--text)}
+  .cfl .pill.on{background:var(--accent);color:#04130c;border-color:transparent}
+  .cfl .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}
+  .cfl .kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;box-shadow:var(--shadow-sm);position:relative;overflow:hidden}
+  .cfl .kpi::after{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:linear-gradient(90deg,var(--accent),transparent)}
+  .cfl .kpi .lab{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);font-weight:600}
+  .cfl .kpi .val{font-family:var(--mono);font-size:28px;font-weight:600;letter-spacing:-.02em;margin-top:7px;line-height:1}
+  .cfl .kpi .sub{font-size:12px;color:var(--muted);margin-top:6px}
+  .cfl .quad-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);padding:20px 22px 14px;margin-bottom:24px}
+  .cfl .quad-wrap{display:grid;grid-template-columns:1fr 210px;gap:20px;align-items:center}
+  .cfl svg{display:block;width:100%;height:auto;overflow:visible}
+  .cfl #cfl-quad{overflow:hidden}   /* the scatter map clips to its viewBox, never the page */
+  .cfl .legend{font-size:12px}
+  .cfl .legend .lrow{display:flex;align-items:center;gap:9px;margin-bottom:10px;color:var(--muted)}
+  .cfl .legend .sw{width:11px;height:11px;border-radius:3px;flex:none}
+  .cfl .legend h4{font-family:var(--display);font-size:13px;margin:0 0 12px;color:var(--text);font-weight:700}
+  .cfl .legend .note{margin-top:14px;padding-top:13px;border-top:1px solid var(--line-soft);color:var(--faint);font-size:11.5px;line-height:1.5}
+  .cfl .bub{cursor:pointer}
+  .cfl .bub-lab{font-family:var(--mono);font-size:10.5px;font-weight:600;fill:#fff;pointer-events:none;text-anchor:middle}
+  .cfl .axis-lab{font-family:var(--sans);font-size:11px;fill:var(--faint);font-weight:600}
+  .cfl .quad-lab{font-family:var(--display);font-size:12px;font-weight:700}
+  .cfl .section-h{display:flex;align-items:baseline;gap:10px;margin:6px 2px 13px}
+  .cfl .section-h h3{font-family:var(--display);font-weight:700;font-size:17px;margin:0}
+  .cfl .section-h .hint{font-size:12px;color:var(--faint)}
+  .cfl .signals{display:flex;flex-direction:column;gap:13px}
+  .cfl .sig{display:grid;grid-template-columns:78px 1fr 132px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-sm);overflow:hidden;transition:.2s;opacity:0;transform:translateY(10px);animation:fadeup .5s cubic-bezier(.2,.7,.2,1) forwards}
+  .cfl .sig:hover{box-shadow:var(--shadow);transform:translateY(-2px)}
+  .cfl .sig .rank{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:18px 0;border-right:1px solid var(--line-soft);background:var(--panel-2)}
+  .cfl .sig .rank .ctk{font-family:var(--display);font-weight:800;font-size:17px;letter-spacing:-.02em;background:none;padding:0;color:var(--text)}
+  .cfl .sig .rank .n{font-family:var(--mono);font-size:10px;color:var(--faint)}
+  .cfl .sig .body{padding:16px 18px;min-width:0}
+  .cfl .sig .top{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:3px}
+  .cfl .sig .cnm{font-weight:600;font-size:14.5px;font-family:var(--sans)}
+  .cfl .qchip{font-family:var(--mono);font-size:10px;font-weight:600;padding:3px 8px;border-radius:999px}
+  .cfl .q-conviction{background:var(--accent-soft);color:var(--accent-2)}
+  .cfl .q-institutional{background:rgba(25,193,135,.14);color:#5fe0b3}
+  .cfl .q-insider{background:rgba(224,165,52,.14);color:#edc06a}
+  .cfl .q-distribution,.cfl .q-divergent{background:rgba(239,106,82,.14);color:#f08a76}
+  .cfl .q-neutral{background:var(--line-soft);color:var(--faint)}
+  .cfl .sig .rat{font-size:13px;color:var(--muted);margin:4px 0 13px}
+  .cfl .rails{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .cfl .crail{border:1px solid var(--line-soft);border-radius:12px;padding:11px 12px;background:var(--panel-2)}
+  .cfl .crail .rh{display:flex;align-items:center;gap:7px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:700;margin-bottom:9px}
+  .cfl .crail .rh .ic{width:15px;height:15px}
+  .cfl .crail .big{font-family:var(--mono);font-size:20px;font-weight:600;letter-spacing:-.02em}
+  .cfl .crail .big small{font-size:12px;color:var(--faint);font-weight:500}
+  .cfl .cchips{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+  .cfl .cchip{font-size:11px;padding:3px 8px;border-radius:7px;background:var(--panel);border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+  .cfl .cchip.cs{background:rgba(224,165,52,.14);border-color:rgba(224,165,52,.32);color:#e9b85a;font-weight:600}
+  .cfl .cchip.fund{background:var(--accent-soft);border-color:transparent;color:var(--accent-2)}
+  .cfl .cchip .stk{color:var(--accent-2);font-weight:600}
+  .cfl .accbar{height:6px;border-radius:999px;background:var(--line-soft);overflow:hidden;margin-top:10px;display:flex}
+  .cfl .accbar .add{background:var(--up);height:100%}
+  .cfl .accbar .trim{background:var(--down);height:100%;opacity:.55}
+  .cfl .bd{display:flex;height:8px;border-radius:999px;overflow:hidden;background:var(--line-soft);margin:2px 0 7px}
+  .cfl .bd i{height:100%;transition:width .8s cubic-bezier(.2,.7,.2,1)}
+  .cfl .bd-inst{background:var(--accent)}.cfl .bd-ins{background:var(--amber)}.cfl .bd-dol{background:#2fb6a6}.cfl .bd-agr{background:linear-gradient(90deg,var(--accent),var(--amber))}
+  .cfl .bd-leg{display:flex;gap:13px;flex-wrap:wrap;font-size:10.5px;color:var(--faint);margin-bottom:12px;font-family:var(--mono)}
+  .cfl .bd-leg span{display:inline-flex;align-items:center;gap:5px}
+  .cfl .bd-leg b{width:8px;height:8px;border-radius:2px;display:inline-block}
+  .cfl .bd-leg .pen{color:var(--down)}
+  .cfl .fresh{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-family:var(--mono);color:var(--accent-2);background:var(--accent-soft);padding:2px 7px;border-radius:999px;font-weight:600;margin-left:auto}
+  .cfl .gauge-cell{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-left:1px solid var(--line-soft);padding:14px 8px}
+  .cfl .gauge-cell .scoren{font-family:var(--mono);font-weight:600;font-size:24px;letter-spacing:-.03em}
+  .cfl .gauge-cell .scorel{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);font-weight:600}
+  .cfl-tip{position:fixed;pointer-events:none;opacity:0;transition:.12s;z-index:60;background:var(--text);color:#fff;font-size:12px;padding:7px 10px;border-radius:9px;font-family:var(--mono);box-shadow:var(--shadow);max-width:220px}
+  .cfl-tip b{color:#8fe9c4}
+  @media(max-width:760px){.cfl .quad-wrap{grid-template-columns:1fr}.cfl .kpis{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:560px){.cfl .rails{grid-template-columns:1fr}.cfl .sig{grid-template-columns:64px 1fr}.cfl .gauge-cell{display:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <a class="logo" href="/" title="13FLOW">
+      <svg width="30" height="30" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+        <path d="M7 15 C 22 15, 22 32, 37 32" stroke="#19c187" stroke-width="7.5" stroke-linecap="round"/>
+        <path d="M7 49 C 22 49, 22 32, 37 32" stroke="#e0a534" stroke-width="7.5" stroke-linecap="round"/>
+        <path d="M34 32 L 57 32" stroke="#19c187" stroke-width="8.5" stroke-linecap="round"/>
+        <circle cx="35" cy="32" r="6.4" fill="var(--bg)"/><circle cx="35" cy="32" r="2.7" fill="#fff"/>
+      </svg>
+      <span class="wm">13<span class="fl">FL</span><span class="ow">OW</span></span>
+    </a>
+    <div class="brand-sub">13F × Form 4 · confluence</div>
+    <nav id="nav">
+      <div class="nav-item active" data-view="consensus"><span class="ico">◎</span> Consensus</div>
+      <div class="nav-item" data-view="funds"><span class="ico">▤</span> Funds</div>
+      <div class="nav-item" data-view="compare"><span class="ico">⊞</span> Compare</div>
+      <div class="nav-item" data-view="alerts"><span class="ico">!</span> Alerts</div>
+      <div class="nav-item" data-view="confluence"><span class="ico">✦</span> Confluence</div>
+    </nav>
+    <div class="rail-foot">
+      <div id="authbox"></div>
+      <span id="srcBadge" class="badge"><span class="led"></span><span id="srcText">SAMPLE DATA</span></span>
+      <div style="margin-top:10px">Source: SEC EDGAR · public domain</div>
+      <a href="faq.html" class="footlink">How it works · FAQ →</a>
+      <a href="mentions-legales.html" class="footlink">Mentions légales</a>
+    </div>
+  </aside>
+
+  <main>
+    <div class="masthead">
+      <div>
+        <div class="kicker">Following the trail of capital</div>
+        <h1>The Filings</h1>
+      </div>
+      <div class="meta" id="mast-meta"></div>
+    </div>
+    <div class="rule-thin"></div>
+    <div id="view"></div>
+  </main>
+</div>
+
+<div class="modal" id="authModal">
+  <div class="auth-card">
+    <h3 id="authTitle">Sign in</h3>
+    <p id="authSubtitle">Access alerts and your watchlist.</p>
+    <div class="field"><label>Email</label><input id="authEmail" type="email" autocomplete="email"></div>
+    <div class="field"><label>Password</label><input id="authPass" type="password" autocomplete="current-password"></div>
+    <div class="auth-err" id="authErr"></div>
+    <button class="btn" id="authSubmit" style="width:100%">Sign in</button>
+    <div class="auth-switch" id="authSwitch"></div>
+  </div>
+</div>
+
+<div class="modal" id="upgradeModal">
+  <div class="auth-card" style="width:520px">
+    <h3>Upgrade to Pro</h3>
+    <p id="upgradeSub">Unlock filing alerts delivered the moment a 13F lands.</p>
+    <div class="plans">
+      <div class="plan">
+        <div class="plan-name">Free</div>
+        <div class="plan-price">€0</div>
+        <ul class="plan-feats">
+          <li>Consensus, funds &amp; compare screens</li>
+          <li>Valuation &amp; conviction history</li>
+          <li class="off">Filing alerts</li>
+        </ul>
+        <button class="btn ghost sm" disabled style="width:100%">Current plan</button>
+      </div>
+      <div class="plan featured">
+        <div class="plan-name">Pro <span class="tierpill paid">recommended</span></div>
+        <div class="plan-price">€12<span>/mo</span></div>
+        <ul class="plan-feats">
+          <li>Everything in Free</li>
+          <li>Real-time filing alerts (email / webhook)</li>
+          <li>Up to 50 fund subscriptions</li>
+        </ul>
+        <button class="btn" id="goCheckout" style="width:100%">Continue to checkout</button>
+      </div>
+    </div>
+    <div class="auth-err" id="upgradeErr" style="text-align:center"></div>
+    <div class="auth-switch"><a id="closeUpgrade">Maybe later</a></div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+//=================== data layer (API with sample fallback) ===================
+let LIVE=false;
+async function api(path){
+  try{
+    const r=await fetch(path,{cache:"no-store",credentials:"same-origin"});
+    if(!r.ok) throw 0;
+    LIVE=true; return await r.json();
+  }catch(e){ return sampleFor(path); }
+}
+function getCookie(name){
+  const m=document.cookie.match(new RegExp("(?:^|; )"+name+"=([^;]*)"));
+  return m?decodeURIComponent(m[1]):"";
+}
+// Mutating request: sends the CSRF token (double-submit) + cookies. Returns {ok,status,data}.
+async function apiMutate(path,method,body){
+  const r=await fetch(path,{method,credentials:"same-origin",
+    headers:{"Content-Type":"application/json","X-CSRF-Token":getCookie("sm_csrf")},
+    body:body?JSON.stringify(body):undefined});
+  let data={}; try{data=await r.json();}catch(e){}
+  return {ok:r.ok,status:r.status,data};
+}
+
+// ---- auth state ----
+let USER=null;          // {email,tier} when logged in
+let AUTH_BACKEND=false; // true once /api/auth/me returns a definitive 200/401 (real backend)
+async function refreshAuth(){
+  try{
+    const r=await fetch("/api/auth/me",{cache:"no-store",credentials:"same-origin"});
+    AUTH_BACKEND=true;
+    USER = r.ok ? await r.json() : null;
+  }catch(e){ AUTH_BACKEND=false; USER=null; }   // no backend -> sample/preview mode
+  renderAuthbox();
+}
+function qp(path,key){const m=path.match(new RegExp(key+"=([^&]+)"));return m?decodeURIComponent(m[1]):null;}
+
+//=================== formatters ===================
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const safeGo=u=>{ if(typeof u==="string" && /^https?:\/\//i.test(u)) location.assign(u); };  // no javascript:/data: redirects
+const fmtUSD=x=>{if(x==null)return"—";const a=Math.abs(x);
+  if(a>=1e9)return"$"+(x/1e9).toFixed(1)+"B";if(a>=1e6)return"$"+(x/1e6).toFixed(1)+"M";
+  if(a>=1e3)return"$"+(x/1e3).toFixed(0)+"K";return"$"+x.toFixed(0);};
+const pct=x=>x==null?"—":(x*100).toFixed(1)+"%";
+const signpct=x=>x==null?"—":(x>=0?"+":"")+(x*100).toFixed(1)+"%";
+const cls=x=>x==null?"":x>=0?"up":"down";
+function sparkline(series,w=210,h=42,key="weight"){
+  if(!series||series.length<2)return"";
+  const vs=series.map(p=>p[key]); const mn=Math.min(...vs),mx=Math.max(...vs),rg=(mx-mn)||1;
+  const pts=series.map((p,i)=>[i/(series.length-1)*w, h-((p[key]-mn)/rg)*(h-9)-5]);
+  const line=pts.map((p,i)=>(i?"L":"M")+p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ");
+  const up=vs[vs.length-1]>=vs[0]; const col=up?"var(--up)":"var(--down)";
+  const id="g"+Math.random().toString(36).slice(2,8);
+  const area="M0,"+h+" "+pts.map(p=>"L"+p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ")+` L${w},${h} Z`;
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+    <defs><linearGradient id="${id}" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="${col}" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>
+    <path d="${area}" fill="url(#${id})"/>
+    <path d="${line}" fill="none" stroke="${col}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="${pts[pts.length-1][0].toFixed(1)}" cy="${pts[pts.length-1][1].toFixed(1)}" r="2.6" fill="${col}"/>
+  </svg>`;
+}
+
+//=================== views ===================
+const V=document.getElementById("view");
+let FUNDS=[];
+
+let OPEN_MODE=false;
+async function boot(){
+  // Ask the backend which build this is. Missing endpoint (e.g. file://) -> full build.
+  try{ const cfg=await api("/api/config"); OPEN_MODE=!!(cfg&&cfg.open); }catch(e){ OPEN_MODE=false; }
+  let VIEWS=["consensus","funds","compare","alerts","confluence"];
+  if(OPEN_MODE){
+    VIEWS=["consensus","funds","compare","confluence"];
+    const al=document.querySelector('.nav-item[data-view="alerts"]'); if(al) al.remove();
+    const ab=document.getElementById("authbox");
+    if(ab) ab.innerHTML='<div style="font-size:11px;color:var(--faint);line-height:1.5">Public access · read-only<br>no account needed</div>';
+  }else{
+    await refreshAuth();
+  }
+  FUNDS=await api("/api/funds");
+  document.getElementById("srcText").textContent = LIVE? "LIVE · EDGAR":"SAMPLE DATA";
+  document.getElementById("srcBadge").classList.toggle("live",LIVE);
+  const latest = FUNDS.map(f=>f.latest_quarter).filter(Boolean).sort().pop();
+  const aum = FUNDS.reduce((a,f)=>a+(f.aum||0),0);
+  document.getElementById("mast-meta").innerHTML =
+    `Quarter ending <b>${esc(latest)||"—"}</b><br>${FUNDS.length} funds · ${fmtUSD(aum)} 13F AUM`;
+  if(!OPEN_MODE) await handleBillingReturn();
+  const want=(location.hash||"").replace("#","");
+  const start=VIEWS.includes(want)?want:"consensus";
+  document.querySelectorAll(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view===start));
+  route(start);
+}
+document.getElementById("nav").addEventListener("click",e=>{
+  const it=e.target.closest(".nav-item"); if(!it)return;
+  document.querySelectorAll(".nav-item").forEach(n=>n.classList.toggle("active",n===it));
+  route(it.dataset.view);
+});
+function route(v){ ({consensus:vConsensus,funds:vFunds,compare:vCompare,alerts:vAlerts,confluence:vConfluence}[v])(); }
+
+//---- Consensus ----
+async function vConsensus(){
+  V.innerHTML=`<p class="view-title">Where the smart money agrees — this quarter's crowd.</p>
+    <div class="stats" id="cstats"></div><div class="cols">
+    <div class="panel"><div class="panel-h"><h3>Smart money is buying</h3><span class="hint">≥2 FUNDS · OPENED/ADDED</span></div><div id="buys"></div></div>
+    <div class="panel"><div class="panel-h"><h3>Most owned</h3><span class="hint">≥2 FUNDS · HOLDING</span></div><div id="holds"></div></div>
+    </div>`;
+  const [buys,holds,cov]=await Promise.all([api("/api/consensus/buys?min_funds=2"),api("/api/consensus/holdings?min_funds=2"),api("/api/coverage")]);
+  const topBuy=buys.rows[0];
+  const share=cov&&cov.coverage?cov.coverage.overall_value_share:null;
+  document.getElementById("cstats").innerHTML=[
+    ["Funds tracked",FUNDS.length],
+    ["Quarter",esc(buys.date)||"—"],
+    ["Top consensus buy",topBuy?`<span class="gold">${esc(topBuy.ticker||topBuy.issuer)}</span>`:"—",topBuy?topBuy.n_funds+" funds":""],
+    ["Ticker coverage",share!=null?(share*100).toFixed(1)+"%":"—","of 13F value"],
+  ].map(([l,v,s])=>`<div class="stat"><div class="l">${l}</div><div class="v">${v} ${s?`<small>${s}</small>`:""}</div></div>`).join("");
+
+  document.getElementById("buys").innerHTML = buys.rows.length? buys.rows.map(r=>`
+    <div class="row fade">
+      <span class="tk">${esc(r.ticker)||"—"}</span>
+      <span class="nm">${esc(r.issuer)}<br><small>${esc(r.cusip)}</small></span>
+      <span class="chips">${r.funds.map((f,i)=>`<span class="chip ${r.moves[i]==='NEW'?'new':''}">${esc(short(f))}</span>`).join("")}</span>
+      <span class="count" style="text-align:right">${r.n_funds}<small>funds</small></span>
+    </div>`).join("") : `<div class="empty">No consensus buys at ≥2 funds.</div>`;
+
+  document.getElementById("holds").innerHTML = holds.rows.length? holds.rows.map(r=>`
+    <div class="row fade">
+      <span class="tk">${esc(r.ticker)||"—"}</span>
+      <span class="nm">${esc(r.issuer)}<br><small class="num">${fmtUSD(r.total_value)} combined</small></span>
+      <span class="count" style="text-align:right">${r.n_funds}<small>funds</small></span>
+    </div>`).join("") : `<div class="empty">No consensus holdings.</div>`;
+}
+const short=s=>s.length>14?s.slice(0,13)+"…":s;
+
+//---- Funds list + detail ----
+async function vFunds(){
+  V.innerHTML=`<p class="view-title">The superinvestors on the tape.</p><div class="fgrid">${
+    FUNDS.map(f=>`<div class="fcard fade" data-cik="${esc(f.cik)}">
+      <div class="mgr">${esc(f.manager)||""}</div>
+      <h4>${esc(f.label)}</h4>
+      <div class="aum">${fmtUSD(f.aum)}</div>
+      <div class="sub">${f.n_positions||0} positions · ${f.n_quarters} quarters</div>
+      ${sparkline((f.aum_series||[]),210,38,"aum")}
+    </div>`).join("")}</div>`;
+  V.querySelectorAll(".fcard").forEach(c=>c.onclick=()=>fundDetail(c.dataset.cik));
+}
+async function fundDetail(cik){
+  const d=await api("/api/fund/"+cik);
+  const val=d.valuation;
+  V.innerHTML=`<span class="back" id="bk">← all funds</span>
+    <div class="fund-hd"><div><div class="mgr" style="font-family:var(--mono);font-size:11px;color:var(--faint);letter-spacing:.14em;text-transform:uppercase">${esc(d.manager)||""}</div>
+      <h2>${esc(d.label)}</h2></div>
+      <div style="text-align:right">
+        <div class="num" style="color:var(--muted);font-size:12px">${esc(d.report_date)} · ${fmtUSD(d.aum)} AUM</div>
+        ${val?`<div class="pnl ${cls(val.pnl_pct)}">${signpct(val.pnl_pct)}</div>
+          <div class="num" style="font-size:11px;color:var(--faint)">implied since filing</div>`:""}
+      </div></div>
+    <div class="movechips">${["NEW","EXIT","ADD","TRIM"].map(m=>{
+        const n=(d.moves[m]||[]).length; if(!n)return"";
+        const ex=(d.moves[m][0]); return `<span class="mc"><span class="tag ${esc(m)}">${esc(m)}</span> ${n} · <span class="gold">${esc(ex.ticker||ex.issuer)}</span>${m==='NEW'||m==='EXIT'?' '+fmtUSD(ex.value):(ex.pct!=null?' '+signpct(ex.pct):'')}</span>`;
+      }).join("")}</div>
+    <div class="panel"><div class="panel-h"><h3>Holdings</h3><span class="hint">${d.n_positions} POSITIONS · ${esc(d.report_date)}</span></div>
+    <div style="max-height:520px;overflow:auto"><table><thead><tr>
+      <th class="l">Ticker</th><th class="l">Issuer</th><th>Weight</th><th></th><th>Value</th>
+      ${val?'<th>P&L</th><th>Rec.</th>':''}</tr></thead><tbody>
+      ${d.positions.slice(0,40).map(p=>`<tr>
+        <td class="l gold">${esc(p.ticker)||"—"}${p.put_call?` <span class="tag ${p.put_call==='Put'?'EXIT':'ADD'}">${esc(p.put_call)}</span>`:""}</td>
+        <td class="l" style="font-family:var(--sans)">${esc(p.issuer)}</td>
+        <td class="num">${pct(p.weight)}</td>
+        <td style="width:110px"><div class="wbar"><i style="width:${Math.min(100,(p.weight*100)).toFixed(0)}%"></i></div></td>
+        <td class="num">${fmtUSD(p.value)}</td>
+        ${val?`<td class="num ${cls(p.pnl_pct)}">${signpct(p.pnl_pct)}</td>
+              <td><span class="dot" style="background:${recColor(p.reconcile)}"></span></td>`:''}
+      </tr>`).join("")}
+    </tbody></table></div></div>
+    ${convictionPanel(d.conviction)}`;
+  document.getElementById("bk").onclick=vFunds;
+}
+function recColor(r){if(r==null)return"var(--faint)";return Math.abs(r-1)<0.15?"var(--up)":Math.abs(r-1)<0.4?"var(--gold)":"var(--down)";}
+function convictionPanel(conv){
+  const items=Object.values(conv||{}); if(!items.length)return"";
+  return `<div class="panel" style="margin-top:22px"><div class="panel-h"><h3>Conviction over time</h3>
+    <span class="hint">PORTFOLIO WEIGHT BY QUARTER</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:1px;background:var(--line)">
+    ${items.map(it=>{const s=it.series;const last=s[s.length-1].weight,first=s[0].weight;
+      return `<div style="background:var(--panel);padding:15px 17px">
+        <div class="tk">${esc(it.ticker)||""}</div>
+        <div style="font-size:11px;color:var(--faint);margin:2px 0 8px;font-family:var(--sans)">${esc(it.issuer)}</div>
+        ${sparkline(s,200,42,"weight")}
+        <div class="num" style="font-size:12px;margin-top:6px">${pct(first)} → <b class="${cls(last-first)}">${pct(last)}</b></div>
+      </div>`;}).join("")}</div></div>`;
+}
+
+//---- Compare ----
+let SEL=[];
+async function vCompare(){
+  if(!SEL.length) SEL=FUNDS.slice(0,3).map(f=>f.cik);
+  V.innerHTML=`<p class="view-title">Overlap matrix — who holds what, side by side.</p>
+    <div class="selectbar">${FUNDS.map(f=>`<span class="pick ${SEL.includes(f.cik)?'on':''}" data-cik="${esc(f.cik)}">${esc(f.label)}</span>`).join("")}</div>
+    <div class="panel"><div id="cmp"></div></div>`;
+  V.querySelectorAll(".pick").forEach(p=>p.onclick=()=>{
+    const c=p.dataset.cik; SEL=SEL.includes(c)?SEL.filter(x=>x!==c):[...SEL,c]; vCompare();});
+  if(SEL.length<2){document.getElementById("cmp").innerHTML=`<div class="empty">Select at least two funds.</div>`;return;}
+  const data=await api("/api/compare?ciks="+SEL.join(","));
+  const fs=data.funds;
+  document.getElementById("cmp").innerHTML=`<div style="overflow:auto"><table><thead><tr>
+    <th class="l">Issuer</th><th>Held by</th>${fs.map(f=>`<th>${esc(short(f.label))}</th>`).join("")}</tr></thead><tbody>
+    ${data.rows.map(r=>`<tr>
+      <td class="l"><span class="gold">${esc(r.ticker)||""}</span> <span style="font-family:var(--sans);color:var(--muted)">${esc(r.issuer)}</span></td>
+      <td class="num" style="text-align:center;color:${r.n_funds>1?'var(--gold)':'var(--faint)'}">${r.n_funds}/${fs.length}</td>
+      ${fs.map(f=>{const c=r.cells[f.cik];const w=c?c.weight:0;
+        return `<td><div class="heat" style="background:${w?`rgba(224,164,74,${(0.12+Math.min(w,0.4)/0.4*0.5).toFixed(2)})`:'transparent'}">${w?pct(w):'·'}</div></td>`;}).join("")}
+    </tr>`).join("")}</tbody></table></div>`;
+}
+
+//---- Alerts ----
+async function vAlerts(){
+  V.innerHTML=`<p class="view-title">Filing alerts — the diff, delivered.</p>
+    <div class="cols" style="grid-template-columns:1fr 1.4fr">
+    <div class="panel"><div class="panel-h"><h3>Subscriptions</h3><span class="hint" id="subHint"></span></div><div id="subs"></div></div>
+    <div><div id="feed"></div></div></div>`;
+
+  // Gate: real backend + not signed in -> prompt sign in.
+  if(AUTH_BACKEND && !USER){
+    document.getElementById("subHint").textContent="SIGN IN";
+    document.getElementById("subs").innerHTML=
+      `<div class="empty" style="padding:30px 20px">Sign in to manage filing alerts.<br><br>
+       <button class="btn sm" id="subsSignin">Sign in</button></div>`;
+    const _ssi=document.getElementById("subsSignin"); if(_ssi) _ssi.onclick=()=>openAuth("login");
+  }else{
+    document.getElementById("subHint").textContent = USER ? esc(USER.tier.toUpperCase()) : "PREVIEW";
+    const subs=await api("/api/subscriptions");
+    const list = Array.isArray(subs)?subs:[];
+    let html = list.length? list.map(s=>`
+      <div class="row"><span class="tk">●</span>
+        <span class="nm">${esc(s.fund_label||s.cik)}<br><small>${esc(s.channel)}${s.target?' · '+esc(s.target):''}</small></span>
+        ${USER?`<button class="btn danger sm" data-del="${s.id}">Remove</button>`:""}
+      </div>`).join("") : `<div class="empty">No subscriptions yet.</div>`;
+    // Add-subscription form (only with a real session).
+    if(USER){
+      html += `<div class="addsub">
+        <select id="subFund">${FUNDS.map(f=>`<option value="${esc(f.cik)}">${esc(f.label)}</option>`).join("")}</select>
+        <select id="subChan"><option value="console">console</option><option value="email">email</option><option value="webhook">webhook</option></select>
+        <input id="subTarget" placeholder="email or webhook URL" style="flex:1;min-width:120px">
+        <button class="btn sm" id="subAdd">Add</button>
+        <div class="auth-err" id="subErr" style="flex-basis:100%;margin:0"></div></div>`;
+    }
+    document.getElementById("subs").innerHTML=html;
+    if(USER){
+      document.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{
+        await apiMutate("/api/subscriptions/"+b.dataset.del,"DELETE"); vAlerts();
+      });
+      document.getElementById("subAdd").onclick=async()=>{
+        const errEl=document.getElementById("subErr"); errEl.textContent="";
+        const res=await apiMutate("/api/subscriptions","POST",{
+          cik:document.getElementById("subFund").value,
+          channel:document.getElementById("subChan").value,
+          target:document.getElementById("subTarget").value.trim()});
+        if(res.ok) vAlerts();
+        else if(res.status===402){
+          errEl.innerHTML=`Filing alerts are a Pro feature. <a id="upsellLink" style="color:var(--accent-2);cursor:pointer;font-weight:600">Upgrade →</a>`;
+          const _ul=document.getElementById("upsellLink"); if(_ul) _ul.onclick=openUpgrade;
+        }
+        else errEl.textContent = res.data.error||"Could not add subscription.";
+      };
+    }
+  }
+
+  // Public alert feed (latest diff per fund).
+  const previews=await Promise.all(FUNDS.slice(0,4).map(f=>api("/api/alerts/preview/"+encodeURIComponent(f.cik))));
+  document.getElementById("feed").innerHTML = previews.filter(a=>a&&!a.error).map(a=>`
+    <div class="alert fade"><div class="ah"><span>${esc(a.fund_label)} · ${esc(a.manager)||""}</span><span>${esc(a.report_date)}</span></div>
+      <h4>${a.counts.NEW?a.counts.NEW+' new':''}${a.counts.EXIT?' · '+a.counts.EXIT+' exits':''}${(!a.counts.NEW&&!a.counts.EXIT)?'Filing update':''}</h4>
+      ${a.moves.slice(0,6).map(m=>`<div class="ml"><span class="tag ${esc(m.move)}">${esc(m.move)}</span>
+        <span class="gold">${esc(m.ticker)||""}</span> <span style="color:var(--muted)">${esc(m.issuer)}</span>
+        <span style="margin-left:auto" class="num">${esc(m.detail.replace(m.move,'').trim())}</span></div>`).join("")}
+    </div>`).join("") || `<div class="empty">No recent filings.</div>`;
+}
+
+//=================== auth UI ===================
+function renderAuthbox(){
+  const el=document.getElementById("authbox");
+  if(!AUTH_BACKEND){ el.innerHTML=""; return; }   // preview mode: no auth chrome
+  if(USER){
+    const isPaid = USER.tier==="paid";
+    el.innerHTML=`<div class="userbox">
+      <span class="em" title="${esc(USER.email)}">${esc(USER.email)}</span>
+      <span class="tierpill ${isPaid?'paid':'free'}">${esc(USER.tier)}</span></div>
+      ${isPaid
+        ? `<button class="btn ghost sm" id="manageBtn" style="width:100%;margin-bottom:6px">Manage billing</button>`
+        : `<button class="btn sm" id="upgradeBtn" style="width:100%;margin-bottom:6px">★ Upgrade to Pro</button>`}
+      <button class="btn ghost sm" id="logoutBtn" style="width:100%">Sign out</button>`;
+    document.getElementById("logoutBtn").onclick=async()=>{
+      await apiMutate("/api/auth/logout","POST"); await refreshAuth();
+      if(document.querySelector(".nav-item.active")?.dataset.view==="alerts") vAlerts();
+    };
+    if(!isPaid) document.getElementById("upgradeBtn").onclick=()=>openUpgrade();
+    if(isPaid){
+      const mb=document.getElementById("manageBtn");
+      mb.onclick=async()=>{
+        const res=await apiMutate("/api/billing/portal","POST");
+        if(res.ok && res.data.url){ safeGo(res.data.url); }
+        else { mb.textContent = res.data.error||"Portal unavailable (mock mode)"; setTimeout(()=>mb.textContent="Manage billing",2600); }
+      };
+    }
+  }else{
+    el.innerHTML=`<button class="btn sm" id="signinBtn" style="width:100%">Sign in</button>`;
+    document.getElementById("signinBtn").onclick=()=>openAuth("login");
+  }
+}
+let AUTH_MODE="login";
+// ---- billing / upgrade ----
+function toast(msg){
+  const t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show");
+  setTimeout(()=>t.classList.remove("show"),3200);
+}
+function openUpgrade(){ document.getElementById("upgradeErr").textContent=""; document.getElementById("upgradeModal").classList.add("open"); }
+function closeUpgrade(){ document.getElementById("upgradeModal").classList.remove("open"); }
+document.getElementById("closeUpgrade").onclick=closeUpgrade;
+document.getElementById("upgradeModal").addEventListener("click",e=>{ if(e.target.id==="upgradeModal") closeUpgrade(); });
+document.getElementById("goCheckout").onclick=async()=>{
+  const btn=document.getElementById("goCheckout"), err=document.getElementById("upgradeErr");
+  btn.disabled=true; btn.textContent="Starting checkout…"; err.textContent="";
+  const res=await apiMutate("/api/billing/checkout","POST");
+  if(res.ok && res.data.url){ safeGo(res.data.url); }   // Stripe-hosted, or local mock page
+  else { err.textContent=res.data.error||"Could not start checkout."; btn.disabled=false; btn.textContent="Continue to checkout"; }
+};
+// handle return from checkout
+async function handleBillingReturn(){
+  const p=new URLSearchParams(location.search);
+  if(p.get("upgraded")){
+    await refreshAuth();
+    toast(USER && USER.tier==="paid" ? "Welcome to Pro — alerts unlocked ✦" : "Payment received — finalizing…");
+    history.replaceState({},"",location.pathname);
+  }else if(p.get("canceled")){
+    toast("Checkout canceled."); history.replaceState({},"",location.pathname);
+  }else if(p.get("verified")){
+    toast("Email verified — you can sign in now ✦"); history.replaceState({},"",location.pathname);
+    openAuth("login");
+  }else if(p.get("verify_error")){
+    toast("That verification link is invalid or expired."); history.replaceState({},"",location.pathname);
+  }
+}
+
+function openAuth(mode){
+  AUTH_MODE=mode;
+  document.getElementById("authTitle").textContent = mode==="login"?"Sign in":"Create account";
+  document.getElementById("authSubtitle").textContent =
+    mode==="login"?"Access alerts and your watchlist.":"Free tier: browse data. Paid: filing alerts.";
+  document.getElementById("authSubmit").textContent = mode==="login"?"Sign in":"Create account";
+  document.getElementById("authPass").setAttribute("autocomplete", mode==="login"?"current-password":"new-password");
+  document.getElementById("authSwitch").innerHTML = mode==="login"
+    ? `No account? <a id="toReg">Create one</a>`
+    : `Have an account? <a id="toLogin">Sign in</a>`;
+  // reset any "verify pending" / "resend" state
+  const err=document.getElementById("authErr"); err.textContent=""; err.style.color="";
+  document.getElementById("authEmail").style.display=""; document.getElementById("authPass").style.display="";
+  const b=document.getElementById("authSubmit"); b.dataset.mode=""; b.disabled=false;
+  document.getElementById("authModal").classList.add("open");
+  const sw=document.getElementById("toReg")||document.getElementById("toLogin");
+  if(sw) sw.onclick=()=>openAuth(mode==="login"?"register":"login");
+  document.getElementById("authEmail").focus();
+}
+function showVerifyNotice(email, devUrl){
+  document.getElementById("authTitle").textContent="Check your email";
+  document.getElementById("authSubtitle").textContent=`We sent a verification link to ${email}. Open it, then sign in.`;
+  document.getElementById("authEmail").style.display="none";
+  document.getElementById("authPass").style.display="none";
+  const err=document.getElementById("authErr"); err.textContent=""; err.style.color="";
+  const btn=document.getElementById("authSubmit"); btn.textContent="Resend verification email"; btn.disabled=false;
+  btn.dataset.mode="resend"; btn.dataset.email=email;
+  let sw=`Done? <a id="toLogin">Sign in</a>`;
+  if(devUrl) sw=`<a href="${esc(devUrl)}">Dev: verify now →</a> · `+sw;
+  document.getElementById("authSwitch").innerHTML=sw;
+  const l=document.getElementById("toLogin"); if(l) l.onclick=()=>openAuth("login");
+}
+document.getElementById("authModal").addEventListener("click",e=>{
+  if(e.target.id==="authModal") e.currentTarget.classList.remove("open");
+});
+document.getElementById("authSubmit").onclick=async()=>{
+  const btn=document.getElementById("authSubmit");
+  const errEl=document.getElementById("authErr"); errEl.textContent=""; errEl.style.color="";
+  // resend-verification mode
+  if(btn.dataset.mode==="resend"){
+    btn.disabled=true;
+    const res=await apiMutate("/api/auth/resend-verification","POST",{email:btn.dataset.email});
+    btn.disabled=false; errEl.style.color="var(--muted)";
+    errEl.textContent = res.ok ? "Sent. Check your inbox." : (res.data.error||"Could not resend.");
+    if(res.ok && res.data.dev_verify_url)
+      document.getElementById("authSwitch").innerHTML=`<a href="${esc(res.data.dev_verify_url)}">Dev: verify now →</a>`;
+    return;
+  }
+  const email=document.getElementById("authEmail").value.trim();
+  const password=document.getElementById("authPass").value;
+  btn.disabled=true;
+  const path=AUTH_MODE==="login"?"/api/auth/login":"/api/auth/register";
+  const res=await apiMutate(path,"POST",{email,password});
+  btn.disabled=false;
+  // registration: account created, must verify before logging in
+  if(AUTH_MODE==="register" && res.ok && res.data.status==="verify_email"){
+    showVerifyNotice(email, res.data.dev_verify_url); return;
+  }
+  if(res.ok){
+    document.getElementById("authModal").classList.remove("open");
+    document.getElementById("authPass").value="";
+    await refreshAuth();
+    route("alerts"); document.querySelectorAll(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view==="alerts"));
+    return;
+  }
+  // login blocked because email not verified -> offer resend
+  if(res.status===403 && res.data.code==="unverified"){
+    errEl.textContent="Email not verified.";
+    document.getElementById("authSwitch").innerHTML=`<a id="doResend">Resend verification email</a>`;
+    const dr=document.getElementById("doResend");
+    if(dr) dr.onclick=async()=>{
+      const rr=await apiMutate("/api/auth/resend-verification","POST",{email});
+      errEl.style.color="var(--muted)"; errEl.textContent = rr.ok ? "Sent. Check your inbox." : "Could not resend.";
+      if(rr.ok && rr.data.dev_verify_url)
+        document.getElementById("authSwitch").innerHTML=`<a href="${esc(rr.data.dev_verify_url)}">Dev: verify now →</a>`;
+    };
+    return;
+  }
+  errEl.textContent=res.data.error||"Something went wrong.";
+};
+
+//=================== Confluence (13FLOW) screen ===================
+let CFL_WIN=90;
+const CFL_SAMPLE={"kpis":{"n_signals":6,"n_conviction":4,"n_csuite_clusters":2,"top_ticker":"ATLC","top_score":91.1,"insider_buy_usd":9369600.0,"window_days":90},"signals":[{"ticker":"ATLC","issuer_name":"Atlantic Union Holdings","score":91.1,"quadrant":"conviction","quadrant_label":"Conviction","verdict":"Conviction","rationale":"4 fund(s) accumulating while 3 insider(s) bought $6.5M open-market, incl. 2 C-suite (freshest buy 4d ago).","x":0.5714,"y":0.6,"breakdown":{"institutional":29.4,"insider":28.2,"dollars":16.4,"agreement":17.2,"penalty":-0.0},"institutional":{"funds_accumulating":4,"funds_trimming":0,"net_funds":4,"conviction_funds":2,"avg_weight_pct":4.1,"quarters_ago":0,"total_value_usd":612000000,"fund_labels":["Pershing Square","Baupost","Greenlight","Third Point"]},"insider":{"window_days":90,"n_buyers":3,"n_c_suite_buyers":2,"is_cluster":true,"recent_cluster_n":2,"days_since_last_buy":4,"max_stake_increase_pct":0.2308,"conviction_units":4.315,"buy_value_usd":6459000.0,"recency_weighted_buy_usd":5514714.34,"sell_value_usd":0,"net_value_usd":6459000.0,"buyers":[{"name":"J. Marlin","role":"Chief Executive Officer","is_c_suite":true,"value_usd":4200000.0,"stake_increase_pct":0.2273,"days_since_last_buy":4},{"name":"S. Devereux","role":"Chief Financial Officer","is_c_suite":true,"value_usd":1499400.0,"stake_increase_pct":0.2308,"days_since_last_buy":9},{"name":"R. Holt","role":"Director","is_c_suite":false,"value_usd":759600.0,"stake_increase_pct":0.0687,"days_since_last_buy":21}]}},{"ticker":"VRNS","issuer_name":"Veridian Networks","score":79.4,"quadrant":"conviction","quadrant_label":"Conviction","verdict":"Conviction","rationale":"2 fund(s) accumulating while 1 insider(s) bought $1.1M open-market, incl. 1 C-suite (freshest buy 3d ago).","x":0.4,"y":0.3333,"breakdown":{"institutional":24.6,"insider":22.8,"dollars":14.6,"agreement":17.4,"penalty":-0.0},"institutional":{"funds_accumulating":2,"funds_trimming":0,"net_funds":2,"conviction_funds":2,"avg_weight_pct":3.6,"quarters_ago":0,"total_value_usd":240000000,"fund_labels":["Lone Pine","Viking"]},"insider":{"window_days":90,"n_buyers":1,"n_c_suite_buyers":1,"is_cluster":false,"recent_cluster_n":1,"days_since_last_buy":3,"max_stake_increase_pct":0.3333,"conviction_units":2.079,"buy_value_usd":1120000.0,"recency_weighted_buy_usd":1044996.95,"sell_value_usd":0,"net_value_usd":1120000.0,"buyers":[{"name":"D. Acheson","role":"Chief Executive Officer","is_c_suite":true,"value_usd":1120000.0,"stake_increase_pct":0.3333,"days_since_last_buy":3}]}},{"ticker":"NVCR","issuer_name":"Novacor Therapeutics","score":76.7,"quadrant":"conviction","quadrant_label":"Conviction","verdict":"Conviction","rationale":"2 fund(s) accumulating while 2 insider(s) bought $1.5M open-market, incl. 1 C-suite (freshest buy 12d ago).","x":0.4,"y":0.5,"breakdown":{"institutional":23.5,"insider":22.8,"dollars":14.6,"agreement":15.8,"penalty":-0.0},"institutional":{"funds_accumulating":2,"funds_trimming":0,"net_funds":2,"conviction_funds":1,"avg_weight_pct":2.4,"quarters_ago":0,"total_value_usd":188000000,"fund_labels":["Berkshire","Appaloosa"]},"insider":{"window_days":90,"n_buyers":2,"n_c_suite_buyers":1,"is_cluster":true,"recent_cluster_n":1,"days_since_last_buy":12,"max_stake_increase_pct":0.25,"conviction_units":2.077,"buy_value_usd":1470600.0,"recency_weighted_buy_usd":988104.26,"sell_value_usd":0,"net_value_usd":1470600.0,"buyers":[{"name":"A. Brandt","role":"President & COO","is_c_suite":true,"value_usd":980400.0,"stake_increase_pct":0.25,"days_since_last_buy":12},{"name":"L. Sayed","role":"Director","is_c_suite":false,"value_usd":490200.0,"stake_increase_pct":0.028,"days_since_last_buy":30}]}},{"ticker":"RDFN","issuer_name":"Redfront Realty","score":55.0,"quadrant":"conviction","quadrant_label":"Conviction","verdict":"Conviction","rationale":"3 fund(s) accumulating while 1 insider(s) bought $320K open-market (freshest buy 61d ago).","x":0.4,"y":0.3333,"breakdown":{"institutional":25.9,"insider":6.0,"dollars":11.9,"agreement":11.2,"penalty":-0.0},"institutional":{"funds_accumulating":3,"funds_trimming":1,"net_funds":2,"conviction_funds":1,"avg_weight_pct":1.2,"quarters_ago":0,"total_value_usd":95000000,"fund_labels":["Scion","Tiger Global","Coatue"]},"insider":{"window_days":90,"n_buyers":1,"n_c_suite_buyers":0,"is_cluster":false,"recent_cluster_n":0,"days_since_last_buy":61,"max_stake_increase_pct":0.0465,"conviction_units":0.241,"buy_value_usd":320000.0,"recency_weighted_buy_usd":78172.8,"sell_value_usd":0,"net_value_usd":320000.0,"buyers":[{"name":"M. Osei","role":"Director","is_c_suite":false,"value_usd":320000.0,"stake_increase_pct":0.0465,"days_since_last_buy":61}]}},{"ticker":"CMPO","issuer_name":"Compass Optics","score":14.9,"quadrant":"institutional","quadrant_label":"Institutional bid","verdict":"Institutional bid","rationale":"1 fund(s) accumulating; no insider buying yet.","x":0.25,"y":0.0,"breakdown":{"institutional":14.9,"insider":0.0,"dollars":0.0,"agreement":0.0,"penalty":-0.0},"institutional":{"funds_accumulating":1,"funds_trimming":0,"net_funds":1,"conviction_funds":0,"avg_weight_pct":0.6,"quarters_ago":0,"total_value_usd":42000000,"fund_labels":["Altimeter"]},"insider":{"window_days":90,"n_buyers":0,"n_c_suite_buyers":0,"is_cluster":false,"recent_cluster_n":0,"days_since_last_buy":null,"max_stake_increase_pct":0.0,"conviction_units":0.0,"buy_value_usd":0,"recency_weighted_buy_usd":0.0,"sell_value_usd":0,"net_value_usd":0,"buyers":[]}},{"ticker":"PARA","issuer_name":"Parallax Media","score":0.0,"quadrant":"distribution","quadrant_label":"Distribution","verdict":"Distribution","rationale":"Funds trimming and insiders selling $2.4M — smart money exiting.","x":-0.5,"y":-0.3333,"breakdown":{"institutional":0.0,"insider":0.0,"dollars":0.0,"agreement":0.0,"penalty":-11.7},"institutional":{"funds_accumulating":0,"funds_trimming":3,"net_funds":-3,"conviction_funds":0,"avg_weight_pct":0.0,"quarters_ago":0,"total_value_usd":0.0,"fund_labels":[]},"insider":{"window_days":90,"n_buyers":0,"n_c_suite_buyers":0,"is_cluster":false,"recent_cluster_n":0,"days_since_last_buy":null,"max_stake_increase_pct":0.0,"conviction_units":0.0,"buy_value_usd":0,"recency_weighted_buy_usd":0.0,"sell_value_usd":2400000.0,"net_value_usd":-2400000.0,"buyers":[]}}]};
+
+const CFL_NS="http://www.w3.org/2000/svg";
+const cflEl=(t,a={})=>{const e=document.createElementNS(CFL_NS,t);for(const k in a)e.setAttribute(k,a[k]);return e;};
+function cflUsd(v){v=+v||0;if(v>=1e9)return "$"+(v/1e9).toFixed(1)+"B";if(v>=1e6)return "$"+(v/1e6).toFixed(1)+"M";if(v>=1e3)return "$"+Math.round(v/1e3)+"K";return "$"+Math.round(v);}
+function cflScoreColor(s){const t=Math.max(0,Math.min(1,s/100));const a=[34,58,46],b=[54,211,155];return `rgb(${a.map((c,i)=>Math.round(c+(b[i]-c)*t)).join(",")})`;}
+function cflTipEl(){let t=document.getElementById("cfltip");if(!t){t=document.createElement("div");t.className="cfl-tip";t.id="cfltip";document.body.appendChild(t);}return t;}
+function cflShowTip(e,html){const t=cflTipEl();t.innerHTML=html;t.style.opacity=1;t.style.left=(e.clientX+14)+"px";t.style.top=(e.clientY+14)+"px";}
+function cflHideTip(){const t=document.getElementById("cfltip");if(t)t.style.opacity=0;}
+
+function cflRenderKPIs(k){
+  document.getElementById("cfl-kpis").innerHTML=[
+    ["Confluence signals",k.n_signals,`${k.n_conviction} in the conviction zone`,false],
+    ["Top signal",esc(k.top_ticker||"—"),`score ${k.top_score!=null?k.top_score:"—"} / 100`,true],
+    ["C-suite clusters",k.n_csuite_clusters,"≥2 insiders incl. a C-level buyer",false],
+    ["Insider $ bought",cflUsd(k.insider_buy_usd),`open-market · last ${k.window_days}d`,false],
+  ].map(([lab,val,sub,isTk])=>`<div class="kpi"><div class="lab">${esc(lab)}</div>
+    <div class="val">${isTk?val:esc(val)}</div><div class="sub">${esc(sub)}</div></div>`).join("");
+}
+
+function cflRenderQuad(signals){
+  const svg=document.getElementById("cfl-quad"); svg.innerHTML="";
+  const W=560,H=420,pad={l:42,r:24,t:24,b:40};
+  const x0=pad.l,x1=W-pad.r,y0=H-pad.b,y1=pad.t,cx=(x0+x1)/2,cy=(y0+y1)/2;
+  const X=v=>cx+(v*(x1-x0)/2),Y=v=>cy-(v*(y0-y1)/2);
+  svg.appendChild(cflEl("rect",{x:cx,y:y1,width:x1-cx,height:cy-y1,fill:"var(--accent-soft)",opacity:".6",rx:6}));
+  svg.appendChild(cflEl("line",{x1:x0,y1:cy,x2:x1,y2:cy,stroke:"var(--line)","stroke-width":1.2}));
+  svg.appendChild(cflEl("line",{x1:cx,y1:y1,x2:cx,y2:y0,stroke:"var(--line)","stroke-width":1.2}));
+  const qlabs=[["Conviction",x1-6,y1+16,"end","var(--accent-2)"],
+    ["Insider only",cx-8,y1+16,"end","#e0a534"],
+    ["Institutions only",x1-6,y0-8,"end","#19c187"],
+    ["Distribution",x0+2,y0-8,"start","var(--down)"]];
+  qlabs.forEach(([t,x,y,an,c])=>{const tx=cflEl("text",{x,y,"text-anchor":an,class:"quad-lab",fill:c,opacity:.8});tx.textContent=t;svg.appendChild(tx);});
+  const xa=cflEl("text",{x:x1,y:cy+18,"text-anchor":"end",class:"axis-lab"});xa.textContent="funds accumulating →";svg.appendChild(xa);
+  const ya=cflEl("text",{x:cx+6,y:y1-8,"text-anchor":"start",class:"axis-lab"});ya.textContent="↑ insiders buying";svg.appendChild(ya);
+  // The map is a qualitative overview — plot the strongest signals only; the table below lists all.
+  const CAP=60;
+  const plotted=signals.slice().sort((a,b)=>b.score-a.score).slice(0,CAP);
+  const maxV=Math.max(1,...plotted.map(s=>s.insider.buy_value_usd));
+  const r=v=>6+Math.sqrt((v||0)/maxV)*20;
+  const clampX=v=>Math.max(x0+5,Math.min(x1-5,v)),clampY=v=>Math.max(y1+5,Math.min(y0-5,v));
+  const seen={};
+  plotted.slice().sort((a,b)=>a.score-b.score).forEach((s,i)=>{
+    const key=s.x.toFixed(2)+","+s.y.toFixed(2);
+    const n=(seen[key]=(seen[key]||0)+1)-1;
+    // golden-angle phyllotaxis: co-located points spread into a small bounded cluster
+    // instead of a runaway diagonal that escapes the chart.
+    const ang=n*2.39996,off=n?5+2.4*Math.sqrt(n):0,rad=r(s.insider.buy_value_usd);
+    const px=clampX(X(s.x)+Math.cos(ang)*off),py=clampY(Y(s.y)+Math.sin(ang)*off);
+    const g=cflEl("g",{class:"bub"});g.style.animation=`fadeup .5s ${Math.min(i,40)*30}ms both`;
+    g.appendChild(cflEl("circle",{cx:px,cy:py,r:rad,fill:cflScoreColor(s.score),stroke:"var(--bg)","stroke-width":2,opacity:s.score<5?.5:.92}));
+    if(rad>14){const t=cflEl("text",{x:px,y:py+3.6,class:"bub-lab"});t.textContent=s.ticker;g.appendChild(t);}
+    g.addEventListener("mousemove",e=>cflShowTip(e,`<b>${esc(s.ticker)}</b> · score ${s.score}<br>${esc(s.quadrant_label)} · ${cflUsd(s.insider.buy_value_usd)} insider buys<br>${s.institutional.funds_accumulating} fund(s) in`));
+    g.addEventListener("mouseleave",cflHideTip);
+    svg.appendChild(g);
+  });
+  if(signals.length>CAP){
+    const note=cflEl("text",{x:x0,y:y1+14,class:"axis-lab",fill:"var(--faint)"});
+    note.textContent=`top ${CAP} of ${signals.length} — full list below`;
+    svg.appendChild(note);
+  }
+}
+
+const CFL_ICON_INST='<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="#19c187" stroke-width="2"><path d="M3 21h18M5 21V8l7-4 7 4v13M9 21v-6h6v6"/></svg>';
+const CFL_ICON_INS='<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="#e0a534" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>';
+
+function cflGauge(score){
+  const R=26,C=2*Math.PI*R,off=C*(1-Math.max(0,Math.min(100,score))/100);
+  return `<svg width="62" height="62" viewBox="0 0 62 62" style="margin-bottom:2px">
+    <circle cx="31" cy="31" r="${R}" fill="none" stroke="var(--line-soft)" stroke-width="6"/>
+    <circle class="gauge-arc" cx="31" cy="31" r="${R}" fill="none" stroke="${cflScoreColor(Math.max(40,score))}"
+      stroke-width="6" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C}"
+      data-off="${off}" transform="rotate(-90 31 31)" style="transition:stroke-dashoffset 1.1s cubic-bezier(.2,.7,.2,1)"/>
+  </svg>`;
+}
+
+let _cflSignals=[], _cflShown=0;
+const CFL_PAGE=50;
+
+function cflSigCard(s,i){
+  const ins=s.insider,inst=s.institutional;
+  const fundChips=inst.fund_labels.map(f=>`<span class="cchip fund">${esc(f)}</span>`).join("")
+    || `<span class="cchip">${inst.funds_accumulating?inst.funds_accumulating+" fund(s)":"no funds in"}</span>`;
+  const buyerChips=ins.buyers.length
+    ? ins.buyers.map(b=>{const stk=b.stake_increase_pct>0?` · <span class="stk">+${Math.round(b.stake_increase_pct*100)}%</span>`:"";
+        return `<span class="cchip ${b.is_c_suite?"cs":""}">${esc(b.role)} · ${cflUsd(b.value_usd)}${stk}</span>`;}).join("")
+    : `<span class="cchip">no insider buys</span>`;
+  const freshTag=(ins.days_since_last_buy!=null)
+    ? `<span class="fresh">⚡ ${ins.days_since_last_buy}d ago${ins.recent_cluster_n>1?" · "+ins.recent_cluster_n+" in 14d":""}</span>`:"";
+  const bd=s.breakdown||{};
+  const posSum=(bd.institutional||0)+(bd.insider||0)+(bd.dollars||0)+(bd.agreement||0);
+  const seg=v=>posSum>0?(100*(v||0)/posSum)+"%":"0%";
+  const bdBar=`<div class="bd">
+      <i class="bd-inst" style="width:${seg(bd.institutional)}"></i><i class="bd-ins" style="width:${seg(bd.insider)}"></i>
+      <i class="bd-dol" style="width:${seg(bd.dollars)}"></i><i class="bd-agr" style="width:${seg(bd.agreement)}"></i></div>
+    <div class="bd-leg">
+      <span><b class="bd-inst"></b>Institutions ${(bd.institutional||0).toFixed(0)}</span>
+      <span><b class="bd-ins"></b>Insiders ${(bd.insider||0).toFixed(0)}</span>
+      <span><b class="bd-dol"></b>Dollars ${(bd.dollars||0).toFixed(0)}</span>
+      <span><b class="bd-agr"></b>Agreement ${(bd.agreement||0).toFixed(0)}</span>
+      ${bd.penalty<0?`<span class="pen">Penalty ${bd.penalty.toFixed(0)}</span>`:""}</div>`;
+  const totFund=Math.max(1,inst.funds_accumulating+inst.funds_trimming);
+  const card=document.createElement("div");
+  card.className="sig";card.style.animationDelay=(Math.min(i,12)*45)+"ms";
+  card.innerHTML=`
+    <div class="rank"><span class="ctk">${esc(s.ticker)}</span><span class="n">#${i+1}</span></div>
+    <div class="body">
+      <div class="top">
+        <span class="cnm">${esc(s.issuer_name||s.ticker)}</span>
+        <span class="qchip q-${esc(s.quadrant)}">${esc(s.quadrant_label)}</span>
+      </div>
+      <div class="rat">${esc(s.rationale)}</div>
+      ${bdBar}
+      <div class="rails">
+        <div class="crail">
+          <div class="rh">${CFL_ICON_INST}13F · Institutions</div>
+          <div class="big">${inst.funds_accumulating}<small> fund(s) accumulating</small></div>
+          <div class="accbar" title="${inst.funds_accumulating} adding / ${inst.funds_trimming} trimming">
+            <div class="add" style="width:${100*inst.funds_accumulating/totFund}%"></div>
+            <div class="trim" style="width:${100*inst.funds_trimming/totFund}%"></div>
+          </div>
+          <div class="cchips">${fundChips}</div>
+        </div>
+        <div class="crail">
+          <div class="rh">${CFL_ICON_INS}Form 4 · Insiders ${freshTag}</div>
+          <div class="big">${cflUsd(ins.buy_value_usd)}<small> · ${ins.n_buyers} buyer(s)${ins.is_cluster?" · cluster":""}</small></div>
+          <div class="cchips">${buyerChips}</div>
+        </div>
+      </div>
+    </div>
+    <div class="gauge-cell">${cflGauge(s.score)}
+      <span class="scoren" style="color:${cflScoreColor(Math.max(40,s.score))}">${s.score}</span>
+      <span class="scorel">Confluence</span>
+    </div>`;
+  return card;
+}
+
+function cflRenderMore(){
+  const wrap=document.getElementById("cfl-signals"),btn=document.getElementById("cfl-more");
+  const end=Math.min(_cflShown+CFL_PAGE,_cflSignals.length);
+  for(let i=_cflShown;i<end;i++) wrap.appendChild(cflSigCard(_cflSignals[i],i));
+  _cflShown=end;
+  const left=_cflSignals.length-_cflShown;
+  document.getElementById("cfl-rankhint").textContent=`showing ${_cflShown} of ${_cflSignals.length} · sorted by confluence score`;
+  if(btn){ btn.style.display=left>0?"block":"none"; btn.textContent=`Show ${Math.min(CFL_PAGE,left)} more (${left} left)`; }
+  requestAnimationFrame(()=>wrap.querySelectorAll(".gauge-arc").forEach(a=>{a.style.strokeDashoffset=a.dataset.off;}));
+}
+
+function cflRenderSignals(signals){
+  const wrap=document.getElementById("cfl-signals");wrap.innerHTML="";
+  _cflSignals=signals;_cflShown=0;
+  let btn=document.getElementById("cfl-more");
+  if(!btn){
+    btn=document.createElement("button");btn.id="cfl-more";
+    btn.style.cssText="margin:16px auto 4px;display:block;padding:10px 22px;font-family:var(--sans);font-weight:600;font-size:13px;color:var(--text);background:var(--panel-2);border:1px solid var(--line);border-radius:999px;cursor:pointer";
+    btn.onclick=cflRenderMore;
+    wrap.parentNode.appendChild(btn);
+  }
+  cflRenderMore();
+}
+
+async function cflLoad(){
+  const data=await api("/api/signals/confluence?window="+CFL_WIN);
+  cflRenderKPIs(data.kpis); cflRenderQuad(data.signals); cflRenderSignals(data.signals);
+}
+
+async function vConfluence(){
+  cflHideTip();
+  V.innerHTML=`<div class="cfl">
+    <p class="view-title">Where 13F superinvestors are accumulating <b>and</b> insiders are buying open-market — ranked by a transparent confluence score.</p>
+    <div class="pillrow" id="cfl-pills">
+      <button class="pill" data-w="30">30D</button>
+      <button class="pill on" data-w="90">90D</button>
+      <button class="pill" data-w="180">180D</button>
+    </div>
+    <div class="kpis" id="cfl-kpis"></div>
+    <div class="quad-card">
+      <div class="section-h"><h3>Confluence map</h3><span class="hint">institutional accumulation × insider buying · bubble = insider $ · color = score</span></div>
+      <div class="quad-wrap">
+        <svg id="cfl-quad" viewBox="0 0 560 420" aria-label="Confluence quadrant scatter"></svg>
+        <div class="legend">
+          <h4>How to read it</h4>
+          <div class="lrow"><span class="sw" style="background:var(--accent-2)"></span>Top-right = both sides buying</div>
+          <div class="lrow"><span class="sw" style="background:#19c187"></span>Funds in, insiders quiet</div>
+          <div class="lrow"><span class="sw" style="background:#e0a534"></span>Insiders in, funds quiet</div>
+          <div class="lrow"><span class="sw" style="background:var(--down)"></span>Both exiting</div>
+          <div class="note">Open-market Form 4 buys only (P/S). A purchase that materially grows an insider's stake, is recent, or clusters with other buyers counts for more.</div>
+        </div>
+      </div>
+    </div>
+    <div class="section-h"><h3>Ranked signals</h3><span class="hint" id="cfl-rankhint"></span></div>
+    <div class="signals" id="cfl-signals"></div>
+    <p class="muted" style="margin-top:22px;font-size:12px;color:var(--faint);line-height:1.6">A screen, not advice — it weights two public, high-quality signals (13F filings and Form 4 insider transactions) and ranks where they coincide.</p>
+  </div>`;
+  document.getElementById("cfl-pills").addEventListener("click",e=>{
+    const b=e.target.closest(".pill"); if(!b)return;
+    document.querySelectorAll("#cfl-pills .pill").forEach(p=>p.classList.toggle("on",p===b));
+    CFL_WIN=+b.dataset.w; cflLoad();
+  });
+  await cflLoad();
+}
+
+//=================== sample data (renders when no API is reachable) ===================
+function sampleFor(path){
+  if(path.startsWith("/api/funds")) return SAMPLE.funds;
+  if(path.startsWith("/api/fund/")) return SAMPLE.detail[path.split("/")[3].split("?")[0]]||SAMPLE.detail._default;
+  if(path.startsWith("/api/consensus/buys")) return SAMPLE.buys;
+  if(path.startsWith("/api/consensus/holdings")) return SAMPLE.holds;
+  if(path.startsWith("/api/compare")) return SAMPLE.compare;
+  if(path.startsWith("/api/subscriptions")) return SAMPLE.subs;
+  if(path.startsWith("/api/alerts/preview/")) return SAMPLE.alerts[path.split("/")[4]]||{error:"none"};
+  if(path.startsWith("/api/coverage")) return SAMPLE.coverage;
+  if(path.startsWith("/api/signals/confluence")) return CFL_SAMPLE;
+  return [];
+}
+const QS=["2023-09-30","2023-12-31","2024-03-31","2024-06-30"];
+function series(vals){return QS.map((q,i)=>({q,weight:vals[i],aum:vals[i],value:vals[i]}));}
+const SAMPLE={
+ funds:[
+  {cik:"0001067983",label:"Berkshire Hathaway",manager:"Warren Buffett",latest_quarter:"2024-06-30",n_quarters:4,aum:279000000000,n_positions:41,aum_series:series([341e9,347e9,332e9,279e9])},
+  {cik:"0001336528",label:"Pershing Square",manager:"Bill Ackman",latest_quarter:"2024-06-30",n_quarters:4,aum:13200000000,n_positions:9,aum_series:series([10.9e9,11.4e9,12.1e9,13.2e9])},
+  {cik:"0001649339",label:"Scion Asset Mgmt",manager:"Michael Burry",latest_quarter:"2024-06-30",n_quarters:4,aum:178000000,n_positions:11,aum_series:series([107e6,94e6,52e6,178e6])},
+  {cik:"0001061768",label:"Baupost Group",manager:"Seth Klarman",latest_quarter:"2024-06-30",n_quarters:4,aum:4100000000,n_positions:28,aum_series:series([4.6e9,4.3e9,4.0e9,4.1e9])},
+  {cik:"0001709323",label:"Himalaya Capital",manager:"Li Lu",latest_quarter:"2024-06-30",n_quarters:4,aum:2600000000,n_positions:6,aum_series:series([2.4e9,2.5e9,2.4e9,2.6e9])},
+ ],
+ buys:{date:"2024-06-30",rows:[
+  {cusip:"67066G104",ticker:"NVDA",issuer:"NVIDIA CORP",n_funds:3,funds:["Pershing Square","Scion Asset Mgmt","Baupost Group"],moves:["NEW","NEW","ADD"]},
+  {cusip:"02079K305",ticker:"GOOGL",issuer:"ALPHABET INC",n_funds:3,funds:["Pershing Square","Baupost Group","Himalaya Capital"],moves:["ADD","NEW","ADD"]},
+  {cusip:"11135F101",ticker:"AVGO",issuer:"BROADCOM INC",n_funds:2,funds:["Baupost Group","Scion Asset Mgmt"],moves:["NEW","NEW"]},
+  {cusip:"023135106",ticker:"AMZN",issuer:"AMAZON.COM INC",n_funds:2,funds:["Pershing Square","Himalaya Capital"],moves:["ADD","ADD"]},
+  {cusip:"57636Q104",ticker:"MA",issuer:"MASTERCARD INC",n_funds:2,funds:["Berkshire Hathaway","Baupost Group"],moves:["ADD","NEW"]},
+ ]},
+ holds:{date:"2024-06-30",rows:[
+  {cusip:"037833100",ticker:"AAPL",issuer:"APPLE INC",n_funds:3,total_value:86400000000},
+  {cusip:"02079K305",ticker:"GOOGL",issuer:"ALPHABET INC",n_funds:3,total_value:4900000000},
+  {cusip:"67066G104",ticker:"NVDA",issuer:"NVIDIA CORP",n_funds:3,total_value:1200000000},
+  {cusip:"30303M102",ticker:"META",issuer:"META PLATFORMS",n_funds:2,total_value:2100000000},
+  {cusip:"023135106",ticker:"AMZN",issuer:"AMAZON.COM INC",n_funds:2,total_value:3300000000},
+  {cusip:"57636Q104",ticker:"MA",issuer:"MASTERCARD INC",n_funds:2,total_value:1600000000},
+ ]},
+ compare:{funds:[
+   {cik:"0001067983",label:"Berkshire Hathaway",report_date:"2024-06-30"},
+   {cik:"0001336528",label:"Pershing Square",report_date:"2024-06-30"},
+   {cik:"0001649339",label:"Scion Asset Mgmt",report_date:"2024-06-30"},
+   {cik:"0001061768",label:"Baupost Group",report_date:"2024-06-30"}],
+  rows:[
+   {cusip:"037833100",ticker:"AAPL",issuer:"APPLE INC",n_funds:2,cells:{"0001067983":{weight:0.30,value:84e9},"0001649339":{weight:0.18,value:32e6}}},
+   {cusip:"02079K305",ticker:"GOOGL",issuer:"ALPHABET INC",n_funds:3,cells:{"0001336528":{weight:0.14,value:1.8e9},"0001649339":{weight:0.22,value:39e6},"0001061768":{weight:0.09,value:0.37e9}}},
+   {cusip:"67066G104",ticker:"NVDA",issuer:"NVIDIA CORP",n_funds:3,cells:{"0001336528":{weight:0.07,value:0.9e9},"0001649339":{weight:0.16,value:28e6},"0001061768":{weight:0.05,value:0.2e9}}},
+   {cusip:"023135106",ticker:"AMZN",issuer:"AMAZON.COM INC",n_funds:2,cells:{"0001336528":{weight:0.11,value:1.45e9},"0001709323":{weight:0.0,value:0}}},
+   {cusip:"191216100",ticker:"KO",issuer:"COCA-COLA CO",n_funds:1,cells:{"0001067983":{weight:0.085,value:24e9}}},
+   {cusip:"025816109",ticker:"AXP",issuer:"AMERICAN EXPRESS",n_funds:1,cells:{"0001067983":{weight:0.155,value:43e9}}},
+   {cusip:"11135F101",ticker:"AVGO",issuer:"BROADCOM INC",n_funds:1,cells:{"0001061768":{weight:0.07,value:0.29e9}}},
+  ]},
+ subs:[
+  {id:1,fund_label:"Berkshire Hathaway",channel:"email",target:"me@fund.io"},
+  {id:2,fund_label:"Scion Asset Mgmt",channel:"webhook",target:"hooks.slack.com/…"},
+  {id:3,fund_label:"Pershing Square",channel:"email",target:"me@fund.io"},
+ ],
+ coverage:{coverage:{overall_value_share:0.978,value_unresolved:1.9e9,per_fund:[]},tail:[]},
+ detail:{
+  "0001067983":{cik:"0001067983",label:"Berkshire Hathaway",manager:"Warren Buffett",report_date:"2024-06-30",prev_report_date:"2024-03-31",form:"13F-HR",aum:279000000000,n_positions:41,quarters:QS,
+    valuation:{basis_date:"2024-06-28",current_total:298000000000,pnl_abs:19000000000,pnl_pct:0.068},
+    positions:[
+     {cusip:"037833100",ticker:"AAPL",issuer:"Apple Inc.",put_call:"",shares:4e8,value:84200000000,weight:0.302,current_value:90e9,current_weight:0.31,pnl_pct:0.07,reconcile:1.0,status:"priced"},
+     {cusip:"025816109",ticker:"AXP",issuer:"American Express",put_call:"",shares:1.5e8,value:43000000000,weight:0.154,current_value:45e9,current_weight:0.155,pnl_pct:0.05,reconcile:0.99,status:"priced"},
+     {cusip:"060505104",ticker:"BAC",issuer:"Bank of America",put_call:"",shares:1.03e9,value:41100000000,weight:0.147,current_value:38e9,current_weight:0.131,pnl_pct:-0.075,reconcile:1.01,status:"priced"},
+     {cusip:"191216100",ticker:"KO",issuer:"Coca-Cola Co",put_call:"",shares:4e8,value:25400000000,weight:0.091,current_value:26e9,current_weight:0.09,pnl_pct:0.02,reconcile:1.0,status:"priced"},
+     {cusip:"166764100",ticker:"CVX",issuer:"Chevron Corp",put_call:"",shares:1.18e8,value:18500000000,weight:0.066,current_value:18e9,current_weight:0.062,pnl_pct:-0.03,reconcile:0.98,status:"priced"},
+     {cusip:"717081103",ticker:"PG",issuer:"Procter & Gamble",put_call:"",shares:3.15e6,value:520000000,weight:0.0019,current_value:540e6,current_weight:0.0019,pnl_pct:0.04,reconcile:2.3,status:"priced"},
+    ],
+    moves:{NEW:[{ticker:"CB",issuer:"Chubb Ltd",put_call:"",value:6700000000,pct:null}],
+           EXIT:[{ticker:"SNOW",issuer:"Snowflake Inc",put_call:"",value:1100000000,pct:null}],
+           ADD:[{ticker:"OXY",issuer:"Occidental Petroleum",put_call:"",value:16100000000,pct:0.29}],
+           TRIM:[{ticker:"AAPL",issuer:"Apple Inc.",put_call:"",value:84200000000,pct:-0.49},{ticker:"BAC",issuer:"Bank of America",put_call:"",value:41100000000,pct:-0.085}]},
+    conviction:{
+     "037833100":{ticker:"AAPL",issuer:"Apple Inc.",series:series([0.476,0.503,0.501,0.302])},
+     "025816109":{ticker:"AXP",issuer:"American Express",series:series([0.075,0.082,0.121,0.154])},
+     "060505104":{ticker:"BAC",issuer:"Bank of America",series:series([0.092,0.097,0.103,0.147])},
+     "166764100":{ticker:"CVX",issuer:"Chevron Corp",series:series([0.058,0.052,0.061,0.066])},
+    }},
+  _default:{label:"Fund",manager:"",report_date:"2024-06-30",aum:0,n_positions:0,positions:[],moves:{NEW:[],EXIT:[],ADD:[],TRIM:[]},conviction:{}},
+  "0001336528":{cik:"0001336528",label:"Pershing Square",manager:"Bill Ackman",report_date:"2024-06-30",prev_report_date:"2024-03-31",form:"13F-HR",aum:13200000000,n_positions:9,quarters:QS,
+    valuation:{basis_date:"2024-06-28",current_total:13900000000,pnl_abs:700000000,pnl_pct:0.053},
+    positions:[
+     {cusip:"092769106",ticker:"CMG",issuer:"Chipotle Mexican Grill",put_call:"",shares:2.8e7,value:2700000000,weight:0.205,current_value:2.9e9,current_weight:0.21,pnl_pct:0.07,reconcile:1.0,status:"priced"},
+     {cusip:"438516106",ticker:"HLT",issuer:"Hilton Worldwide",put_call:"",shares:9.4e6,value:2050000000,weight:0.155,current_value:2.15e9,current_weight:0.155,pnl_pct:0.05,reconcile:1.0,status:"priced"},
+     {cusip:"345370860",ticker:"QSR",issuer:"Restaurant Brands Intl",put_call:"",shares:2.3e7,value:1650000000,weight:0.125,current_value:1.6e9,current_weight:0.115,pnl_pct:-0.03,reconcile:0.99,status:"priced"},
+     {cusip:"02079K305",ticker:"GOOGL",issuer:"Alphabet Inc",put_call:"",shares:9.4e6,value:1800000000,weight:0.136,current_value:1.95e9,current_weight:0.14,pnl_pct:0.08,reconcile:1.0,status:"priced"},
+     {cusip:"023135106",ticker:"AMZN",issuer:"Amazon.com Inc",put_call:"",shares:7.2e6,value:1450000000,weight:0.11,current_value:1.5e9,current_weight:0.108,pnl_pct:0.035,reconcile:1.0,status:"priced"},
+    ],
+    moves:{NEW:[{ticker:"NKE",issuer:"Nike Inc",put_call:"",value:1400000000,pct:null}],
+           EXIT:[],
+           ADD:[{ticker:"GOOGL",issuer:"Alphabet Inc",put_call:"",value:1800000000,pct:0.11},{ticker:"AMZN",issuer:"Amazon.com Inc",put_call:"",value:1450000000,pct:0.08}],
+           TRIM:[{ticker:"CMG",issuer:"Chipotle Mexican Grill",put_call:"",value:2700000000,pct:-0.06}]},
+    conviction:{
+     "092769106":{ticker:"CMG",issuer:"Chipotle Mexican Grill",series:series([0.18,0.19,0.215,0.205])},
+     "02079K305":{ticker:"GOOGL",issuer:"Alphabet Inc",series:series([0.10,0.11,0.122,0.136])},
+     "023135106":{ticker:"AMZN",issuer:"Amazon.com Inc",series:series([0.0,0.0,0.10,0.11])},
+    }},
+  "0001649339":{cik:"0001649339",label:"Scion Asset Mgmt",manager:"Michael Burry",report_date:"2024-06-30",prev_report_date:"2024-03-31",form:"13F-HR",aum:178000000,n_positions:11,quarters:QS,
+    valuation:{basis_date:"2024-06-28",current_total:165000000,pnl_abs:-13000000,pnl_pct:-0.073},
+    positions:[
+     {cusip:"01609W102",ticker:"BABA",issuer:"Alibaba Group ADR",put_call:"",shares:1.55e5,value:11000000,weight:0.062,current_value:9.8e6,current_weight:0.059,pnl_pct:-0.11,reconcile:1.0,status:"priced"},
+     {cusip:"40434L105",ticker:"HCA",issuer:"HCA Healthcare",put_call:"",shares:4.1e4,value:13200000,weight:0.074,current_value:13.9e6,current_weight:0.084,pnl_pct:0.05,reconcile:1.0,status:"priced"},
+     {cusip:"67066G104",ticker:"NVDA",issuer:"NVIDIA Corp",put_call:"P",shares:1.0e5,value:28000000,weight:0.157,current_value:24e6,current_weight:0.145,pnl_pct:-0.14,reconcile:1.0,status:"priced"},
+     {cusip:"02079K305",ticker:"GOOGL",issuer:"Alphabet Inc",put_call:"",shares:2.1e5,value:39000000,weight:0.219,current_value:42e6,current_weight:0.25,pnl_pct:0.08,reconcile:1.0,status:"priced"},
+     {cusip:"500754106",ticker:"KSPI",issuer:"Kaspi.kz ADR",put_call:"",shares:1.2e5,value:13500000,weight:0.076,current_value:11e6,current_weight:0.066,pnl_pct:-0.18,reconcile:0.97,status:"priced"},
+    ],
+    moves:{NEW:[{ticker:"NVDA",issuer:"NVIDIA Corp",put_call:"",value:28000000,pct:null},{ticker:"BABA",issuer:"Alibaba Group ADR",put_call:"",value:11000000,pct:null},{ticker:"KSPI",issuer:"Kaspi.kz ADR",put_call:"",value:13500000,pct:null}],
+           EXIT:[{ticker:"BKNG",issuer:"Booking Holdings",put_call:"",value:9000000,pct:null},{ticker:"CI",issuer:"Cigna Group",put_call:"",value:7800000,pct:null}],
+           ADD:[{ticker:"HCA",issuer:"HCA Healthcare",put_call:"",value:13200000,pct:0.32}],
+           TRIM:[{ticker:"GOOGL",issuer:"Alphabet Inc",put_call:"",value:39000000,pct:-0.12}]},
+    conviction:{
+     "02079K305":{ticker:"GOOGL",issuer:"Alphabet Inc",series:series([0.12,0.15,0.20,0.219])},
+     "67066G104":{ticker:"NVDA",issuer:"NVIDIA Corp",series:series([0.0,0.0,0.0,0.157])},
+     "40434L105":{ticker:"HCA",issuer:"HCA Healthcare",series:series([0.04,0.05,0.06,0.074])},
+    }}
+ },
+ alerts:{
+  "0001067983":{fund_label:"Berkshire Hathaway",manager:"Warren Buffett",report_date:"2024-06-30",counts:{NEW:1,EXIT:1,ADD:1,TRIM:2},moves:[
+    {move:"NEW",ticker:"CB",issuer:"Chubb Ltd",detail:"NEW $6.7B"},
+    {move:"EXIT",ticker:"SNOW",issuer:"Snowflake Inc",detail:"EXIT $1.1B"},
+    {move:"ADD",ticker:"OXY",issuer:"Occidental Petroleum",detail:"+29% shares"},
+    {move:"TRIM",ticker:"AAPL",issuer:"Apple Inc.",detail:"-49% shares"}]},
+  "0001336528":{fund_label:"Pershing Square",manager:"Bill Ackman",report_date:"2024-06-30",counts:{NEW:1,EXIT:0,ADD:2,TRIM:1},moves:[
+    {move:"NEW",ticker:"NKE",issuer:"Nike Inc",detail:"NEW $1.4B"},
+    {move:"ADD",ticker:"GOOGL",issuer:"Alphabet Inc",detail:"+11% shares"}]},
+  "0001649339":{fund_label:"Scion Asset Mgmt",manager:"Michael Burry",report_date:"2024-06-30",counts:{NEW:3,EXIT:4,ADD:1,TRIM:2},moves:[
+    {move:"NEW",ticker:"BABA",issuer:"Alibaba Group",detail:"NEW $9.0M"},
+    {move:"NEW",ticker:"JD",issuer:"JD.com Inc",detail:"NEW $7.4M"},
+    {move:"EXIT",ticker:"BKNG",issuer:"Booking Holdings",detail:"EXIT $4.2M"}]},
+  "0001061768":{fund_label:"Baupost Group",manager:"Seth Klarman",report_date:"2024-06-30",counts:{NEW:2,EXIT:1,ADD:3,TRIM:2},moves:[
+    {move:"NEW",ticker:"AVGO",issuer:"Broadcom Inc",detail:"NEW $410M"},
+    {move:"ADD",ticker:"GOOGL",issuer:"Alphabet Inc",detail:"+18% shares"}]},
+ },
+};
+
+boot();
+</script>
+</body>
+</html>

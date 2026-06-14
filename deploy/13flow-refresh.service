@@ -1,0 +1,18 @@
+# /etc/systemd/system/13flow-refresh.service  (paired with 13flow-refresh.timer)
+# Runs the EDGAR ingestion as the ingest user. Enable with:
+#   systemctl enable --now 13flow-refresh.timer
+[Unit]
+Description=13FLOW data refresh (SEC EDGAR ingest)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=flowingest
+Group=flowapp
+EnvironmentFile=/etc/13flow/13flow.env
+ExecStart=/opt/13flow/deploy/refresh-data.sh
+# Ingestion needs to write the DB dir.
+ReadWritePaths=/var/lib/13flow
+NoNewPrivileges=yes
+PrivateTmp=yes

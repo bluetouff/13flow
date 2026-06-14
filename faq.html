@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="fr">
+<!-- 13FLOW · FAQ. Same dark editorial theme as the dashboard: emerald = institutions,
+     amber = insiders, converging like the Confluence Score. Self-contained. -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>13FLOW · FAQ</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M7 15C22 15 22 32 37 32' stroke='%2319c187' stroke-width='7.5' fill='none' stroke-linecap='round'/%3E%3Cpath d='M7 49C22 49 22 32 37 32' stroke='%23e0a534' stroke-width='7.5' fill='none' stroke-linecap='round'/%3E%3Cpath d='M34 32 57 32' stroke='%2319c187' stroke-width='8.5' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Hanken+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* Tokens identical to the dashboard so the two surfaces are one product. */
+  :root{
+    --bg:#0c1611; --bg-2:#0f1c16; --surface:#13241c; --surface-2:#16291f;
+    --ink:#eaf5ef; --ink-2:#a9c4b7; --ink-3:#6f897d; --line:#1f3329; --line-2:#274033;
+    --emerald:#19c187; --emerald-deep:#0c9b6a; --amber:#e0a534; --amber-deep:#c2891b;
+    --radius:18px; --mono:'Geist Mono',ui-monospace,monospace;
+    --disp:'Bricolage Grotesque',system-ui,sans-serif; --body:'Hanken Grotesk',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box} html,body{margin:0}
+  body{font-family:var(--body);color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased;line-height:1.55;
+    background-image:radial-gradient(50rem 34rem at 82% -6%,rgba(25,193,135,.14),transparent 60%),
+      radial-gradient(46rem 32rem at 4% 4%,rgba(224,165,52,.10),transparent 58%);background-attachment:fixed}
+  .wrap{max-width:920px;margin:0 auto;padding:22px 26px 90px}
+  a{color:var(--emerald)}
+  nav{display:flex;align-items:center;gap:16px;margin-bottom:34px}
+  .logo{display:flex;align-items:center;gap:11px;text-decoration:none;color:var(--ink)}
+  .logo .wm{font-family:var(--disp);font-weight:800;font-size:22px;letter-spacing:-.02em}
+  .logo .wm .fl{color:var(--emerald)} .logo .wm .ow{color:var(--amber)}
+  .logo svg{filter:drop-shadow(0 2px 9px rgba(25,193,135,.28))}
+  .navlinks{margin-left:auto;display:flex;gap:5px;align-items:center}
+  .navlinks a{font-size:13.5px;font-weight:600;color:var(--ink-2);text-decoration:none;padding:8px 14px;border-radius:999px;transition:.16s}
+  .navlinks a:hover{color:var(--ink);background:var(--surface)}
+  .navlinks a.on{background:var(--ink);color:var(--bg)}
+  .hero{margin:6px 2px 30px}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--emerald);margin-bottom:14px}
+  h1{font-family:var(--disp);font-weight:800;letter-spacing:-.025em;font-size:42px;line-height:1.04;margin:0 0 14px}
+  h1 .g{background:linear-gradient(90deg,var(--emerald),var(--amber));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .lede{color:var(--ink-2);font-size:17px;max-width:62ch;margin:0}
+  .pillars{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:30px 0}
+  @media(max-width:720px){.pillars{grid-template-columns:1fr}}
+  .pillar{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px;position:relative;overflow:hidden}
+  .pillar::before{content:"";position:absolute;inset:0 0 auto 0;height:3px}
+  .pillar.inst::before{background:linear-gradient(90deg,var(--emerald),transparent)}
+  .pillar.ins::before{background:linear-gradient(90deg,var(--amber),transparent)}
+  .pillar.conf::before{background:linear-gradient(90deg,var(--emerald),var(--amber))}
+  .pillar .ic{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px}
+  .pillar.inst .ic{color:var(--emerald)} .pillar.ins .ic{color:var(--amber)}
+  .pillar.conf .ic{background:linear-gradient(90deg,var(--emerald),var(--amber));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .pillar h3{font-family:var(--disp);font-size:18px;margin:0 0 7px;font-weight:700}
+  .pillar p{color:var(--ink-2);font-size:14px;margin:0}
+  .marquee{margin:6px 0 32px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;
+    -webkit-mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent);
+    mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent);overflow:hidden}
+  .mtrack{display:flex;gap:38px;width:max-content;animation:scroll 34s linear infinite}
+  .marquee:hover .mtrack{animation-play-state:paused}
+  .mtrack .f{display:flex;flex-direction:column;opacity:.5;transition:.2s;white-space:nowrap}
+  .mtrack .f:hover{opacity:1}
+  .mtrack .f .fn{font-family:var(--disp);font-weight:700;font-size:15px;color:var(--ink)}
+  .mtrack .f .mg{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+  @keyframes scroll{to{transform:translateX(-50%)}}
+  @media(prefers-reduced-motion:reduce){.mtrack{animation:none;flex-wrap:wrap;justify-content:center}}
+  .qs{display:flex;flex-direction:column;gap:10px}
+  details{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;transition:.2s}
+  details[open]{border-color:var(--line-2);background:var(--surface-2)}
+  summary{cursor:pointer;list-style:none;padding:17px 20px;font-family:var(--disp);font-weight:600;font-size:16px;
+    display:flex;align-items:center;gap:12px}
+  summary::-webkit-details-marker{display:none}
+  summary .plus{margin-left:auto;color:var(--emerald);font-size:20px;transition:.2s;font-weight:400}
+  details[open] summary .plus{transform:rotate(45deg)}
+  details .a{padding:0 20px 18px;color:var(--ink-2);font-size:14.5px}
+  details .a b{color:var(--ink)} details .a .em{color:var(--emerald)} details .a .am{color:var(--amber)}
+  .cta{margin:34px 0 0;background:linear-gradient(110deg,var(--surface),var(--bg-2));border:1px solid var(--line-2);
+    border-radius:var(--radius);padding:26px;text-align:center}
+  .cta h3{font-family:var(--disp);font-size:22px;margin:0 0 8px}
+  .cta p{color:var(--ink-2);margin:0 0 18px}
+  .cta a{display:inline-block;background:linear-gradient(90deg,var(--emerald-deep),var(--emerald));color:#04130c;
+    font-weight:700;text-decoration:none;padding:13px 26px;border-radius:999px;font-size:15px}
+  footer{margin-top:34px;color:var(--ink-3);font-size:12px;line-height:1.6;text-align:center}
+</style>
+
+<div class="wrap">
+  <nav>
+    <a class="logo" href="dashboard.html">
+      <svg width="34" height="34" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+        <path d="M7 15 C 22 15, 22 32, 37 32" stroke="#19c187" stroke-width="7.5" stroke-linecap="round"/>
+        <path d="M7 49 C 22 49, 22 32, 37 32" stroke="#e0a534" stroke-width="7.5" stroke-linecap="round"/>
+        <path d="M34 32 L 57 32" stroke="#19c187" stroke-width="8.5" stroke-linecap="round"/>
+        <circle cx="35" cy="32" r="6.4" fill="#0c1611"/><circle cx="35" cy="32" r="2.7" fill="#fff"/>
+      </svg>
+      <span class="wm">13<span class="fl">FL</span><span class="ow">OW</span></span>
+    </a>
+    <div class="navlinks"><a href="dashboard.html">Tableau de bord</a><a href="dashboard.html#confluence">Confluence</a><a href="faq.html" class="on">FAQ</a><a href="mentions-legales.html">Mentions légales</a></div>
+  </nav>
+
+  <div class="hero">
+    <div class="eyebrow">Foire aux questions</div>
+    <h1>Deux signaux. <span class="g">Une conviction.</span></h1>
+    <p class="lede">13FLOW lit les déclarations publiques de la SEC pour vous : ce que les grands fonds
+      accumulent (13F) et ce que les dirigeants achètent de leur poche (Form 4). Le produit, c'est
+      l'endroit où les deux convergent.</p>
+  </div>
+
+  <div class="pillars">
+    <div class="pillar inst"><div class="ic">13F · Institutions</div>
+      <h3>L'argent lourd</h3>
+      <p>Les fonds &gt; 100 M$ déclarent leurs positions chaque trimestre. On reconstitue les portefeuilles
+         des superinvestisseurs et on diffe trimestre sur trimestre : entrées, sorties, renforts, allègements.</p></div>
+    <div class="pillar ins"><div class="ic">Form 4 · Initiés</div>
+      <h3>L'argent qui sait</h3>
+      <p>Les dirigeants déclarent leurs achats sous 2 jours ouvrés. Un achat open-market au prix du marché
+         (code P) est de la conviction en cash personnel — pas une attribution d'options.</p></div>
+    <div class="pillar conf"><div class="ic">Confluence Score</div>
+      <h3>La convergence</h3>
+      <p>Quand plusieurs fonds chargent un titre <em>et</em> que des initiés l'achètent, vous tenez un signal
+         rare et dur à truquer. C'est ce que 13FLOW classe et note de 0 à 100.</p></div>
+  </div>
+
+  <div class="marquee"><div class="mtrack" id="mtrack"></div></div>
+
+  <div class="qs">
+    <details open><summary>C'est quoi, le Confluence Score ?<span class="plus">+</span></summary>
+      <div class="a">Une note de 0 à 100 qui mesure à quel point <b>l'accumulation institutionnelle</b> et
+        <b>l'achat d'initiés</b> coïncident sur un même titre. Elle combine quatre piliers transparents :
+        la <span class="em">largeur institutionnelle</span> (combien de fonds chargent, pondérée par leur conviction),
+        la <span class="am">conviction des initiés</span> (nombre d'acheteurs, séniorité C-suite, taille de l'achat),
+        les <b>dollars</b> engagés, et un <b>bonus d'accord</b> quand les deux pointent dans le même sens.
+        Chaque carte du tableau Confluence montre la décomposition pilier par pilier.</div></details>
+
+    <details><summary>Pourquoi croiser 13F et Form 4 plutôt que l'un ou l'autre ?<span class="plus">+</span></summary>
+      <div class="a">Pris seuls, chacun a un défaut. Le <span class="em">13F</span> est lourd mais lent : il arrive
+        jusqu'à 45 jours après la fin du trimestre. Le <span class="am">Form 4</span> est rapide (2 jours) mais
+        un seul achat peut être anecdotique. Leur <b>intersection</b> filtre le bruit : un titre que les pros
+        accumulent <em>et</em> que les dirigeants achètent en cash, c'est deux populations indépendantes qui
+        misent dans le même sens. C'est précisément le créneau que les outils classiques (Dataroma, WhaleWisdom)
+        ne croisent pas proprement.</div></details>
+
+    <details><summary>La fraîcheur compte-t-elle dans le score ?<span class="plus">+</span></summary>
+      <div class="a">Oui, c'est central. Un achat d'initié d'il y a 3 jours pèse bien plus qu'un d'il y a 80 jours :
+        chaque achat décroît avec une demi-vie de ~30 jours. On valorise aussi la <b>taille de l'achat</b>
+        (un dirigeant qui augmente sa ligne de 30 % &gt; un achat-jeton) et la <b>concentration temporelle</b>
+        (plusieurs initiés dans une même fenêtre de 14 jours = un « cluster », le signal fort).</div></details>
+
+    <details><summary>D'où viennent les données ? Sont-elles fiables ?<span class="plus">+</span></summary>
+      <div class="a">Directement de <b>SEC EDGAR</b> : les 13F-HR et les Form 4, données gouvernementales
+        américaines du <b>domaine public</b>, donc libres et redistribuables. On lit les filings à la source,
+        on n'invente rien. Les CUSIP sont mappés vers des tickers via OpenFIGI. Pas d'agrégateur opaque entre
+        vous et la SEC.</div></details>
+
+    <details><summary>Quelles transactions d'initiés sont comptées ?<span class="plus">+</span></summary>
+      <div class="a">Uniquement l'<b>intention de marché</b> : achats (code P) et ventes (code S) open-market.
+        Les attributions d'actions, exercices d'options (M) et retenues fiscales (F) sont parsés mais
+        <b>exclus du signal</b> — ils ne traduisent pas une décision d'acheter ou de vendre au prix du marché.</div></details>
+
+    <details><summary>C'est un conseil en investissement ?<span class="plus">+</span></summary>
+      <div class="a"><b>Non.</b> 13FLOW est un <b>écran</b> : un moyen transparent de trier un univers selon
+        deux signaux publics de qualité. Aucune recommandation, aucune garantie de performance. À vous de
+        faire votre travail d'analyse — l'app vous fait juste gagner les heures de lecture de filings.</div></details>
+  </div>
+
+  <div class="cta">
+    <h3>Voyez la convergence en direct.</h3>
+    <p>Le tableau Confluence classe les titres là où institutions et initiés se rejoignent.</p>
+    <a href="dashboard.html#confluence">Ouvrir la Confluence →</a>
+  </div>
+
+  <footer>13FLOW · Données SEC EDGAR (domaine public US) · Écran, pas un conseil en investissement.<br>
+    <a href="mentions-legales.html">Mentions légales</a></footer>
+</div>
+
+<script>
+const FUNDS=[["Berkshire Hathaway","Warren Buffett"],["Scion Asset Mgmt","Michael Burry"],
+ ["Pershing Square","Bill Ackman"],["Bridgewater","Ray Dalio"],["Baupost Group","Seth Klarman"],
+ ["Duquesne Family Office","Stanley Druckenmiller"],["Himalaya Capital","Li Lu"],["Appaloosa","David Tepper"]];
+const cell=([fn,mg])=>`<div class="f"><span class="fn">${fn}</span><span class="mg">${mg}</span></div>`;
+document.getElementById('mtrack').innerHTML=(FUNDS.map(cell).join('')).repeat(2);
+</script>
+</html>

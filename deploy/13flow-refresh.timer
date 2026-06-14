@@ -1,0 +1,12 @@
+# /etc/systemd/system/13flow-refresh.timer
+[Unit]
+Description=Schedule 13FLOW data refresh
+
+[Timer]
+# 13F filings trickle in after quarter-end; daily is plenty. Adjust as you like.
+OnCalendar=*-*-* 06:30:00
+Persistent=true
+RandomizedDelaySec=900
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,44 @@
+[Unit]
+Description=13FLOW open build (gunicorn, public read-only)
+After=network.target
+
+[Service]
+Type=notify
+# Low-privilege service account; created in the install guide. NOT root.
+User=flowapp
+Group=flowapp
+WorkingDirectory=/opt/13flow
+EnvironmentFile=/etc/13flow/13flow.env
+# flowapp has no home (--no-create-home). Point HOME at a systemd-managed runtime dir
+# (/run/13flow, auto-created/cleaned) so gunicorn's control server doesn't try to write
+# /home/flowapp -> "[ERROR] Control server error: Permission denied: '/home/flowapp'".
+RuntimeDirectory=13flow
+Environment=HOME=%t/13flow
+# 3 workers is plenty for a read-only site; tune to ~ (2*cores)+1.
+ExecStart=/opt/13flow/.venv/bin/gunicorn --workers 3 --bind 127.0.0.1:8000 \
+          --access-logfile - --error-logfile - --timeout 30 wsgi:app
+Restart=on-failure
+RestartSec=3
+
+# ---- hardening (systemd sandbox) ----
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+# The app needs to read the DB dir; grant nothing writable. (Logs go to journald via stdout.)
+ReadOnlyPaths=/opt/13flow /var/lib/13flow
+ReadWritePaths=
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

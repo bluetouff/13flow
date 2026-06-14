@@ -1,0 +1,14 @@
+# Core (always needed)
+requests>=2.31
+defusedxml>=0.7          # hardens 13F XML parsing (see SECURITY.md)
+argon2-cffi>=23.1        # Argon2id password hashing (falls back to stdlib scrypt if absent)
+
+# Web dashboard / API
+flask>=3.0
+
+# Production server (server install only)
+gunicorn>=21
+stripe>=7               # real Stripe billing (omit to run the local mock checkout)
+
+# Tests / development only
+pytest>=7
