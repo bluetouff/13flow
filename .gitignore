@@ -42,3 +42,9 @@ cusip_overrides.json
 *.key
 secrets*
 
+
+.DS_Store
+
+.DS_Store
+
+.DS_Store

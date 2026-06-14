@@ -61,7 +61,7 @@ D'où quatre cadrans :
 
 > ⚠️ **Lecture honnête.** Le compteur « signals » inclut tout titre où **au moins un fonds accumule** (seuil `min_funds=1`), même sans achat d'initié. Ce qui a de la valeur, c'est la **zone Conviction** et le **haut du classement par score**, pas le total brut.
 
-Détails de la méthodologie côté produit : voir `faq.html`. Spécifique Form 4 : voir [`FORMS4_INTEGRATION.md`](../FORMS4_INTEGRATION.md).
+Détails de la méthodologie côté produit : voir `faq.html`. Spécifique Form 4 : voir [`FORMS4_INTEGRATION.md`](FORMS4_INTEGRATION.md).
 
 ---
 
@@ -185,14 +185,14 @@ run.py --consensus YYYY-MM-DD --min-funds 3        # consensus (hors-ligne)
 
 Le provider Confluence se résout dans cet ordre : **cache JSON** (`SMARTMONEY_CACHE_DIR/confluence-{window}.json`) → **live** (`SMARTMONEY_CONFLUENCE_LIVE=1` + EDGAR) → **démo**.
 
-### Sécurité (résumé — détail dans [`SECURITY.md`](../SECURITY.md))
+### Sécurité (résumé — détail dans [`SECURITY.md`](SECURITY.md))
 
 CSP stricte à nonce par requête (pas d'`unsafe-inline` côté script), `default-src 'none'` sur le JSON, échappement systématique, GET-only + allow-list Apache, base en lecture seule, XML durci (anti-XXE), erreurs JSON génériques, sandbox systemd, TLS+HSTS, aucun secret côté front. Le fichier d'env réel et les bases **ne sont jamais commités** (voir `.gitignore`).
 
 ### Déploiement & dev local
 
-- Production Debian + Apache : [`INSTALL_SERVER.md`](../INSTALL_SERVER.md).
-- Lancer en local : [`TEST_LOCAL.md`](../TEST_LOCAL.md).
+- Production Debian + Apache : [`INSTALL_SERVER.md`](INSTALL_SERVER.md).
+- Lancer en local : [`TEST_LOCAL.md`](TEST_LOCAL.md).
 - Tests : `pytest tests/` (suites hors-ligne, réseau mocké).
 
 ### Ajouter un fonds
@@ -262,7 +262,7 @@ Four quadrants: **Conviction** (top-right, both buying — strongest), **Institu
 
 > ⚠️ **Honest reading.** The "signals" counter includes any name where **at least one fund accumulates** (`min_funds=1`), even with no insider buy. What matters is the **Conviction zone** and the **top of the score ranking**, not the raw total.
 
-Product methodology: see `faq.html`. Form 4 specifics: [`FORMS4_INTEGRATION.md`](../FORMS4_INTEGRATION.md).
+Product methodology: see `faq.html`. Form 4 specifics: [`FORMS4_INTEGRATION.md`](FORMS4_INTEGRATION.md).
 
 ---
 
@@ -362,14 +362,14 @@ run.py --consensus YYYY-MM-DD --min-funds 3       # consensus (offline)
 
 Confluence provider resolution order: **cache JSON** → **live** (`SMARTMONEY_CONFLUENCE_LIVE=1` + EDGAR) → **demo**.
 
-### Security (summary — detail in [`SECURITY.md`](../SECURITY.md))
+### Security (summary — detail in [`SECURITY.md`](SECURITY.md))
 
 Strict per-request nonce CSP (no script `unsafe-inline`), `default-src 'none'` on JSON, systematic escaping, GET-only + Apache allow-list, read-only DB, hardened XML (anti-XXE), generic JSON errors, systemd sandbox, TLS+HSTS, no secret on the front. The real env file and databases are **never committed** (see `.gitignore`).
 
 ### Deployment & local dev
 
-- Debian + Apache production: [`INSTALL_SERVER.md`](../INSTALL_SERVER.md).
-- Run locally: [`TEST_LOCAL.md`](../TEST_LOCAL.md).
+- Debian + Apache production: [`INSTALL_SERVER.md`](INSTALL_SERVER.md).
+- Run locally: [`TEST_LOCAL.md`](TEST_LOCAL.md).
 - Tests: `pytest tests/` (offline, network mocked).
 
 ### Adding a fund
