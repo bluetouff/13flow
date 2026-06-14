@@ -264,3 +264,11 @@ See **`SECURITY.md`** for the threat model, the audit findings, and deployment h
 
 When you outgrow SQLite, the swap to Postgres is mechanical: the schema uses standard
 window functions + one view, and the repository is plain SQL (no ORM lock-in).
+
+## License
+
+13FLOW is licensed under the **GNU Affero General Public License v3.0** (AGPL-3.0-or-later).
+If you run a modified version on a network server, you must make the complete source
+available to its users. See [LICENSE](LICENSE).
+
+Data: SEC EDGAR (US public domain). 13FLOW is an analysis screen, not investment advice.
