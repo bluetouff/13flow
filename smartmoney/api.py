@@ -81,7 +81,13 @@ class _StoreConfluence:
             if not rd:
                 return {}
             ciks = [r["cik"] for r in s.conn.execute("SELECT cik FROM funds")]
-            adds = consensus_moves(s, ciks, rd, kinds=(Move.NEW, Move.ADD), min_funds=1)
+            # Only scan Form 4s for tickers with meaningful institutional accumulation.
+            # min_funds=1 means "any single fund bought" -> ~1000 tickers -> hours of Form 4
+            # fetches. The conviction quadrant needs multiple funds anyway, so gate here.
+            import os as _os
+            _scan_min = int(_os.environ.get("SMARTMONEY_CONFLUENCE_SCAN_MIN_FUNDS", "3"))
+            adds = consensus_moves(s, ciks, rd, kinds=(Move.NEW, Move.ADD), min_funds=_scan_min)
+            # trims still computed at min_funds=1 (cheap, DB-only, no network)
             trims = consensus_moves(s, ciks, rd, kinds=(Move.EXIT, Move.TRIM), min_funds=1)
             trim_by_ticker = {m.ticker.upper(): m.n_funds for m in trims if m.ticker}
             out = {}

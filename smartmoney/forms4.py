@@ -57,6 +57,7 @@ def _safe_xml(data):
     return _xml_fromstring(raw)
 
 WWW_HOST = "https://www.sec.gov"
+DATA_HOST = "https://data.sec.gov"
 ATOM_NS = "{http://www.w3.org/2005/Atom}"
 
 # Transaction codes we care about. Full table in the ownership spec; these are the
@@ -70,7 +71,7 @@ GRANT_CODES = frozenset({"A", "M", "C", "G", "F", "D", "I", "X"})  # not open-ma
 class _RateLimiter:
     """Process-wide ceiling on request rate. Identical contract to edgar.RateLimiter."""
 
-    def __init__(self, rate_per_sec: float = 8.0):
+    def __init__(self, rate_per_sec: float = 6.0):
         self._min_interval = 1.0 / rate_per_sec
         self._lock = threading.Lock()
         self._last = 0.0
@@ -287,7 +288,7 @@ class Form4Client:
         user_agent: Optional[str] = None,
         *,
         client=None,
-        rate_per_sec: float = 8.0,
+        rate_per_sec: float = 6.0,
         timeout: int = 30,
     ):
         self._timeout = timeout
@@ -307,11 +308,26 @@ class Form4Client:
             self._limiter = _RateLimiter(rate_per_sec)
 
     # -- HTTP ------------------------------------------------------------------
-    def _get(self, url: str) -> requests.Response:
-        self._limiter.wait()
-        r = self._session.get(url, timeout=self._timeout)
-        r.raise_for_status()
-        return r
+    def _get(self, url: str, _max_tries: int = 4) -> requests.Response:
+        last_exc = None
+        for attempt in range(_max_tries):
+            self._limiter.wait()
+            r = self._session.get(url, timeout=self._timeout)
+            if r.status_code in (429, 503):
+                ra = r.headers.get("Retry-After")
+                try:
+                    delay = float(ra) if ra else 2.0 * (2 ** attempt)
+                except ValueError:
+                    delay = 2.0 * (2 ** attempt)
+                delay = min(delay, 30.0)
+                last_exc = requests.HTTPError(f"{r.status_code} for {url}")
+                time.sleep(delay)
+                continue
+            r.raise_for_status()
+            return r
+        if last_exc:
+            raise last_exc
+        raise requests.HTTPError(f"request failed after {_max_tries} tries: {url}")
 
     # -- discovery -------------------------------------------------------------
     def list_form4_accessions(
@@ -328,25 +344,29 @@ class Form4Client:
         Uses browse-edgar's Atom feed, which indexes ownership forms under the issuer CIK.
         `since` filters client-side by filing date; `limit` caps the feed size.
         """
-        cik = str(issuer_cik).lstrip("0") or "0"
-        url = (
-            f"{WWW_HOST}/cgi-bin/browse-edgar?action=getcompany&CIK={cik}"
-            f"&type=4&dateb=&owner=include&count={min(limit, 100)}&output=atom"
-        )
-        feed = self._get(url).text
-        root = _safe_xml(feed)
+        # Modern data.sec.gov submissions API (JSON), not the legacy browse-edgar
+        # Atom feed which is aggressively rate-limited. The issuer's submissions list
+        # includes its Form 4s; the `recent` block holds ~1000 latest filings, plenty
+        # for a trailing-window insider scan.
+        cik10 = str(issuer_cik).lstrip("0").zfill(10)
+        data = self._get(f"{DATA_HOST}/submissions/CIK{cik10}.json").json()
+        rec = data.get("filings", {}).get("recent", {})
+        forms = rec.get("form", [])
+        accns = rec.get("accessionNumber", [])
+        fdates = rec.get("filingDate", [])
         out: list[dict] = []
-        for entry in root.iter(f"{ATOM_NS}entry"):
-            content = entry.find(f"{ATOM_NS}content")
-            acc = _txt(content, "accession-number") or _txt(content, "accession-nunber")
-            fdate = _txt(content, "filing-date")
-            link = entry.find(f"{ATOM_NS}link")
-            href = link.get("href") if link is not None else ""
+        for i, form in enumerate(forms):
+            if form not in ("4", "4/A"):
+                continue
+            acc = accns[i] if i < len(accns) else ""
+            fdate = fdates[i] if i < len(fdates) else ""
             if not acc:
                 continue
             if since and fdate and _parse_date(fdate) < since:
                 continue
-            out.append({"accession": acc, "filing_date": fdate, "href": href})
+            out.append({"accession": acc, "filing_date": fdate, "href": ""})
+            if len(out) >= limit:
+                break
         return out
 
     def _index_json(self, accession: str, owner_or_issuer_cik: str) -> dict:

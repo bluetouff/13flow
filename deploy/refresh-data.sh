@@ -11,12 +11,13 @@ VENV=${VENV:-$APP_DIR/.venv}
 export SEC_UA=${SEC_UA:-"13FLOW/1.0 you@example.com"}
 # Caches go next to the DB (writable by the ingest user), never in the read-only install dir.
 export SMARTMONEY_CACHE_DIR=${SMARTMONEY_CACHE_DIR:-$(dirname "$DB")}
+export MAXQ=${MAXQ:-8}   # borne l'historique du refresh nocturne (jamais 52 trimestres)
 
 cd "$APP_DIR"
 
 # Pull every tracked superinvestor; --enrich resolves CUSIP -> ticker via OpenFIGI.
 # Use --max-quarters to bound history, or --sync "Fund Name" for a single fund.
-"$VENV/bin/python" run.py --db "$DB" --sync-all --enrich
+"$VENV/bin/python" run.py --db "$DB" --sync-all --enrich ${MAXQ:+--max-quarters $MAXQ}
 
 # Collapse the WAL into the main file so a read-only (mode=ro) open needs no -wal/-shm.
 "$VENV/bin/python" - "$DB" <<'PY'
@@ -32,7 +33,7 @@ chmod 640 "$DB" 2>/dev/null || true
 
 # Precompute the Confluence screen (13F accumulation x live Form 4) into cache JSON so the
 # public tier serves it instantly and never hits EDGAR per request. Non-fatal on failure.
-if "$VENV/bin/python" run.py --db "$DB" --confluence; then
+if timeout 3600 "$VENV/bin/python" run.py --db "$DB" --confluence; then
   chmod 640 "$SMARTMONEY_CACHE_DIR"/confluence-*.json 2>/dev/null || true
 else
   echo "  (confluence precompute skipped/failed — screen falls back to live/sample)"
