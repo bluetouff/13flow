@@ -779,9 +779,12 @@ function toast(msg){
 }
 function openUpgrade(){ document.getElementById("upgradeErr").textContent=""; document.getElementById("upgradeModal").classList.add("open"); }
 function closeUpgrade(){ document.getElementById("upgradeModal").classList.remove("open"); }
-document.getElementById("closeUpgrade").onclick=closeUpgrade;
-document.getElementById("upgradeModal").addEventListener("click",e=>{ if(e.target.id==="upgradeModal") closeUpgrade(); });
-document.getElementById("goCheckout").onclick=async()=>{
+const closeUpgradeBtn=document.getElementById("closeUpgrade");
+if(closeUpgradeBtn) closeUpgradeBtn.onclick=closeUpgrade;
+const upgradeModal=document.getElementById("upgradeModal");
+if(upgradeModal) upgradeModal.addEventListener("click",e=>{ if(e.target.id==="upgradeModal") closeUpgrade(); });
+const goCheckoutBtn=document.getElementById("goCheckout");
+if(goCheckoutBtn) goCheckoutBtn.onclick=async()=>{
   const btn=document.getElementById("goCheckout"), err=document.getElementById("upgradeErr");
   btn.disabled=true; btn.textContent="Starting checkout…"; err.textContent="";
   const res=await apiMutate("/api/billing/checkout","POST");
@@ -837,10 +840,12 @@ function showVerifyNotice(email, devUrl){
   document.getElementById("authSwitch").innerHTML=sw;
   const l=document.getElementById("toLogin"); if(l) l.onclick=()=>openAuth("login");
 }
-document.getElementById("authModal").addEventListener("click",e=>{
+const authModal=document.getElementById("authModal");
+if(authModal) authModal.addEventListener("click",e=>{
   if(e.target.id==="authModal") e.currentTarget.classList.remove("open");
 });
-document.getElementById("authSubmit").onclick=async()=>{
+const authSubmitBtn=document.getElementById("authSubmit");
+if(authSubmitBtn) authSubmitBtn.onclick=async()=>{
   const btn=document.getElementById("authSubmit");
   const errEl=document.getElementById("authErr"); errEl.textContent=""; errEl.style.color="";
   // resend-verification mode

@@ -128,6 +128,9 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
         assert "Continue to checkout" not in html
         assert "€12" not in html
         assert 'data-view="alerts"' not in html
+        assert 'document.getElementById("closeUpgrade").onclick=' not in html
+        assert 'document.getElementById("goCheckout").onclick=' not in html
+        assert 'document.getElementById("authSubmit").onclick=' not in html
         assert "Live data status: LIVE EDGAR." in html
         assert "uses_synthetic_data=false" in html
         assert "/api/funds serves 1 funds" in html
