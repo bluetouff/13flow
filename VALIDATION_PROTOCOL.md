@@ -54,6 +54,30 @@ The point-in-time row schema is defined in `docs/CONFLUENCE_V1.md`. The minimum 
 columns are `as_of`, `ticker`, `score_version`, `feature_schema_version`,
 `weight_version`, `parameter_hash`, source accession hashes, and code commit.
 
+The offline gate is intentionally strict. A dataset is not publishable unless it carries
+the frozen Confluence version fields, the parameter hash and all three forward-return
+horizons:
+
+```bash
+python run.py --validation-dataset /path/to/confluence_features.csv --validation-json
+```
+
+The command emits:
+
+- the dataset SHA256 hash;
+- row count, ticker count, date range and train/validation/test split counts;
+- missing required and recommended columns;
+- version mismatches against `confluence_v1`, `confluence_features_v1` and
+  `heuristic_default_v1`;
+- rank IC, top-minus-bottom spread, hit rate, bootstrap confidence intervals and
+  permutation p-values for the full score and available baselines.
+
+`status=minimum_schema_valid_metrics_unreviewed` means the file passed the mechanical gate.
+It does **not** mean the score is validated: the dataset builder, no-lookahead controls,
+price source, delisting handling, costs, liquidity filters and neutralization still require
+review before publication. `status=not_publishable` means no public performance claim is
+allowed from that artifact.
+
 ## Frozen split
 
 Use a calendar split first, then add walk-forward analysis:

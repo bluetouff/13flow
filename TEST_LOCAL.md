@@ -133,6 +133,10 @@ Evaluate the scoring hypothesis or fit research weights with the backtest harnes
 ```bash
 python -m smartmoney.backtest        # synthetic demo only; not live-history validation
 ```
+Gate a real point-in-time feature table before publication:
+```bash
+python run.py --validation-dataset /path/to/confluence_features.csv --validation-json
+```
 Treat default weights as heuristic until `VALIDATION_PROTOCOL.md` has been run and published
 for a frozen score version.
 

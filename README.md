@@ -235,7 +235,15 @@ The quantitative proof boundary is public: `VALIDATION_PROTOCOL.md` defines the 
 point-in-time dataset, train/validation/test split, baselines, neutralization, costs,
 confidence intervals, permutation tests, and version log before any score can be called
 validated. Until then, the correct wording is: **backtest harness available; default weights
-are heuristic**.
+are heuristic**. The offline publication gate is:
+
+```bash
+python run.py --validation-dataset /path/to/confluence_features.csv --validation-json
+```
+
+It returns the feature-table SHA256, split counts, schema gaps, version mismatches and
+rank metrics for the full score plus any available baselines. Passing this gate only means
+the artifact is mechanically reviewable; it is not a validation claim by itself.
 
 Confluence v1 is frozen as a machine-readable research contract in
 `docs/confluence_v1.json` and documented in `docs/CONFLUENCE_V1.md`. The append-only signal

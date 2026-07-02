@@ -570,6 +570,42 @@ def cmd_append_signal_history(cache_dir: str, windows, history_file: str | None)
     print(f"signal history: +{report['signals_appended']} revisions -> {report['history_path']}")
 
 
+def cmd_validation_dataset(path: str, horizon: int, as_json: bool) -> None:
+    import json
+    from smartmoney.validation import validation_report
+    report = validation_report(path, horizon=horizon)
+    if as_json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return
+    manifest = report["manifest"]
+    print("\nConfluence v1 validation dataset gate:\n")
+    print(f"  status:       {report['status']}")
+    print(f"  file_sha256:  {manifest['sha256']}")
+    print(f"  rows:         {manifest['row_count']} ({manifest['ticker_count']} tickers)")
+    print(f"  date_range:   {manifest['date_range']['from']} -> {manifest['date_range']['to']}")
+    print(f"  splits:       {manifest['split_counts']}")
+    if manifest["missing_required_columns"]:
+        print(f"  missing:      {', '.join(manifest['missing_required_columns'])}")
+    if manifest["version_mismatches"]:
+        print(f"  mismatches:   {len(manifest['version_mismatches'])} version rows")
+    print(f"\n  horizon:      {horizon} trading days")
+    for split, baselines in report["metrics"].items():
+        print(f"\n  [{split}]")
+        if not baselines:
+            print("    no valid rows")
+            continue
+        for name, metrics in baselines.items():
+            print("    {name:<20} n={n:<5} ic={ic:<8} spread={spread:<8} "
+                  "hit={hit:<8} p={p}".format(
+                      name=name,
+                      n=metrics["n"],
+                      ic=metrics["rank_ic"],
+                      spread=metrics["top_bottom_spread"],
+                      hit=metrics["hit_rate"],
+                      p=metrics["rank_ic_permutation_p"],
+                  ))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="SmartMoney 13F tracker")
     ap.add_argument("--list", action="store_true", help="list tracked superinvestors")
@@ -663,6 +699,12 @@ def main() -> None:
                     help="output path for --append-signal-history (default cache_dir/confluence-history.jsonl)")
     ap.add_argument("--cache-dir", default=os.environ.get("SMARTMONEY_CACHE_DIR"),
                     help="cache directory for --append-signal-history")
+    ap.add_argument("--validation-dataset", metavar="PATH",
+                    help="offline gate/report for a Confluence point-in-time CSV/JSONL dataset")
+    ap.add_argument("--validation-horizon", type=int, choices=[20, 60, 120], default=60,
+                    help="forward-return horizon for --validation-dataset (default 60)")
+    ap.add_argument("--validation-json", action="store_true",
+                    help="print --validation-dataset report as JSON")
     args = ap.parse_args()
 
     # DB-only commands: no EDGAR, no SEC_UA required.
@@ -701,6 +743,9 @@ def main() -> None:
         windows = [int(w) for w in args.confluence_windows.split(",") if w.strip()]
         cache_dir = args.cache_dir or os.path.dirname(os.path.abspath(args.db)) or "."
         return cmd_append_signal_history(cache_dir, windows, args.signal_history_file)
+    if args.validation_dataset:
+        return cmd_validation_dataset(args.validation_dataset, args.validation_horizon,
+                                      args.validation_json)
     if args.create_api_key:
         return cmd_create_api_key(args.pro_db, args.create_api_key, args.api_key_scopes,
                                   args.api_key_rate_per_min, args.api_key_rate_per_day,

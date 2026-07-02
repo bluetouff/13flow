@@ -109,6 +109,16 @@ SMARTMONEY_CACHE_DIR=/var/lib/13flow \
 python run.py --append-signal-history --confluence-windows 30,90,180
 ```
 
+Validate the minimum schema and metrics artifact for a point-in-time feature table:
+
+```bash
+python run.py --validation-dataset /path/to/confluence_features.csv --validation-json
+```
+
+This is a publication gate, not a claim of validation. The output must be archived with
+the dataset hash, price-source notes, costs, liquidity rules and review notes before any
+public result is described as validated.
+
 Precompute live Confluence and append revisions:
 
 ```bash
