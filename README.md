@@ -276,6 +276,21 @@ contact with any new or fallback provider. Passing the same
 universe; omit it only when the price CSV covers the full validation universe. The dataset
 gate returns the feature-table SHA256, split counts, schema gaps, version mismatches and rank
 metrics for the score plus available baselines.
+
+Imported vendor/bulk price files can be checked without touching any external API:
+
+```bash
+python run.py \
+  --validate-price-csv /var/lib/13flow/validation_prices_full.csv \
+  --validation-tickers /var/lib/13flow/validation_tickers_priceable.txt \
+  --validation-start 2013-01-01 \
+  --validation-end 2026-07-02 \
+  --validation-json
+```
+
+The validator reports required columns, positive-price failures, duplicate ticker/date rows,
+missing tickers, partial histories and major calendar gaps before the file is used in a
+validation dataset.
 The current builder exports
 `feature_scope=13f_only_no_form4`; this is mechanically useful but not a full Confluence
 validation claim until Form 4 insider features are joined and reviewed. Non-priceable/common

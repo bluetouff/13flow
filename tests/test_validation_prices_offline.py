@@ -16,6 +16,7 @@ from smartmoney.validation_prices import (
     build_validation_price_file,
     make_price_provider,
     provider_symbol,
+    validate_price_csv,
 )
 
 
@@ -221,6 +222,61 @@ def test_build_validation_price_file_can_limit_tickers_for_smoke_runs(tmp_path):
     assert summary["rows_total"] == 2
 
 
+def test_validate_price_csv_ready_report(tmp_path):
+    prices = tmp_path / "prices.csv"
+    tickers = tmp_path / "tickers.txt"
+    tickers.write_text("AAPL\nMSFT\n", encoding="utf-8")
+    prices.write_text(
+        "ticker,date,adj_close\n"
+        "AAPL,2024-01-02,100\n"
+        "AAPL,2024-01-03,101\n"
+        "MSFT,2024-01-02,200\n"
+        "MSFT,2024-01-03,202\n",
+        encoding="utf-8",
+    )
+
+    report = validate_price_csv(
+        str(prices),
+        tickers_path=str(tickers),
+        start=date(2024, 1, 2),
+        end=date(2024, 1, 3),
+    )
+
+    assert report["status"] == "ready"
+    assert report["rows_valid"] == 4
+    assert report["tickers_empty"] == 0
+    assert report["major_gap_count"] == 0
+
+
+def test_validate_price_csv_reports_import_issues(tmp_path):
+    prices = tmp_path / "prices.csv"
+    tickers = tmp_path / "tickers.txt"
+    tickers.write_text("AAPL\nMSFT\n", encoding="utf-8")
+    prices.write_text(
+        "ticker,date,adj_close\n"
+        "AAPL,2024-01-02,100\n"
+        "AAPL,2024-01-02,101\n"
+        "AAPL,2024-02-20,0\n"
+        "AAPL,2024-03-15,120\n",
+        encoding="utf-8",
+    )
+
+    report = validate_price_csv(
+        str(prices),
+        tickers_path=str(tickers),
+        start=date(2024, 1, 2),
+        end=date(2024, 3, 15),
+        max_gap_days=10,
+    )
+
+    assert report["status"] == "review"
+    assert report["duplicate_row_count"] == 1
+    assert report["invalid_row_count"] == 1
+    assert report["tickers_empty"] == 1
+    assert report["tickers_partial_history"] == 0
+    assert report["major_gap_count"] == 1
+
+
 def test_provider_symbol_maps_share_classes():
     assert provider_symbol("BRK/B", "massive") == "BRK.B"
     assert provider_symbol("BRK/B", "yahoo") == "BRK-B"
@@ -241,3 +297,4 @@ def test_run_py_help_exposes_validation_price_export():
     assert "--validation-price-retry-attempts" in proc.stdout
     assert "--validation-price-max-tickers" in proc.stdout
     assert "--validation-price-timeout-sec" in proc.stdout
+    assert "--validate-price-csv" in proc.stdout

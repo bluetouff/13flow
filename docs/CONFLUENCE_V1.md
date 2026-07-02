@@ -136,6 +136,17 @@ python run.py --db /var/lib/13flow/13flow.db \
 python run.py --validation-dataset /path/to/confluence_features.csv --validation-json
 ```
 
+For imported vendor/bulk price files, validate the CSV before building features:
+
+```bash
+python run.py \
+  --validate-price-csv /var/lib/13flow/validation_prices_full.csv \
+  --validation-tickers /var/lib/13flow/validation_tickers_priceable.txt \
+  --validation-start 2013-01-01 \
+  --validation-end 2026-07-02 \
+  --validation-json
+```
+
 The price exporter writes `ticker,date,adj_close` adjusted closes, resumes from existing
 rows unless `--validation-price-force` is set, deduplicates repeated ticker/date rows, retries
 `429`/`5xx` responses with exponential backoff and reports complete/partial history coverage.

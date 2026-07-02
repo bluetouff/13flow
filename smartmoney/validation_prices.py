@@ -100,6 +100,145 @@ def _write_rows(path: str, rows: list[dict[str, str]]) -> None:
     os.replace(tmp, path)
 
 
+def _as_positive_float(value: Any) -> float | None:
+    try:
+        x = float(value)
+    except (TypeError, ValueError):
+        return None
+    return x if x > 0 else None
+
+
+def validate_price_csv(
+    path: str,
+    *,
+    tickers_path: str | None = None,
+    start: date | None = None,
+    end: date | None = None,
+    max_gap_days: int = 10,
+) -> dict[str, Any]:
+    expected_tickers = read_tickers(tickers_path) if tickers_path else []
+    required = set(PRICE_COLUMNS)
+    rows_seen = 0
+    valid_rows = 0
+    invalid_rows: list[dict[str, Any]] = []
+    duplicate_rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    by_ticker: dict[str, list[date]] = {}
+
+    with open(path, "r", encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh)
+        columns = reader.fieldnames or []
+        missing_columns = sorted(required - set(columns))
+        for idx, row in enumerate(reader, start=2):
+            rows_seen += 1
+            ticker = str(row.get("ticker") or "").upper().strip()
+            raw_date = str(row.get("date") or "").strip()
+            d = None
+            px = _as_positive_float(row.get("adj_close"))
+            try:
+                d = parse_date(raw_date)
+            except (TypeError, ValueError):
+                pass
+            problems = []
+            if not ticker:
+                problems.append("missing_ticker")
+            if d is None:
+                problems.append("invalid_date")
+            if px is None:
+                problems.append("invalid_adj_close")
+            if problems:
+                if len(invalid_rows) < 50:
+                    invalid_rows.append({
+                        "row": idx,
+                        "ticker": ticker,
+                        "date": raw_date,
+                        "errors": problems,
+                    })
+                continue
+            key = (ticker, d.isoformat())
+            if key in seen:
+                if len(duplicate_rows) < 50:
+                    duplicate_rows.append({"row": idx, "ticker": ticker, "date": d.isoformat()})
+                continue
+            seen.add(key)
+            valid_rows += 1
+            by_ticker.setdefault(ticker, []).append(d)
+
+    universe = expected_tickers or sorted(by_ticker)
+    empty_tickers = []
+    partial_history = []
+    major_gaps = []
+    first_dates = []
+    last_dates = []
+    max_gap_days = max(1, int(max_gap_days))
+
+    for ticker in universe:
+        dates = sorted(set(by_ticker.get(ticker, [])))
+        if not dates:
+            empty_tickers.append(ticker)
+            continue
+        first_dates.append(dates[0].isoformat())
+        last_dates.append(dates[-1].isoformat())
+        missing_start = bool(start and dates[0] > start)
+        missing_end = bool(end and dates[-1] < end)
+        if missing_start or missing_end:
+            partial_history.append({
+                "ticker": ticker,
+                "rows": len(dates),
+                "from": dates[0].isoformat(),
+                "to": dates[-1].isoformat(),
+                "missing_start": missing_start,
+                "missing_end": missing_end,
+            })
+        if len(dates) > 1:
+            gaps = [(b - a).days for a, b in zip(dates, dates[1:])]
+            max_gap = max(gaps)
+            if max_gap > max_gap_days:
+                gap_idx = gaps.index(max_gap)
+                major_gaps.append({
+                    "ticker": ticker,
+                    "gap_days": max_gap,
+                    "from": dates[gap_idx].isoformat(),
+                    "to": dates[gap_idx + 1].isoformat(),
+                })
+
+    status = "ready"
+    if (missing_columns or invalid_rows or duplicate_rows or empty_tickers or
+            partial_history or major_gaps):
+        status = "review"
+
+    return {
+        "path": path,
+        "status": status,
+        "columns": columns,
+        "missing_required_columns": missing_columns,
+        "rows_total": rows_seen,
+        "rows_valid": valid_rows,
+        "invalid_row_count": len(invalid_rows),
+        "invalid_rows_sample": invalid_rows,
+        "duplicate_row_count": len(duplicate_rows),
+        "duplicate_rows_sample": duplicate_rows,
+        "ticker_universe_count": len(universe),
+        "tickers_observed": len(by_ticker),
+        "tickers_empty": len(empty_tickers),
+        "empty_ticker_sample": empty_tickers[:50],
+        "tickers_partial_history": len(partial_history),
+        "partial_history_sample": partial_history[:50],
+        "major_gap_count": len(major_gaps),
+        "major_gap_sample": major_gaps[:50],
+        "max_gap_days": max_gap_days,
+        "requested_start": start.isoformat() if start else None,
+        "requested_end": end.isoformat() if end else None,
+        "earliest_price_date": min(first_dates) if first_dates else None,
+        "latest_price_date": max(last_dates) if last_dates else None,
+        "readiness_rule": (
+            "ready requires required columns, positive prices, no duplicate ticker/date, "
+            "all requested tickers present, full requested date coverage, and no major "
+            "calendar gaps above max_gap_days"
+        ),
+    }
+
+
 def _http_status(exc: Exception) -> int | None:
     response = getattr(exc, "response", None)
     status = getattr(response, "status_code", None)

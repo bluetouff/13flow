@@ -725,6 +725,41 @@ def cmd_build_validation_prices(tickers_path: str | None,
               f"(sample in --validation-json)")
 
 
+def cmd_validate_price_csv(path: str,
+                           tickers_path: str | None,
+                           start: str | None,
+                           end: str | None,
+                           max_gap_days: int,
+                           as_json: bool) -> None:
+    import json
+    from smartmoney.validation_prices import parse_date, validate_price_csv
+    try:
+        start_date = parse_date(start) if start else None
+        end_date = parse_date(end) if end else None
+    except Exception as exc:  # noqa: BLE001
+        print(f"--validate-price-csv setup failed: {exc}", file=sys.stderr)
+        sys.exit(2)
+    report = validate_price_csv(
+        path,
+        tickers_path=tickers_path,
+        start=start_date,
+        end=end_date,
+        max_gap_days=max_gap_days,
+    )
+    if as_json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return
+    print(f"price CSV: {report['path']}")
+    print(f"  status:   {report['status']}")
+    print(f"  rows:     {report['rows_valid']} valid / {report['rows_total']} total")
+    print(f"  tickers:  {report['tickers_observed']} observed / "
+          f"{report['ticker_universe_count']} requested")
+    print(f"  range:    {report['earliest_price_date']} -> {report['latest_price_date']}")
+    print(f"  issues:   invalid={report['invalid_row_count']}, "
+          f"dupes={report['duplicate_row_count']}, empty={report['tickers_empty']}, "
+          f"partial={report['tickers_partial_history']}, gaps={report['major_gap_count']}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="SmartMoney 13F tracker")
     ap.add_argument("--list", action="store_true", help="list tracked superinvestors")
@@ -828,6 +863,8 @@ def main() -> None:
                     help="export a point-in-time Confluence feature dataset from the local 13F DB")
     ap.add_argument("--build-validation-prices", action="store_true",
                     help="export adjusted daily closes for validation tickers")
+    ap.add_argument("--validate-price-csv", metavar="CSV",
+                    help="validate an imported adjusted-price CSV before validation use")
     ap.add_argument("--validation-format", choices=["csv", "jsonl"], default="csv",
                     help="format for --build-validation-dataset (default csv)")
     ap.add_argument("--validation-prices", metavar="CSV",
@@ -853,6 +890,8 @@ def main() -> None:
                     help="limit tickers processed in one price export smoke run")
     ap.add_argument("--validation-price-force", action="store_true",
                     help="ignore existing price CSV cache and refetch all tickers")
+    ap.add_argument("--validation-price-max-gap-days", type=int, default=10,
+                    help="largest acceptable calendar gap in imported price CSVs (default 10)")
     ap.add_argument("--validation-execution-lag-days", type=int, default=1,
                     help="trading-day lag after as_of before entry price (default 1)")
     ap.add_argument("--validation-start", metavar="YYYY-MM-DD",
@@ -919,6 +958,11 @@ def main() -> None:
             args.validation_price_retry_base_sec, args.validation_price_retry_max_sec,
             args.validation_price_timeout_sec, args.validation_price_max_tickers,
             args.validation_price_force, args.validation_json)
+    if args.validate_price_csv:
+        return cmd_validate_price_csv(
+            args.validate_price_csv, args.validation_tickers, args.validation_start,
+            args.validation_end, args.validation_price_max_gap_days,
+            args.validation_json)
     if args.create_api_key:
         return cmd_create_api_key(args.pro_db, args.create_api_key, args.api_key_scopes,
                                   args.api_key_rate_per_min, args.api_key_rate_per_day,
