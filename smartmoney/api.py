@@ -220,6 +220,94 @@ class _StoreConfluence:
         return build_confluence(inst, insiders)
 
 
+def _enrich_confluence_cache_payload(db_path: str, payload: dict) -> dict:
+    """Repair institutional fields in precomputed Confluence caches from the SQLite store.
+
+    This is intentionally DB-only: it never touches EDGAR or price providers. It lets an
+    older Form 4 cache inherit current institutional enrichment semantics without a risky
+    SEC refetch.
+    """
+    out = dict(payload or {})
+    signals = list(out.get("signals") or [])
+    if not signals:
+        return out
+
+    store = Store(db_path, read_only=True)
+    enriched = 0
+    try:
+        row = store.conn.execute("SELECT MAX(report_date) d FROM filings").fetchone()
+        report_date = row["d"] if row else None
+        if not report_date:
+            return out
+
+        for sig in signals:
+            if not isinstance(sig, dict):
+                continue
+            ticker = str(sig.get("ticker") or "").upper()
+            inst = dict(sig.get("institutional") or {})
+            labels = [str(x) for x in (inst.get("fund_labels") or []) if str(x).strip()]
+            if not ticker or not labels:
+                continue
+
+            placeholders = ",".join("?" for _ in labels)
+            rows = store.conn.execute(
+                f"""SELECT fn.label, fn.cik, h.value_usd, h.weight
+                    FROM latest_filings lf
+                    JOIN holdings h ON h.accession=lf.accession AND h.put_call=''
+                    JOIN funds fn ON fn.cik=lf.cik
+                    WHERE lf.report_date=? AND UPPER(h.ticker)=?
+                      AND fn.label IN ({placeholders})""",
+                (report_date, ticker, *labels),
+            ).fetchall()
+            if not rows:
+                continue
+
+            total_value = sum((r["value_usd"] or 0.0) for r in rows)
+            weights = [(r["weight"] or 0.0) for r in rows]
+            conviction = 0
+            for r in rows:
+                is_large_weight = (r["weight"] or 0.0) >= 0.05
+                prev_date_row = store.conn.execute(
+                    """SELECT MAX(report_date) d FROM latest_filings
+                       WHERE cik=? AND report_date<?""",
+                    (r["cik"], report_date),
+                ).fetchone()
+                prev_date = prev_date_row["d"] if prev_date_row else None
+                was_held = False
+                if prev_date:
+                    was_held = bool(store.conn.execute(
+                        """SELECT 1
+                           FROM latest_filings lf
+                           JOIN holdings h ON h.accession=lf.accession AND h.put_call=''
+                           WHERE lf.cik=? AND lf.report_date=? AND UPPER(h.ticker)=?
+                           LIMIT 1""",
+                        (r["cik"], prev_date, ticker),
+                    ).fetchone())
+                if is_large_weight or not was_held:
+                    conviction += 1
+
+            inst.update({
+                "total_value_usd": float(total_value),
+                "avg_weight_pct": float(sum(weights) / len(weights) * 100.0) if weights else 0.0,
+                "conviction_funds": int(conviction),
+                "quarters_ago": 0,
+            })
+            sig["institutional"] = inst
+            enriched += 1
+
+        out["signals"] = signals
+        meta = dict(out.get("metadata") or {})
+        meta["cache_institutional_enrichment"] = {
+            "source": "sqlite_latest_holdings",
+            "report_date": report_date,
+            "signals_enriched": enriched,
+        }
+        out["metadata"] = meta
+        return out
+    finally:
+        store.close()
+
+
 def create_app(db_path: str = "smartmoney.db", provider=None,
                dashboard_path: Optional[str] = None, secure_cookies: bool = True,
                open_mode: bool = False) -> Flask:
@@ -256,7 +344,11 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     else:
         confluence_provider = UnconfiguredConfluenceProvider()
     _cache_dir = os.environ.get("SMARTMONEY_CACHE_DIR") or "."
-    app.register_blueprint(make_signals_blueprint(confluence_provider, cache_dir=_cache_dir))
+    app.register_blueprint(make_signals_blueprint(
+        confluence_provider,
+        cache_dir=_cache_dir,
+        cache_enricher=lambda payload: _enrich_confluence_cache_payload(db_path, payload),
+    ))
 
     def store() -> Store:
         return Store(db_path, read_only=read_only)

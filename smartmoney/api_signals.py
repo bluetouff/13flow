@@ -143,7 +143,7 @@ def merge_methodology_metadata(payload: dict, provider_metadata: dict | None = N
     return out
 
 
-def make_signals_blueprint(provider: ConfluenceProvider, cache_dir=None) -> Blueprint:
+def make_signals_blueprint(provider: ConfluenceProvider, cache_dir=None, cache_enricher=None) -> Blueprint:
     bp = Blueprint("signals", __name__)
 
     @bp.get("/api/signals/confluence")
@@ -164,8 +164,11 @@ def make_signals_blueprint(provider: ConfluenceProvider, cache_dir=None) -> Blue
             cpath = os.path.join(cache_dir, f"confluence-{window}.json")
             try:
                 with open(cpath, "r", encoding="utf-8") as fh:
+                    payload = json.load(fh)
+                    if cache_enricher:
+                        payload = cache_enricher(payload)
                     return jsonify(merge_methodology_metadata(
-                        json.load(fh), {"served_from_cache": True}
+                        payload, {"served_from_cache": True}
                     ))
             except (FileNotFoundError, OSError, ValueError):
                 pass  # no/invalid cache -> fall back to the provider

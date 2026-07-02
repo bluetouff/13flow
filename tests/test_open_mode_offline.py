@@ -206,6 +206,55 @@ def test_confluence_demo_is_explicit(monkeypatch):
         assert j["metadata"]["sample_data"] is True
 
 
+def test_confluence_cache_institutional_fields_are_repaired_from_db(monkeypatch):
+    import json
+
+    with tempfile.TemporaryDirectory() as d:
+        db = str(Path(d) / "cache-enrich.db")
+        s = Store(db)
+        for cik, label, shares, value in (
+            ("0000000001", "Fund One", 1000, 100),
+            ("0000000002", "Fund Two", 2000, 200),
+        ):
+            _save(s, cik, label, "PM", f"{cik}-old", "13F-HR",
+                  "2026-02-14", "2025-12-31",
+                  [("COCA COLA", "191216100", 1000, 100, "")])
+            _save(s, cik, label, "PM", f"{cik}-new", "13F-HR",
+                  "2026-05-15", "2026-03-31",
+                  [("APPLE INC", AAPL, shares, value, "")])
+        s.conn.execute("UPDATE holdings SET ticker='AAPL' WHERE cusip=?", (AAPL,))
+        s.conn.commit()
+        s.close()
+
+        cache_dir = Path(d)
+        stale = {
+            "kpis": {"n_signals": 1, "window_days": 90},
+            "signals": [{
+                "ticker": "AAPL",
+                "score": 50,
+                "institutional": {
+                    "fund_labels": ["Fund One", "Fund Two"],
+                    "funds_accumulating": 2,
+                    "avg_weight_pct": 0.0,
+                    "conviction_funds": 0,
+                    "total_value_usd": 0.0,
+                },
+            }],
+        }
+        (cache_dir / "confluence-90.json").write_text(json.dumps(stale))
+        monkeypatch.setenv("SMARTMONEY_CACHE_DIR", str(cache_dir))
+
+        c = create_app(db, secure_cookies=False, open_mode=True).test_client()
+        j = c.get("/api/signals/confluence?window=90").get_json()
+        inst = j["signals"][0]["institutional"]
+
+    assert inst["total_value_usd"] == 3000.0
+    assert inst["avg_weight_pct"] == 100.0
+    assert inst["conviction_funds"] == 2
+    assert inst["quarters_ago"] == 0
+    assert j["metadata"]["cache_institutional_enrichment"]["signals_enriched"] == 1
+
+
 def test_live_confluence_provider_enriches_institutional_signal(monkeypatch):
     from smartmoney.api import _StoreConfluence
 
