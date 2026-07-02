@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 
 from smartmoney.db import Store
-from smartmoney.preflight import deployed_sha_from_systemd, run_preflight
+from smartmoney.preflight import deployed_sha_from_systemd, run_preflight, _public_surface_checks
 from smartmoney.pro import ProAPIStore
 from tests.test_db_offline import AAPL, KO, MSFT, _save
 
@@ -48,6 +48,8 @@ def test_preflight_passes_for_stable_market_and_pro_dbs():
     assert checks["deploy.sha"]["status"] == "pass"
     assert checks["market_db.rejects_writes"]["status"] == "pass"
     assert checks["market_db.data_quality"]["data"]["summary"]["unit_scale_candidates"] == 0
+    assert checks["public_surface.no_sample_badge"]["status"] == "pass"
+    assert checks["public_surface.open_features"]["status"] == "pass"
     assert checks["pro_api.unauth_challenge"]["status"] == "pass"
     assert checks["pro_api.cache_headers"]["status"] == "pass"
     assert checks["pro_api.rate_limits_configured"]["status"] == "pass"
@@ -82,3 +84,18 @@ def test_deployed_sha_can_be_read_from_systemd_dropin():
 
         assert deployed_sha_from_systemd(str(path)) == "abc123"
         assert deployed_sha_from_systemd(str(Path(d) / "missing.conf")) is None
+
+
+def test_preflight_fails_if_public_root_exposes_sample_data(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        data_db = str(Path(d) / "market.db")
+        _seed_stable_db(data_db)
+        dash = Path(d) / "dashboard.html"
+        dash.write_text("<!doctype html><html><body>SAMPLE DATA</body></html>", encoding="utf-8")
+
+        import smartmoney.api as api_mod
+        monkeypatch.setattr(api_mod, "DASHBOARD", str(dash))
+
+        checks = {c.name: c for c in _public_surface_checks(data_db)}
+
+    assert checks["public_surface.no_sample_badge"].status == "fail"

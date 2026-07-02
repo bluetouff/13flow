@@ -107,8 +107,8 @@
          des superinvestisseurs et on diffe trimestre sur trimestre : entrées, sorties, renforts, allègements.</p></div>
     <div class="pillar ins"><div class="ic">Form 4 · Initiés</div>
       <h3>L'argent qui sait</h3>
-      <p>Les dirigeants déclarent leurs achats sous 2 jours ouvrés. Un achat open-market au prix du marché
-         (code P) est de la conviction en cash personnel — pas une attribution d'options.</p></div>
+      <p>Les dirigeants déclarent leurs achats sous 2 jours ouvrés. Une transaction P/S open-market ou privée
+         déclarée comme achat/vente porte une intention de marché — pas une attribution d'options.</p></div>
     <div class="pillar conf"><div class="ic">Confluence Score</div>
       <h3>La convergence</h3>
       <p>Quand plusieurs fonds chargent un titre <em>et</em> que des initiés l'achètent, vous tenez un signal
@@ -124,7 +124,15 @@
         la <span class="em">largeur institutionnelle</span> (combien de fonds chargent, pondérée par leur conviction),
         la <span class="am">conviction des initiés</span> (nombre d'acheteurs, séniorité C-suite, taille de l'achat),
         les <b>dollars</b> engagés, et un <b>bonus d'accord</b> quand les deux pointent dans le même sens.
-        Chaque carte du tableau Confluence montre la décomposition pilier par pilier.</div></details>
+        Ce score est un <b>classement ordinal exploratoire</b> : ce n'est ni une probabilité, ni une fréquence
+        historique calibrée, ni un rendement attendu. Chaque carte du tableau Confluence montre la décomposition
+        pilier par pilier.</div></details>
+
+    <details><summary>Les poids du score sont-ils calibrés ?<span class="plus">+</span></summary>
+      <div class="a">Non, pas encore sur une histoire live publiée. Les poids par défaut sont
+        <b>heuristiques</b> et documentés ; le harnais de backtest existe, mais le terme « validé » est réservé
+        à une version gelée ayant passé un protocole hors échantillon publié. La page Confluence expose cette
+        frontière dans sa méthodologie.</div></details>
 
     <details><summary>Pourquoi croiser 13F et Form 4 plutôt que l'un ou l'autre ?<span class="plus">+</span></summary>
       <div class="a">Pris seuls, chacun a un défaut. Le <span class="em">13F</span> est lourd mais lent : il arrive
@@ -147,7 +155,8 @@
         vous et la SEC.</div></details>
 
     <details><summary>Quelles transactions d'initiés sont comptées ?<span class="plus">+</span></summary>
-      <div class="a">Uniquement l'<b>intention de marché</b> : achats (code P) et ventes (code S) open-market.
+      <div class="a">Uniquement l'<b>intention de marché</b> : achats (code P) et ventes (code S),
+        qu'ils soient open-market ou privés lorsqu'ils sont déclarés comme transaction P/S.
         Les attributions d'actions, exercices d'options (M) et retenues fiscales (F) sont parsés mais
         <b>exclus du signal</b> — ils ne traduisent pas une décision d'acheter ou de vendre au prix du marché.</div></details>
 

@@ -482,17 +482,26 @@ async function boot(){
     await refreshAuth();
   }
   FUNDS=await api("/api/funds");
-  document.getElementById("srcText").textContent = LIVE? "LIVE · EDGAR":"DEMO SAMPLE";
+  let STATUS=null;
+  try{ STATUS=await api("/api/live-status"); }catch(e){ if(!DEMO_MODE) throw e; }
+  const state=STATUS&&STATUS.public_state?STATUS.public_state:(LIVE?"LIVE":"DEMO");
+  document.getElementById("srcText").textContent =
+    state==="LIVE"?"LIVE · EDGAR":(state==="DEGRADED"?"DEGRADED":"DEMO SAMPLE");
   document.getElementById("srcBadge").classList.toggle("live",LIVE);
   const latest = FUNDS.map(f=>f.latest_quarter).filter(Boolean).sort().pop();
   const aum = FUNDS.reduce((a,f)=>a+(f.aum||0),0);
+  const cov=STATUS&&STATUS.coverage&&typeof STATUS.coverage.overall_value_share==="number"
+    ? (STATUS.coverage.overall_value_share*100).toFixed(1)+"%" : "—";
+  const sha=STATUS&&STATUS.git_sha?STATUS.git_sha.slice(0,12):"—";
+  const period=STATUS&&STATUS.period_13f?`${STATUS.period_13f.from||"—"}..${STATUS.period_13f.to||"—"}`:"—";
+  const acc=STATUS&&STATUS.accessions?STATUS.accessions.latest_count:"—";
   const srcDetail=document.getElementById("srcDetail");
-  if(srcDetail) srcDetail.textContent = LIVE
-    ? `Source: SEC EDGAR · ${FUNDS.length} funds · latest 13F ${latest||"—"}`
+  if(srcDetail) srcDetail.textContent = STATUS
+    ? `State: ${state} · Source: ${STATUS.source} · generated ${STATUS.generated_at} · commit ${sha} · data_as_of ${STATUS.data_as_of||"—"} · 13F ${period} · coverage ${cov} · accessions ${acc}`
     : "Explicit demo mode · sample data";
   const crawlerState=document.getElementById("crawlerState");
-  if(crawlerState) crawlerState.textContent = LIVE
-    ? `Live data status: LIVE EDGAR. /api/funds serves ${FUNDS.length} funds; latest 13F quarter ${latest||"—"}.`
+  if(crawlerState) crawlerState.textContent = STATUS
+    ? `Live data status: ${state}. SHA ${STATUS.git_sha}; generated_at=${STATUS.generated_at}; data_as_of=${STATUS.data_as_of||"—"}; period_13f=${period}; uses_synthetic_data=${STATUS.uses_synthetic_data}; coverage=${cov}; latest_accessions=${acc}.`
     : "Demo data status: explicit sample mode (?demo=1). Not production data.";
   document.getElementById("mast-meta").innerHTML =
     `Quarter ending <b>${esc(latest)||"—"}</b><br>${FUNDS.length} funds · ${fmtUSD(aum)} 13F AUM`;
@@ -1098,6 +1107,7 @@ async function vConfluence(){
 //=================== explicit demo data (?demo=1 only) ===================
 function sampleFor(path){
   if(path.startsWith("/api/config")) return {open:true,features:{auth:false,alerts:false,billing:false,pro_api:false}};
+  if(path.startsWith("/api/live-status")) return {public_state:"DEMO",source:"DEMO SAMPLE",uses_synthetic_data:true,git_sha:"demo",generated_at:new Date().toISOString(),data_as_of:null,period_13f:{from:null,to:null},coverage:{overall_value_share:null},accessions:{latest_count:0}};
   if(path.startsWith("/api/funds")) return SAMPLE.funds;
   if(path.startsWith("/api/fund/")) return SAMPLE.detail[path.split("/")[3].split("?")[0]]||SAMPLE.detail._default;
   if(path.startsWith("/api/consensus/buys")) return SAMPLE.buys;

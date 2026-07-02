@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import re
+from datetime import datetime, timezone
 from html import escape as html_escape
 from typing import Optional
 
@@ -76,6 +77,10 @@ def _git_sha() -> str:
         return head
     except OSError:
         return "unknown"
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
 class _StoreConfluence:
@@ -315,8 +320,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     app.config["MAX_CONTENT_LENGTH"] = 256 * 1024   # this API takes no large bodies
     dash = dashboard_path or DASHBOARD
     _truthy = lambda v: str(v or "").strip().lower() in ("1", "true", "yes", "on")
-    open_mode = open_mode or _truthy(os.environ.get("SMARTMONEY_OPEN"))
-    read_only = _truthy(os.environ.get("SMARTMONEY_DB_READONLY"))
+    demo_mode = _truthy(os.environ.get("SMARTMONEY_DEMO"))
+    open_mode = open_mode or demo_mode or _truthy(os.environ.get("SMARTMONEY_OPEN"))
+    read_only = demo_mode or _truthy(os.environ.get("SMARTMONEY_DB_READONLY"))
     pro_enabled = _truthy(os.environ.get("SMARTMONEY_PRO_API"))
     pro_db_path = os.environ.get("SMARTMONEY_PRO_DB") or os.path.join(APP_ROOT, "13flow-pro.db")
 
@@ -339,7 +345,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     from .api_signals import make_signals_blueprint, SampleConfluenceProvider, UnconfiguredConfluenceProvider
     if _truthy(os.environ.get("SMARTMONEY_CONFLUENCE_LIVE")) and os.environ.get("SEC_UA"):
         confluence_provider = _StoreConfluence(db_path, os.environ["SEC_UA"])
-    elif _truthy(os.environ.get("SMARTMONEY_CONFLUENCE_DEMO")):
+    elif demo_mode or _truthy(os.environ.get("SMARTMONEY_CONFLUENCE_DEMO")):
         confluence_provider = SampleConfluenceProvider()
     else:
         confluence_provider = UnconfiguredConfluenceProvider()
@@ -1047,6 +1053,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     def config_ep():
         # Lets the single-page dashboard adapt to the build it is served by.
         return jsonify({"open": open_mode,
+                        "demo": demo_mode,
+                        "public_state": "DEMO" if demo_mode else "LIVE",
                         "features": {"auth": not open_mode,
                                      "alerts": not open_mode,
                                      "billing": not open_mode,
@@ -1055,27 +1063,72 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     @app.get("/api/version")
     @app.get("/healthz")
     def version_ep():
-        return jsonify({"app": "13flow", "git_sha": _git_sha(), "open": open_mode})
+        return jsonify({
+            "app": "13flow",
+            "git_sha": _git_sha(),
+            "commit": _git_sha(),
+            "generated_at": _now_iso(),
+            "open": open_mode,
+            "demo": demo_mode,
+            "public_state": "DEMO" if demo_mode else "LIVE",
+        })
 
     def live_status_payload() -> dict:
+        generated_at = _now_iso()
         s = store()
         try:
             funds = s.conn.execute("SELECT COUNT(*) c FROM funds").fetchone()["c"] or 0
             filings = s.conn.execute("SELECT COUNT(*) c FROM filings").fetchone()["c"] or 0
             latest_rows = s.conn.execute("SELECT COUNT(*) c FROM latest_filings").fetchone()["c"] or 0
             latest = s.conn.execute("SELECT MAX(report_date) d FROM latest_filings").fetchone()["d"]
+            earliest = s.conn.execute("SELECT MIN(report_date) d FROM latest_filings").fetchone()["d"]
+            latest_filing_date = s.conn.execute("SELECT MAX(filing_date) d FROM filings").fetchone()["d"]
+            accession_rows = s.conn.execute(
+                """SELECT f.accession, f.cik, fn.label, f.form, f.report_date, f.filing_date
+                   FROM latest_filings lf
+                   JOIN filings f ON f.accession=lf.accession
+                   LEFT JOIN funds fn ON fn.cik=f.cik
+                   ORDER BY f.report_date DESC, f.filing_date DESC, f.accession DESC
+                   LIMIT 12"""
+            ).fetchall()
+            coverage = s.coverage(latest) if latest else {
+                "overall_value_share": None,
+                "value_unresolved": None,
+                "per_fund": [],
+            }
             quality = data_quality_report(s, limit=1)["summary"]
         finally:
             s.close()
-        data_mode = "live_edgar" if funds and filings and latest_rows else "not_ready"
+        ready = bool(funds and filings and latest_rows)
+        data_mode = "demo" if demo_mode else ("live_edgar" if ready else "degraded")
+        source = "DEMO SAMPLE" if demo_mode else "SEC EDGAR"
         return {
             "app": "13flow",
+            "generated_at": generated_at,
             "data_mode": data_mode,
-            "source": "SEC EDGAR",
-            "uses_synthetic_data": False,
+            "public_state": "DEMO" if demo_mode else ("LIVE" if ready else "DEGRADED"),
+            "source": source,
+            "uses_synthetic_data": bool(demo_mode),
             "git_sha": _git_sha(),
+            "commit": _git_sha(),
             "open": open_mode,
+            "auth_enabled": not open_mode,
+            "checkout_enabled": (not open_mode),
             "latest_13f_quarter": latest,
+            "data_as_of": latest_filing_date,
+            "period_13f": {
+                "from": earliest,
+                "to": latest,
+            },
+            "coverage": {
+                "overall_value_share": coverage.get("overall_value_share"),
+                "value_unresolved": coverage.get("value_unresolved"),
+                "funds_reported": len(coverage.get("per_fund") or []),
+            },
+            "accessions": {
+                "latest_count": latest_rows,
+                "sample": [dict(r) for r in accession_rows],
+            },
             "counts": {
                 "funds": funds,
                 "filings": filings,
@@ -1099,20 +1152,36 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         counts = status["counts"]
         quality = status["quality_summary"]
         latest_s = status["latest_13f_quarter"] or "n/a"
+        coverage = status.get("coverage") or {}
+        cov = coverage.get("overall_value_share")
+        cov_s = f"{cov * 100:.1f}%" if isinstance(cov, (int, float)) else "n/a"
+        if status["public_state"] == "LIVE":
+            src_text = "LIVE · EDGAR"
+            prefix = "Live data status: LIVE EDGAR."
+        elif status["public_state"] == "DEMO":
+            src_text = "DEMO SAMPLE"
+            prefix = "Live data status: DEMO SAMPLE."
+        else:
+            src_text = "DEGRADED"
+            prefix = "Live data status: DEGRADED."
         detail = (
-            f"Source: SEC EDGAR · {counts['funds']} funds · {counts['filings']} filings · "
-            f"{counts['latest_filings']} latest rows · latest 13F {latest_s}"
+            f"State: {status['public_state']} · Source: {status['source']} · "
+            f"{counts['funds']} funds · {counts['filings']} filings · "
+            f"{counts['latest_filings']} latest rows · latest 13F {latest_s} · "
+            f"coverage {cov_s} · commit {status['git_sha'][:12]}"
         )
         crawler = (
-            "Live data status: LIVE EDGAR. "
-            f"/api/version SHA {status['git_sha']}; /api/live-status confirms "
-            f"uses_synthetic_data=false; /api/funds serves {counts['funds']} funds; "
-            f"latest 13F quarter {latest_s}; data quality has "
-            f"{quality['aum_jump_warnings']} AUM warnings and "
+            f"{prefix} /api/version SHA {status['git_sha']}; generated_at={status['generated_at']}; "
+            f"data_as_of={status.get('data_as_of') or 'n/a'}; "
+            f"period_13f={status['period_13f']['from']}..{status['period_13f']['to']}; "
+            f"uses_synthetic_data={str(status['uses_synthetic_data']).lower()}; "
+            f"coverage={cov_s}; latest_accessions={status['accessions']['latest_count']}; "
+            f"/api/funds serves {counts['funds']} funds; latest 13F quarter {latest_s}; "
+            f"data quality has {quality['aum_jump_warnings']} AUM warnings and "
             f"{quality['unit_scale_candidates']} unit-scale candidates."
         )
         return {
-            "src_text": "LIVE · EDGAR",
+            "src_text": src_text,
             "src_detail": detail,
             "crawler": crawler,
         }

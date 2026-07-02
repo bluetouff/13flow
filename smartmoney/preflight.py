@@ -236,6 +236,36 @@ def _pro_api_contract_checks(
     return checks
 
 
+def _public_surface_checks(db_path: str) -> list[Check]:
+    checks: list[Check] = []
+    try:
+        from .api import create_app
+        client = create_app(db_path, open_mode=True).test_client()
+        root = client.get("/")
+        html = root.get_data(as_text=True)
+        if root.status_code != 200:
+            checks.append(_check("public_surface.root", "fail", f"HTTP {root.status_code}"))
+        elif "SAMPLE DATA" in html:
+            checks.append(_check("public_surface.no_sample_badge", "fail",
+                                 "SAMPLE DATA is visible on the public root page"))
+        else:
+            checks.append(_check("public_surface.no_sample_badge", "pass",
+                                 "public root does not expose SAMPLE DATA"))
+
+        cfg = client.get("/api/config").get_json() or {}
+        features = cfg.get("features") or {}
+        if features.get("auth") or features.get("billing") or features.get("alerts"):
+            checks.append(_check("public_surface.open_features", "fail",
+                                 "auth/billing/alerts visible in open build", features=features))
+        else:
+            checks.append(_check("public_surface.open_features", "pass",
+                                 "auth, billing, and alerts disabled in open build",
+                                 features=features))
+    except Exception as e:  # noqa: BLE001
+        checks.append(_check("public_surface.contract", "fail", str(e)))
+    return checks
+
+
 def run_preflight(
     db_path: str,
     *,
@@ -262,6 +292,7 @@ def run_preflight(
         checks.append(_check("deploy.sha", "warn", "not checked"))
 
     checks.extend(_market_db_checks(db_path))
+    checks.extend(_public_surface_checks(db_path))
     if pro_db_path and os.path.exists(pro_db_path):
         checks.extend(_pro_api_contract_checks(db_path, pro_db_path, api_token, require_pro))
     checks.extend(_pro_db_checks(pro_db_path or "", require_pro, audit_recent_hours))

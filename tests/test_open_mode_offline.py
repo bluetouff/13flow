@@ -30,11 +30,16 @@ def test_open_mode_hides_private_surface_and_keeps_public():
         # config advertises the open build
         cfg = c.get("/api/config").get_json()
         assert cfg["open"] is True
+        assert cfg["demo"] is False
+        assert cfg["public_state"] == "LIVE"
         assert cfg["features"] == {"auth": False, "alerts": False, "billing": False,
                                    "pro_api": False}
         ver = c.get("/api/version").get_json()
         assert ver["app"] == "13flow"
         assert ver["open"] is True
+        assert ver["public_state"] == "LIVE"
+        assert ver["commit"] == ver["git_sha"]
+        assert ver["generated_at"]
         assert ver["git_sha"]
         assert c.get("/healthz").get_json()["app"] == "13flow"
 
@@ -81,6 +86,27 @@ def test_env_var_enables_open_mode(monkeypatch):
         assert c.get("/api/auth/me").status_code == 404
 
 
+def test_demo_mode_is_open_and_non_commercial(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        db = str(Path(d) / "demo.db")
+        _seed(db)
+        monkeypatch.setenv("SMARTMONEY_DEMO", "1")
+        c = create_app(db, secure_cookies=False).test_client()
+        cfg = c.get("/api/config").get_json()
+        assert cfg["open"] is True
+        assert cfg["demo"] is True
+        assert cfg["public_state"] == "DEMO"
+        assert cfg["features"]["auth"] is False
+        assert cfg["features"]["billing"] is False
+        assert c.get("/api/auth/me").status_code == 404
+        assert c.get("/api/billing/config").status_code == 404
+        live = c.get("/api/live-status").get_json()
+        assert live["public_state"] == "DEMO"
+        assert live["uses_synthetic_data"] is True
+        assert live["auth_enabled"] is False
+        assert live["checkout_enabled"] is False
+
+
 def test_dashboard_initial_html_exposes_live_state_for_crawlers():
     with tempfile.TemporaryDirectory() as d:
         db = str(Path(d) / "crawler.db")
@@ -88,6 +114,8 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
         _save(s, "0001067983", "Berkshire Hathaway", "Warren Buffett",
               "0001-26-000001", "13F-HR", "2026-05-15", "2026-03-31",
               [("APPLE INC", AAPL, 1000, 100, "")])
+        s.conn.execute("UPDATE holdings SET ticker='AAPL' WHERE cusip=?", (AAPL,))
+        s.conn.commit()
         s.close()
 
         html = create_app(db, secure_cookies=False, open_mode=True).test_client() \
@@ -103,8 +131,18 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
         live = create_app(db, secure_cookies=False, open_mode=True).test_client() \
             .get("/api/live-status").get_json()
         assert live["data_mode"] == "live_edgar"
+        assert live["public_state"] == "LIVE"
         assert live["uses_synthetic_data"] is False
         assert live["source"] == "SEC EDGAR"
+        assert live["generated_at"]
+        assert live["commit"] == live["git_sha"]
+        assert live["data_as_of"] == "2026-05-15"
+        assert live["period_13f"] == {"from": "2026-03-31", "to": "2026-03-31"}
+        assert live["coverage"]["overall_value_share"] == 1.0
+        assert live["accessions"]["latest_count"] == 1
+        assert live["accessions"]["sample"][0]["accession"] == "0001-26-000001"
+        assert live["auth_enabled"] is False
+        assert live["checkout_enabled"] is False
         assert live["counts"]["funds"] == 1
         assert live["latest_13f_quarter"] == "2026-03-31"
 
