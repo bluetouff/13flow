@@ -56,6 +56,23 @@ def test_pro_api_funds_payload_includes_quality_summary(monkeypatch):
         assert any(f["quality_warnings"] for f in payload["funds"])
 
 
+def test_pro_api_responses_are_not_cacheable(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        c, token, key, pro_db = _client(monkeypatch, d)
+
+        unauth = c.get("/api/pro/v1/status")
+        assert unauth.status_code == 401
+        assert unauth.headers["WWW-Authenticate"] == 'Bearer realm="13flow-pro"'
+
+        r = c.get("/api/pro/v1/status", headers={"Authorization": "Bearer " + token})
+        assert r.status_code == 200
+        assert r.headers["Cache-Control"] == "private, no-store, max-age=0"
+        assert r.headers["Pragma"] == "no-cache"
+        assert r.headers["Expires"] == "0"
+        vary = {v.strip() for v in r.headers["Vary"].split(",")}
+        assert {"Authorization", "X-13FLOW-Key"} <= vary
+
+
 def test_pro_api_fund_detail_is_self_describing(monkeypatch):
     with tempfile.TemporaryDirectory() as d:
         c, token, key, pro_db = _client(monkeypatch, d)

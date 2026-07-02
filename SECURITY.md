@@ -83,6 +83,8 @@ The Pro API is intentionally separate from browser sessions. It is disabled unle
   limits survive worker restarts. Exceeding a bucket returns **429** with `Retry-After`.
 - **Audit** — every Pro request writes an audit event with key id when known, route, method,
   status, IP, user agent, and timestamp. Denied and rate-limited calls are audited too.
+- **HTTP cache safety** — Pro responses set `Cache-Control: private, no-store, max-age=0`,
+  `Pragma: no-cache`, `Expires: 0`, and `Vary: Authorization, X-13FLOW-Key`.
 - **Data-plane separation** — the Pro DB should be a small writable runtime DB
   (`/var/lib/13flow/13flow-pro.db`). The 13F data DB can remain read-only for the web process.
 - **Revocation** — `run.py --revoke-api-key <key_id>` marks a key revoked immediately; no

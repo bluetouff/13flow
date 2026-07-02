@@ -150,7 +150,9 @@ curl https://13flow.eu/api/pro/v1/openapi.json
 
 Security properties: opaque high-entropy tokens, key hashes only at rest, scoped access
 (`funds:read`, `quality:read`), persistent per-minute/per-day rate limits, and an audit row
-for every Pro request including denied and rate-limited calls.
+for every Pro request including denied and rate-limited calls. Pro responses are explicitly
+non-cacheable (`private, no-store, max-age=0`) and vary on both supported key headers so
+reverse proxies cannot mix responses across credentials.
 
 `GET /api/pro/v1/fund/<cik>` is the institutional detail endpoint: it returns the selected
 filing metadata, previous filing metadata, full holdings, share-count moves versus the

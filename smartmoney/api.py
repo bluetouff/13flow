@@ -417,7 +417,11 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     return resp
                 except APIKeyError as e:
                     status = e.status_code
-                    return jsonify({"error": e.code}), e.status_code
+                    resp = jsonify({"error": e.code})
+                    resp.status_code = e.status_code
+                    if e.status_code == 401:
+                        resp.headers["WWW-Authenticate"] = 'Bearer realm="13flow-pro"'
+                    return resp
                 finally:
                     try:
                         ps.audit(key_id, request.method, request.path, status,
@@ -433,6 +437,12 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         resp.headers["X-Frame-Options"] = "DENY"
         resp.headers["Referrer-Policy"] = "no-referrer"
         resp.headers.setdefault("Cache-Control", "no-store")
+        if request.path.startswith("/api/pro/v1/"):
+            resp.headers["Cache-Control"] = "private, no-store, max-age=0"
+            resp.headers["Pragma"] = "no-cache"
+            resp.headers["Expires"] = "0"
+            resp.vary.add("Authorization")
+            resp.vary.add("X-13FLOW-Key")
         # Strict default CSP for non-HTML (JSON/errors). HTML routes set their own nonce policy.
         resp.headers.setdefault("Content-Security-Policy",
                                 "default-src 'none'; frame-ancestors 'none'; base-uri 'none'")
