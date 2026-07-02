@@ -56,10 +56,12 @@ conviction sparklines), **Compare** (overlap matrix across funds), **Alerts** (s
 the diff feed), and **Confluence** (13F accumulation × insider buying). A served **FAQ** page
 (`/faq`) explains the product, linked from the sidebar. `dashboard.html` also renders standalone
 with built-in sample data across every screen when no API is reachable, so you can preview the
-whole UI before syncing any data. API endpoints: `/api/funds`, `/api/fund/<cik>`,
+whole UI before syncing any data. API endpoints: `/api/live-status`, `/api/funds`, `/api/fund/<cik>`,
 `/api/consensus/{buys,holdings}`, `/api/compare`, `/api/alerts/preview/<cik>`,
 `/api/signals/confluence`, `/api/data-quality` (all public, read-only), plus authenticated
-`/api/auth/*` and user-scoped `/api/subscriptions`.
+`/api/auth/*` and user-scoped `/api/subscriptions`. `/api/live-status` is the public,
+machine-readable proof of live state: SHA, source (`SEC EDGAR`), latest quarter, row counts,
+data-quality summary, and `uses_synthetic_data=false`.
 
 ## Accounts & auth
 Read-only market data is public (it's public-domain). The **paid** feature — filing-alert

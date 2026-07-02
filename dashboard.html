@@ -214,6 +214,7 @@
     background:var(--ink,#15171c);color:#fff;padding:13px 20px;border-radius:12px;font-weight:600;font-size:14px;
     box-shadow:var(--shadow);transition:.3s;z-index:60;pointer-events:none}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .crawler-state{font-size:12px;color:var(--muted);margin:-10px 0 22px;max-width:760px;line-height:1.5}
   /* ===== Confluence (13FLOW) — all scoped under .cfl to avoid clashing with other screens ===== */
   .cfl .pillrow{display:flex;gap:6px;margin:2px 0 18px}
   .cfl .pill{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--muted);border:1px solid var(--line);background:var(--panel-2);padding:6px 13px;border-radius:999px;cursor:pointer;transition:.15s}
@@ -311,8 +312,8 @@
     </nav>
     <div class="rail-foot">
       <div id="authbox"></div>
-      <span id="srcBadge" class="badge"><span class="led"></span><span id="srcText">SAMPLE DATA</span></span>
-      <div style="margin-top:10px">Source: SEC EDGAR · public domain</div>
+      <span id="srcBadge" class="badge"><span class="led"></span><span id="srcText">VERIFYING DATA</span></span>
+      <div id="srcDetail" style="margin-top:10px">Source: SEC EDGAR · public API verification pending</div>
       <a href="faq.html" class="footlink">How it works · FAQ →</a>
       <a href="mentions-legales.html" class="footlink">Mentions légales</a>
     </div>
@@ -327,6 +328,7 @@
       <div class="meta" id="mast-meta"></div>
     </div>
     <div class="rule-thin"></div>
+    <div id="crawlerState" class="crawler-state">Live data status pending. Public verification endpoints: /api/version, /api/funds, /api/data-quality.</div>
     <div id="view"></div>
   </main>
 </div>
@@ -377,7 +379,7 @@
 <div id="toast" class="toast"></div>
 
 <script>
-//=================== data layer (API with sample fallback) ===================
+//=================== data layer (API with offline preview fallback) ===================
 let LIVE=false;
 async function api(path){
   try{
@@ -407,7 +409,7 @@ async function refreshAuth(){
     const r=await fetch("/api/auth/me",{cache:"no-store",credentials:"same-origin"});
     AUTH_BACKEND=true;
     USER = r.ok ? await r.json() : null;
-  }catch(e){ AUTH_BACKEND=false; USER=null; }   // no backend -> sample/preview mode
+  }catch(e){ AUTH_BACKEND=false; USER=null; }   // no backend -> offline preview mode
   renderAuthbox();
 }
 function qp(path,key){const m=path.match(new RegExp(key+"=([^&]+)"));return m?decodeURIComponent(m[1]):null;}
@@ -457,10 +459,18 @@ async function boot(){
     await refreshAuth();
   }
   FUNDS=await api("/api/funds");
-  document.getElementById("srcText").textContent = LIVE? "LIVE · EDGAR":"SAMPLE DATA";
+  document.getElementById("srcText").textContent = LIVE? "LIVE · EDGAR":"OFFLINE PREVIEW";
   document.getElementById("srcBadge").classList.toggle("live",LIVE);
   const latest = FUNDS.map(f=>f.latest_quarter).filter(Boolean).sort().pop();
   const aum = FUNDS.reduce((a,f)=>a+(f.aum||0),0);
+  const srcDetail=document.getElementById("srcDetail");
+  if(srcDetail) srcDetail.textContent = LIVE
+    ? `Source: SEC EDGAR · ${FUNDS.length} funds · latest 13F ${latest||"—"}`
+    : "Offline preview fallback · public API unreachable";
+  const crawlerState=document.getElementById("crawlerState");
+  if(crawlerState) crawlerState.textContent = LIVE
+    ? `Live data status: LIVE EDGAR. /api/funds serves ${FUNDS.length} funds; latest 13F quarter ${latest||"—"}.`
+    : "Offline preview fallback. Public API did not respond in this browser session.";
   document.getElementById("mast-meta").innerHTML =
     `Quarter ending <b>${esc(latest)||"—"}</b><br>${FUNDS.length} funds · ${fmtUSD(aum)} 13F AUM`;
   if(!OPEN_MODE) await handleBillingReturn();
@@ -1045,7 +1055,7 @@ async function vConfluence(){
   await cflLoad();
 }
 
-//=================== sample data (renders when no API is reachable) ===================
+//=================== offline preview data (renders when no API is reachable) ===================
 function sampleFor(path){
   if(path.startsWith("/api/funds")) return SAMPLE.funds;
   if(path.startsWith("/api/fund/")) return SAMPLE.detail[path.split("/")[3].split("?")[0]]||SAMPLE.detail._default;

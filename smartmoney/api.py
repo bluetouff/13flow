@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import re
+from html import escape as html_escape
 from typing import Optional
 
 import functools
@@ -906,7 +907,100 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     def version_ep():
         return jsonify({"app": "13flow", "git_sha": _git_sha(), "open": open_mode})
 
+    def live_status_payload() -> dict:
+        s = store()
+        try:
+            funds = s.conn.execute("SELECT COUNT(*) c FROM funds").fetchone()["c"] or 0
+            filings = s.conn.execute("SELECT COUNT(*) c FROM filings").fetchone()["c"] or 0
+            latest_rows = s.conn.execute("SELECT COUNT(*) c FROM latest_filings").fetchone()["c"] or 0
+            latest = s.conn.execute("SELECT MAX(report_date) d FROM latest_filings").fetchone()["d"]
+            quality = data_quality_report(s, limit=1)["summary"]
+        finally:
+            s.close()
+        data_mode = "live_edgar" if funds and filings and latest_rows else "not_ready"
+        return {
+            "app": "13flow",
+            "data_mode": data_mode,
+            "source": "SEC EDGAR",
+            "uses_synthetic_data": False,
+            "git_sha": _git_sha(),
+            "open": open_mode,
+            "latest_13f_quarter": latest,
+            "counts": {
+                "funds": funds,
+                "filings": filings,
+                "latest_filings": latest_rows,
+            },
+            "quality_summary": {
+                "status": quality["status"],
+                "aum_jump_warnings": quality["aum_jump_warnings"],
+                "unit_scale_candidates": quality["unit_scale_candidates"],
+            },
+            "public_endpoints": ["/api/live-status", "/api/version", "/api/funds", "/api/data-quality"],
+        }
+
+    @app.get("/api/live-status")
+    def live_status_ep():
+        return jsonify(live_status_payload())
+
     # ---- dashboard ------------------------------------------------------
+    def _dashboard_live_status() -> dict[str, str]:
+        status = live_status_payload()
+        counts = status["counts"]
+        quality = status["quality_summary"]
+        latest_s = status["latest_13f_quarter"] or "n/a"
+        detail = (
+            f"Source: SEC EDGAR · {counts['funds']} funds · {counts['filings']} filings · "
+            f"{counts['latest_filings']} latest rows · latest 13F {latest_s}"
+        )
+        crawler = (
+            "Live data status: LIVE EDGAR. "
+            f"/api/version SHA {status['git_sha']}; /api/live-status confirms "
+            f"uses_synthetic_data=false; /api/funds serves {counts['funds']} funds; "
+            f"latest 13F quarter {latest_s}; data quality has "
+            f"{quality['aum_jump_warnings']} AUM warnings and "
+            f"{quality['unit_scale_candidates']} unit-scale candidates."
+        )
+        return {
+            "src_text": "LIVE · EDGAR",
+            "src_detail": detail,
+            "crawler": crawler,
+        }
+
+    def _inject_dashboard_live_status(markup: str) -> str:
+        try:
+            status = _dashboard_live_status()
+            is_live = True
+        except Exception as e:  # noqa: BLE001
+            app.logger.warning("dashboard live-status injection failed: %s", e)
+            is_live = False
+            status = {
+                "src_text": "VERIFYING DATA",
+                "src_detail": "Source: SEC EDGAR · public API verification pending",
+                "crawler": (
+                    "Live data status pending. Public verification endpoints: "
+                    "/api/version, /api/funds, /api/data-quality."
+                ),
+            }
+        if is_live:
+            markup = markup.replace(
+                'id="srcBadge" class="badge"',
+                'id="srcBadge" class="badge live"',
+            )
+        markup = markup.replace(
+            '<span id="srcText">VERIFYING DATA</span>',
+            f'<span id="srcText">{html_escape(status["src_text"])}</span>',
+        )
+        markup = markup.replace(
+            '<div id="srcDetail" style="margin-top:10px">Source: SEC EDGAR · public API verification pending</div>',
+            f'<div id="srcDetail" style="margin-top:10px">{html_escape(status["src_detail"])}</div>',
+        )
+        markup = markup.replace(
+            '<div id="crawlerState" class="crawler-state">Live data status pending. Public verification endpoints: /api/version, /api/funds, /api/data-quality.</div>',
+            f'<div id="crawlerState" class="crawler-state">{html_escape(status["crawler"])}</div>',
+        )
+        return markup
+
     def _serve_html(path):
         # Serve a local HTML file with a strict, per-request nonce CSP. The page's single
         # inline <script> gets the nonce; inline event-handler attributes are NOT used, so
@@ -916,7 +1010,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             return Response("not found", status=404)
         nonce = secrets.token_urlsafe(16)
         with open(path, "r", encoding="utf-8") as fh:
-            html = fh.read().replace("<script>", f'<script nonce="{nonce}">')
+            html = fh.read()
+        if os.path.abspath(path) == os.path.abspath(dash):
+            html = _inject_dashboard_live_status(html)
+        html = html.replace("<script>", f'<script nonce="{nonce}">')
         resp = Response(html, mimetype="text/html; charset=utf-8")
         resp.headers["Content-Security-Policy"] = (
             "default-src 'none'; "

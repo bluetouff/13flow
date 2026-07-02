@@ -11,6 +11,7 @@ from pathlib import Path
 
 from smartmoney.db import Store
 from smartmoney.api import create_app
+from tests.test_db_offline import AAPL, _save
 
 
 def _seed(path):
@@ -40,7 +41,7 @@ def test_open_mode_hides_private_surface_and_keeps_public():
         # public, read-only endpoints are present
         for path in ("/api/funds", "/api/consensus/buys", "/api/compare",
                      "/api/signals/confluence", "/api/coverage", "/api/data-quality",
-                     "/api/version", "/healthz", "/"):
+                     "/api/live-status", "/api/version", "/healthz", "/"):
             assert c.get(path).status_code == 200, path
 
         # the entire private surface is unregistered -> 404 (not 401), incl. mutations
@@ -73,6 +74,34 @@ def test_env_var_enables_open_mode(monkeypatch):
         c = create_app(db, secure_cookies=False).test_client()   # no explicit open_mode arg
         assert c.get("/api/config").get_json()["open"] is True
         assert c.get("/api/auth/me").status_code == 404
+
+
+def test_dashboard_initial_html_exposes_live_state_for_crawlers():
+    with tempfile.TemporaryDirectory() as d:
+        db = str(Path(d) / "crawler.db")
+        s = Store(db)
+        _save(s, "0001067983", "Berkshire Hathaway", "Warren Buffett",
+              "0001-26-000001", "13F-HR", "2026-05-15", "2026-03-31",
+              [("APPLE INC", AAPL, 1000, 100, "")])
+        s.close()
+
+        html = create_app(db, secure_cookies=False, open_mode=True).test_client() \
+            .get("/").get_data(as_text=True)
+
+        assert '<span id="srcText">LIVE · EDGAR</span>' in html
+        assert "SAMPLE DATA" not in html
+        assert "Live data status: LIVE EDGAR." in html
+        assert "uses_synthetic_data=false" in html
+        assert "/api/funds serves 1 funds" in html
+        assert "latest 13F quarter 2026-03-31" in html
+
+        live = create_app(db, secure_cookies=False, open_mode=True).test_client() \
+            .get("/api/live-status").get_json()
+        assert live["data_mode"] == "live_edgar"
+        assert live["uses_synthetic_data"] is False
+        assert live["source"] == "SEC EDGAR"
+        assert live["counts"]["funds"] == 1
+        assert live["latest_13f_quarter"] == "2026-03-31"
 
 
 if __name__ == "__main__":
