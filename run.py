@@ -143,7 +143,7 @@ def _build_resolver(enrich: bool):
                          cache=ResolutionCache())
 
 
-def cmd_sync(client, labels, db_path, enrich, max_quarters) -> None:
+def cmd_sync(client, labels, db_path, enrich, max_quarters, force) -> None:
     tracker = Tracker(client, resolver=_build_resolver(enrich))
     with Store(db_path) as store:
         for label in labels:
@@ -151,9 +151,10 @@ def cmd_sync(client, labels, db_path, enrich, max_quarters) -> None:
             if fund is None:
                 print(f"  skip unknown fund '{label}'", file=sys.stderr)
                 continue
-            n = tracker.sync_fund(store, fund, max_quarters=max_quarters)
+            n = tracker.sync_fund(store, fund, max_quarters=max_quarters, force=force)
             qs = store.quarters(tracker.cik_for(fund))
-            print(f"  {fund.label:<22} +{n} new filing(s); {len(qs)} quarter(s) stored")
+            action = "processed" if force else "new"
+            print(f"  {fund.label:<22} +{n} {action} filing(s); {len(qs)} quarter(s) stored")
 
 
 def cmd_coverage(db_path, basis) -> None:
@@ -467,6 +468,8 @@ def main() -> None:
     ap.add_argument("--top", type=int, default=20, help="rows to show")
     ap.add_argument("--min-funds", type=int, default=3, help="threshold for consensus screens")
     ap.add_argument("--max-quarters", type=int, default=None, help="limit quarters when syncing")
+    ap.add_argument("--force", action="store_true",
+                    help="re-fetch and replace filings already stored (use after parser/data fixes)")
     ap.add_argument("--enrich", action="store_true",
                     help="resolve CUSIP->ticker via OpenFIGI (set OPENFIGI_APIKEY for higher limits)")
     ap.add_argument("--confluence", action="store_true",
@@ -521,7 +524,7 @@ def main() -> None:
     elif args.sync or args.sync_all:
         labels = [f.label for f in SUPERINVESTORS] if args.sync_all else [args.sync]
         print("Syncing into", args.db)
-        cmd_sync(client, labels, args.db, args.enrich, args.max_quarters)
+        cmd_sync(client, labels, args.db, args.enrich, args.max_quarters, args.force)
     elif args.alerts_run:
         cmd_alerts(client, args.db, dispatch_only=False)
     elif args.resolve_sweep:

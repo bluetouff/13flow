@@ -14,6 +14,7 @@ from smartmoney.portfolio import build_portfolio
 from smartmoney.db import Store
 from smartmoney.analytics import consensus_moves
 from smartmoney.diff import Move
+from smartmoney.tracker import Tracker
 from tests.test_offline import _table
 
 # CUSIPs reused across the suite
@@ -100,6 +101,43 @@ def test_consensus_and_analytics():
         # previous_quarter helper
         assert store.previous_quarter(f1, "2024-06-30") == "2024-03-31"
         assert store.previous_quarter(f1, "2024-03-31") is None
+
+
+def test_force_sync_replaces_existing_filing():
+    class FakeClient:
+        def __init__(self):
+            self.value = 1000
+            self.filing = Filing(cik="0000000001", accession="A1", form="13F-HR",
+                                 filing_date="2024-05-01", report_date="2024-03-31",
+                                 primary_doc="primary.xml")
+
+        def resolve_cik(self, _):
+            return "0000000001"
+
+        def list_13f_filings(self, cik, include_amendments=True):
+            return [self.filing]
+
+        def fetch_info_table_xml(self, filing):
+            return _table([("APPLE INC", AAPL, self.value, 100, "")])
+
+    with tempfile.TemporaryDirectory() as d:
+        store = Store(str(Path(d) / "force.db"))
+        client = FakeClient()
+        tracker = Tracker(client)
+        fund = type("FundLike", (), {
+            "cik": "0000000001", "label": "Fund One", "manager": "PM1",
+            "search_name": "Fund One",
+        })()
+
+        assert tracker.sync_fund(store, fund) == 1
+        assert store.load_portfolio("0000000001").total_value == 1000
+
+        client.value = 2000
+        assert tracker.sync_fund(store, fund) == 0
+        assert store.load_portfolio("0000000001").total_value == 1000
+
+        assert tracker.sync_fund(store, fund, force=True) == 1
+        assert store.load_portfolio("0000000001").total_value == 2000
 
 
 if __name__ == "__main__":
