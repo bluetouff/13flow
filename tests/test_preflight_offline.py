@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 
 from smartmoney.db import Store
-from smartmoney.preflight import run_preflight
+from smartmoney.preflight import deployed_sha_from_systemd, run_preflight
 from smartmoney.pro import ProAPIStore
 from tests.test_db_offline import AAPL, KO, MSFT, _save
 
@@ -72,3 +72,13 @@ def test_preflight_fails_on_sha_mismatch_and_missing_required_pro_db():
     checks = {c["name"]: c for c in report["checks"]}
     assert checks["deploy.sha"]["status"] == "fail"
     assert checks["pro_db.exists"]["status"] == "fail"
+
+
+def test_deployed_sha_can_be_read_from_systemd_dropin():
+    with tempfile.TemporaryDirectory() as d:
+        path = Path(d) / "version.conf"
+        path.write_text('[Service]\nEnvironment=SMARTMONEY_GIT_SHA="abc123"\n',
+                        encoding="utf-8")
+
+        assert deployed_sha_from_systemd(str(path)) == "abc123"
+        assert deployed_sha_from_systemd(str(Path(d) / "missing.conf")) is None

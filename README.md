@@ -238,7 +238,9 @@ no SEC_UA needed once data is synced.
 traceability, opens the market DB read-only, verifies the `latest_filings` view has content,
 summarizes data quality, verifies the Pro DB is writable, checks active Pro keys and recent
 audit rows, and, when a token is provided via environment, validates the Pro API contract
-in-process without putting the token in shell history.
+in-process without putting the token in shell history. In rsync-style deployments without a
+`.git` directory, the CLI reads the deployed SHA from the systemd drop-in
+`/etc/systemd/system/13flow.service.d/version.conf`.
 
 ```bash
 SHA=<deployed-git-sha>

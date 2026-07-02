@@ -18,6 +18,8 @@ from .db import Store
 from .pro import ProAPIStore
 from .quality import data_quality_report
 
+SYSTEMD_VERSION_CONF = "/etc/systemd/system/13flow.service.d/version.conf"
+
 
 @dataclass(frozen=True)
 class Check:
@@ -45,6 +47,19 @@ def _parse_iso(raw: str | None) -> datetime | None:
 
 def _check(name: str, status: str, detail: str, **data) -> Check:
     return Check(name=name, status=status, detail=detail, data=(data or None))
+
+
+def deployed_sha_from_systemd(path: str = SYSTEMD_VERSION_CONF) -> str | None:
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                prefix = "Environment=SMARTMONEY_GIT_SHA="
+                if line.startswith(prefix):
+                    return line[len(prefix):].strip().strip('"') or None
+    except OSError:
+        return None
+    return None
 
 
 def _market_db_checks(db_path: str) -> list[Check]:

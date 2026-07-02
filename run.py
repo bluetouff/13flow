@@ -39,7 +39,7 @@ from smartmoney.tracker import Tier
 from smartmoney.accounts import AccountStore, EmailTaken, PasswordPolicyError
 from smartmoney.hibp import default_breach_checker
 from smartmoney.pro import ProAPIStore
-from smartmoney.preflight import run_preflight
+from smartmoney.preflight import deployed_sha_from_systemd, run_preflight
 from smartmoney.quality import data_quality_report
 from smartmoney.registry import SUPERINVESTORS, by_label
 
@@ -250,12 +250,15 @@ def cmd_revoke_api_key(pro_db, key_id) -> None:
 def cmd_preflight(db_path, pro_db, require_pro, expected_sha, audit_recent_hours,
                   token_env, as_json) -> None:
     from smartmoney.api import _git_sha
+    current_sha = _git_sha()
+    if current_sha == "unknown":
+        current_sha = deployed_sha_from_systemd() or current_sha
     report = run_preflight(
         db_path,
         pro_db_path=pro_db,
         require_pro=require_pro,
         expected_sha=expected_sha,
-        current_sha=_git_sha(),
+        current_sha=current_sha,
         audit_recent_hours=audit_recent_hours,
         api_token=os.environ.get(token_env, ""),
     )
