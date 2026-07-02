@@ -128,10 +128,12 @@ class YahooChartProvider(PriceProvider):
 
     BASE = "https://query1.finance.yahoo.com/v8/finance/chart/"
 
-    def __init__(self, session: Optional[requests.Session] = None):
+    def __init__(self, session: Optional[requests.Session] = None,
+                 timeout: float = 10.0):
         super().__init__()
         self._session = session or requests.Session()
         self._session.headers.setdefault("User-Agent", "13flow-validation/1.0")
+        self._timeout = timeout
 
     @staticmethod
     def _symbol(ticker: str) -> str:
@@ -151,7 +153,7 @@ class YahooChartProvider(PriceProvider):
             "includeAdjustedClose": "true",
         }
         resp = self._session.get(self.BASE + self._symbol(ticker),
-                                 params=params, timeout=30)
+                                 params=params, timeout=self._timeout)
         resp.raise_for_status()
         return self._parse_chart(resp.json())
 

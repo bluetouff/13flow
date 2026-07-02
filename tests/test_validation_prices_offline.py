@@ -59,6 +59,11 @@ class FakeRateLimitedProvider(PriceProvider):
         return {date(2024, 1, 2): 100.0}
 
 
+class FakeFailingProvider(PriceProvider):
+    def daily_closes(self, ticker: str, start: date, end: date) -> dict[date, float]:
+        raise TimeoutError(f"timeout for {ticker}")
+
+
 def _ticker_file(path: Path) -> None:
     path.write_text("AAPL\nBRK/B\nNOPE\nAAPL\n# ignored\n\n", encoding="utf-8")
 
@@ -174,6 +179,48 @@ def test_build_validation_price_file_reports_partial_history(tmp_path):
     assert history["partial_history_sample"][0]["missing_end"] is True
 
 
+def test_build_validation_price_file_checkpoints_after_errors(tmp_path):
+    tickers = tmp_path / "tickers.txt"
+    out = tmp_path / "prices.csv"
+    tickers.write_text("AAPL\n", encoding="utf-8")
+
+    summary = build_validation_price_file(
+        str(tickers),
+        str(out),
+        FakeFailingProvider(),
+        provider_name="yahoo",
+        start=date(2024, 1, 1),
+        end=date(2024, 1, 5),
+    )
+
+    assert summary["tickers_with_errors"] == 1
+    assert out.exists()
+    assert out.read_text(encoding="utf-8").splitlines() == ["ticker,date,adj_close"]
+
+
+def test_build_validation_price_file_can_limit_tickers_for_smoke_runs(tmp_path):
+    tickers = tmp_path / "tickers.txt"
+    out = tmp_path / "prices.csv"
+    _ticker_file(tickers)
+    provider = FakePriceProvider()
+
+    summary = build_validation_price_file(
+        str(tickers),
+        str(out),
+        provider,
+        provider_name="massive",
+        start=date(2024, 1, 1),
+        end=date(2024, 1, 5),
+        max_tickers=1,
+    )
+
+    assert summary["tickers_total_in_input"] == 3
+    assert summary["tickers_requested"] == 1
+    assert summary["tickers_skipped_by_max"] == 2
+    assert provider.calls == ["AAPL"]
+    assert summary["rows_total"] == 2
+
+
 def test_provider_symbol_maps_share_classes():
     assert provider_symbol("BRK/B", "massive") == "BRK.B"
     assert provider_symbol("BRK/B", "yahoo") == "BRK-B"
@@ -192,3 +239,5 @@ def test_run_py_help_exposes_validation_price_export():
     assert "--build-validation-prices" in proc.stdout
     assert "--validation-prices-out" in proc.stdout
     assert "--validation-price-retry-attempts" in proc.stdout
+    assert "--validation-price-max-tickers" in proc.stdout
+    assert "--validation-price-timeout-sec" in proc.stdout

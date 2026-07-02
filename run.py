@@ -660,6 +660,8 @@ def cmd_build_validation_prices(tickers_path: str | None,
                                 retry_attempts: int,
                                 retry_base_sleep: float,
                                 retry_max_sleep: float,
+                                timeout_sec: float,
+                                max_tickers: int | None,
                                 force: bool,
                                 as_json: bool) -> None:
     import json
@@ -683,7 +685,7 @@ def cmd_build_validation_prices(tickers_path: str | None,
     try:
         start_date = parse_date(start)
         end_date = parse_date(end)
-        provider = make_price_provider(provider_name)
+        provider = make_price_provider(provider_name, timeout=max(1.0, timeout_sec))
     except Exception as exc:  # noqa: BLE001 - CLI should return a clear operator error
         print(f"--build-validation-prices setup failed: {exc}", file=sys.stderr)
         sys.exit(2)
@@ -698,6 +700,7 @@ def cmd_build_validation_prices(tickers_path: str | None,
         retry_attempts=max(0, retry_attempts),
         retry_base_sleep=max(0.0, retry_base_sleep),
         retry_max_sleep=max(0.0, retry_max_sleep),
+        max_tickers=max_tickers if max_tickers and max_tickers > 0 else None,
         force=force,
     )
     if as_json:
@@ -844,6 +847,10 @@ def main() -> None:
                     help="base exponential-backoff sleep for price retries (default 30)")
     ap.add_argument("--validation-price-retry-max-sec", type=float, default=300.0,
                     help="maximum sleep for one price retry (default 300)")
+    ap.add_argument("--validation-price-timeout-sec", type=float, default=10.0,
+                    help="HTTP request timeout for validation price providers (default 10)")
+    ap.add_argument("--validation-price-max-tickers", type=int,
+                    help="limit tickers processed in one price export smoke run")
     ap.add_argument("--validation-price-force", action="store_true",
                     help="ignore existing price CSV cache and refetch all tickers")
     ap.add_argument("--validation-execution-lag-days", type=int, default=1,
@@ -910,6 +917,7 @@ def main() -> None:
             args.validation_price_provider, args.validation_start, args.validation_end,
             args.validation_price_sleep_sec, args.validation_price_retry_attempts,
             args.validation_price_retry_base_sec, args.validation_price_retry_max_sec,
+            args.validation_price_timeout_sec, args.validation_price_max_tickers,
             args.validation_price_force, args.validation_json)
     if args.create_api_key:
         return cmd_create_api_key(args.pro_db, args.create_api_key, args.api_key_scopes,

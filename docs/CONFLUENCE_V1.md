@@ -123,6 +123,7 @@ python run.py \
   --validation-price-retry-attempts 8 \
   --validation-price-retry-base-sec 60 \
   --validation-price-retry-max-sec 900 \
+  --validation-price-timeout-sec 10 \
   --validation-json
 
 python run.py --db /var/lib/13flow/13flow.db \
@@ -138,6 +139,8 @@ python run.py --validation-dataset /path/to/confluence_features.csv --validation
 The price exporter writes `ticker,date,adj_close` adjusted closes, resumes from existing
 rows unless `--validation-price-force` is set, deduplicates repeated ticker/date rows, retries
 `429`/`5xx` responses with exponential backoff and reports complete/partial history coverage.
+It checkpoints after each ticker and supports `--validation-price-max-tickers` for safe
+provider smoke tests.
 `massive` is the preferred price source; `yahoo` is available only as a no-key research
 fallback when the primary vendor account cannot serve enough history, and must be disclosed
 as such in any validation artifact.

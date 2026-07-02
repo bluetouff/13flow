@@ -51,7 +51,7 @@ def provider_symbol(ticker: str, provider_name: str) -> str:
     return t
 
 
-def make_price_provider(provider_name: str) -> PriceProvider:
+def make_price_provider(provider_name: str, *, timeout: float = 10.0) -> PriceProvider:
     if provider_name == "massive":
         return MassiveProvider(
             os.environ.get("MASSIVE_API_KEY", ""),
@@ -60,7 +60,7 @@ def make_price_provider(provider_name: str) -> PriceProvider:
     if provider_name == "stooq":
         return StooqProvider()
     if provider_name == "yahoo":
-        return YahooChartProvider()
+        return YahooChartProvider(timeout=timeout)
     raise ValueError("provider must be massive, stooq or yahoo")
 
 
@@ -79,6 +79,25 @@ def _read_existing(path: str) -> tuple[list[dict[str, str]], set[str]]:
                 rows.append({"ticker": t, "date": d, "adj_close": px})
                 tickers.add(t)
     return rows, tickers
+
+
+def _merged_rows(existing_rows: list[dict[str, str]],
+                 new_rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    by_key = {
+        (row["ticker"], row["date"]): row
+        for row in existing_rows + new_rows
+    }
+    return sorted(by_key.values(), key=lambda r: (r["ticker"], r["date"]))
+
+
+def _write_rows(path: str, rows: list[dict[str, str]]) -> None:
+    os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=PRICE_COLUMNS)
+        w.writeheader()
+        w.writerows(rows)
+    os.replace(tmp, path)
 
 
 def _http_status(exc: Exception) -> int | None:
@@ -201,9 +220,12 @@ def build_validation_price_file(
     retry_attempts: int = 5,
     retry_base_sleep: float = 30.0,
     retry_max_sleep: float = 300.0,
+    max_tickers: int | None = None,
+    checkpoint: bool = True,
     sleep_func: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
-    tickers = read_tickers(tickers_path)
+    all_requested_tickers = read_tickers(tickers_path)
+    tickers = all_requested_tickers[:max_tickers] if max_tickers else all_requested_tickers
     existing_rows, cached_tickers = ([], set()) if force else _read_existing(out_path)
     new_rows: list[dict[str, str]] = []
     no_data: list[str] = []
@@ -232,6 +254,8 @@ def build_validation_price_file(
                 retry_events.append({"ticker": ticker, "source_symbol": symbol, **event})
         except Exception as e:  # noqa: BLE001 - report and continue; validation wants coverage stats
             errors.append({"ticker": ticker, "source_symbol": symbol, "error": str(e)[:240]})
+            if checkpoint:
+                _write_rows(out_path, _merged_rows(existing_rows, new_rows))
             continue
         if not closes:
             no_data.append(ticker)
@@ -244,19 +268,13 @@ def build_validation_price_file(
                         "date": d.isoformat(),
                         "adj_close": f"{float(px):.8g}",
                     })
+        if checkpoint:
+            _write_rows(out_path, _merged_rows(existing_rows, new_rows))
         if sleep_sec > 0:
             sleep_func(sleep_sec)
 
-    by_key = {
-        (row["ticker"], row["date"]): row
-        for row in existing_rows + new_rows
-    }
-    all_rows = sorted(by_key.values(), key=lambda r: (r["ticker"], r["date"]))
-    os.makedirs(os.path.dirname(os.path.abspath(out_path)) or ".", exist_ok=True)
-    with open(out_path, "w", encoding="utf-8", newline="") as fh:
-        w = csv.DictWriter(fh, fieldnames=PRICE_COLUMNS)
-        w.writeheader()
-        w.writerows(all_rows)
+    all_rows = _merged_rows(existing_rows, new_rows)
+    _write_rows(out_path, all_rows)
 
     usable = cached + fetched
     return {
@@ -265,6 +283,8 @@ def build_validation_price_file(
         "start": start.isoformat(),
         "end": end.isoformat(),
         "tickers_requested": len(tickers),
+        "tickers_total_in_input": len(all_requested_tickers),
+        "tickers_skipped_by_max": max(0, len(all_requested_tickers) - len(tickers)),
         "tickers_cached": cached,
         "tickers_fetched": fetched,
         "tickers_with_no_data": len(no_data),
@@ -283,6 +303,7 @@ def build_validation_price_file(
         },
         "retry_event_count": len(retry_events),
         "retry_events_sample": retry_events[:50],
+        "checkpoint": checkpoint,
         "no_data_sample": no_data[:50],
         "errors_sample": errors[:20],
         "resume_policy": "existing ticker rows are reused unless --validation-price-force is set",

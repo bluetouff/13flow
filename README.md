@@ -249,6 +249,7 @@ python run.py \
   --validation-price-retry-attempts 8 \
   --validation-price-retry-base-sec 60 \
   --validation-price-retry-max-sec 900 \
+  --validation-price-timeout-sec 10 \
   --validation-json
 
 python run.py --db /var/lib/13flow/13flow.db \
@@ -268,7 +269,9 @@ operator smoke tests, and `yahoo` is a no-key research fallback when a vendor ac
 serve enough history. Any non-Massive fallback must be disclosed in the validation artifact
 as a research price source, not an institutional production feed. The exporter retries `429`
 and `5xx` responses with exponential backoff, honors `Retry-After`, deduplicates resumed rows
-and reports complete/partial history coverage per ticker. Passing the same
+and reports complete/partial history coverage per ticker. It checkpoints the CSV after each
+ticker so interrupted runs remain resumable. Use `--validation-price-max-tickers 1` for first
+contact with any new or fallback provider. Passing the same
 `--validation-tickers` file to the dataset builder filters the feature export to that priced
 universe; omit it only when the price CSV covers the full validation universe. The dataset
 gate returns the feature-table SHA256, split counts, schema gaps, version mismatches and rank
