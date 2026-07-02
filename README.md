@@ -324,6 +324,18 @@ unset SMARTMONEY_PRO_TOKEN
 sudo -E /opt/13flow/.venv/bin/python /opt/13flow/run.py --preflight --preflight-json ...
 ```
 
+## Public smoke test
+`deploy/smoke-public.sh` is the crawler-visible release gate. It makes live HTTP calls to the
+public site or staging, but never calls EDGAR. It fails if the root page regresses to
+`SAMPLE DATA`, auth/checkout copy appears in the open build, FAQ/Legal show legacy text,
+public JSON contracts break, MCP disappears, or a Pro MCP tool no longer fails closed without
+payment/API key.
+
+```bash
+EXPECTED_SHA=<deployed-git-sha> /opt/13flow/deploy/smoke-public.sh
+SITE=https://staging.13flow.eu EXPECTED_SHA=<sha> /opt/13flow/deploy/smoke-public.sh
+```
+
 ## Open build (public, read-only — no auth, no Stripe, no alerts)
 There is a first-class **open mode** for a public deployment that exposes only the read-only
 screens (Consensus / Funds / Compare / Confluence) with no accounts, no payment, and no

@@ -80,6 +80,12 @@ sudo systemctl show 13flow-pro -p User -p Group -p SupplementaryGroups -p ReadWr
 The production preflight fails if `13flow.service` still exposes Pro API env or keeps
 writable access to `/var/lib/13flow-pro`.
 
+Run the public smoke test after every deploy:
+
+```bash
+EXPECTED_SHA=<deployed-git-sha> /opt/13flow/deploy/smoke-public.sh
+```
+
 ## Encrypted backup
 
 The Pro DB contains API-key hashes, rate counters and audit metadata. Back it up encrypted;
