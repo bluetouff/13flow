@@ -250,9 +250,7 @@ def cmd_revoke_api_key(pro_db, key_id) -> None:
 def cmd_preflight(db_path, pro_db, require_pro, expected_sha, audit_recent_hours,
                   token_env, as_json) -> None:
     from smartmoney.api import _git_sha
-    current_sha = _git_sha()
-    if current_sha == "unknown":
-        current_sha = deployed_sha_from_systemd() or current_sha
+    current_sha = deployed_sha_from_systemd() or _git_sha()
     report = run_preflight(
         db_path,
         pro_db_path=pro_db,
