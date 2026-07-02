@@ -264,13 +264,15 @@ python run.py --validation-dataset /path/to/confluence_features.csv --validation
 The price exporter writes a provider-neutral `ticker,date,adj_close` CSV and reuses
 already exported ticker rows unless `--validation-price-force` is set. Massive requires
 `MASSIVE_API_KEY` in the process environment; `stooq` is available as a free fallback for
-operator smoke tests. The exporter retries `429` and `5xx` responses with exponential
-backoff, honors `Retry-After`, deduplicates resumed rows and reports complete/partial
-history coverage per ticker. Passing the same `--validation-tickers` file to the dataset
-builder filters the feature export to that priced universe; omit it only when the price CSV
-covers the full validation universe. The dataset gate returns the feature-table SHA256,
-split counts, schema gaps, version mismatches and rank metrics for the score plus available
-baselines.
+operator smoke tests, and `yahoo` is a no-key research fallback when a vendor account cannot
+serve enough history. Any non-Massive fallback must be disclosed in the validation artifact
+as a research price source, not an institutional production feed. The exporter retries `429`
+and `5xx` responses with exponential backoff, honors `Retry-After`, deduplicates resumed rows
+and reports complete/partial history coverage per ticker. Passing the same
+`--validation-tickers` file to the dataset builder filters the feature export to that priced
+universe; omit it only when the price CSV covers the full validation universe. The dataset
+gate returns the feature-table SHA256, split counts, schema gaps, version mismatches and rank
+metrics for the score plus available baselines.
 The current builder exports
 `feature_scope=13f_only_no_form4`; this is mechanically useful but not a full Confluence
 validation claim until Form 4 insider features are joined and reviewed. Non-priceable/common

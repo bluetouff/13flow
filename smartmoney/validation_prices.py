@@ -18,7 +18,7 @@ from typing import Any, Callable
 
 import requests
 
-from .prices import MassiveProvider, PriceProvider, StooqProvider
+from .prices import MassiveProvider, PriceProvider, StooqProvider, YahooChartProvider
 
 PRICE_COLUMNS = ("ticker", "date", "adj_close")
 
@@ -46,6 +46,8 @@ def provider_symbol(ticker: str, provider_name: str) -> str:
         return t.replace("/", ".")
     if provider_name == "stooq":
         return t
+    if provider_name == "yahoo":
+        return t.replace("/", "-").replace(".", "-")
     return t
 
 
@@ -57,7 +59,9 @@ def make_price_provider(provider_name: str) -> PriceProvider:
         )
     if provider_name == "stooq":
         return StooqProvider()
-    raise ValueError("provider must be massive or stooq")
+    if provider_name == "yahoo":
+        return YahooChartProvider()
+    raise ValueError("provider must be massive, stooq or yahoo")
 
 
 def _read_existing(path: str) -> tuple[list[dict[str, str]], set[str]]:

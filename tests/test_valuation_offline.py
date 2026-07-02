@@ -6,11 +6,11 @@ implied P&L since the basis date, the reconcile ratio, and that option / no-tick
 positions are carried (not silently dropped). Also checks Stooq CSV parsing directly.
 """
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 from smartmoney.parser import parse_info_table
 from smartmoney.portfolio import build_portfolio
-from smartmoney.prices import PriceProvider, StooqProvider, Fundamentals
+from smartmoney.prices import PriceProvider, StooqProvider, YahooChartProvider, Fundamentals
 from smartmoney.valuation import value_portfolio
 from tests.test_offline import _table
 
@@ -105,8 +105,30 @@ def test_stooq_csv_parse():
     assert StooqProvider._parse_csv("No data") == {}
 
 
+def test_yahoo_chart_parse_adjusted_closes():
+    ts1 = int(datetime(2024, 6, 27, tzinfo=timezone.utc).timestamp())
+    ts2 = int(datetime(2024, 6, 28, tzinfo=timezone.utc).timestamp())
+    data = {
+        "chart": {
+            "result": [{
+                "timestamp": [ts1, ts2],
+                "indicators": {
+                    "quote": [{"close": [214.10, 210.62]}],
+                    "adjclose": [{"adjclose": [213.50, 210.00]}],
+                },
+            }],
+            "error": None,
+        }
+    }
+    closes = YahooChartProvider._parse_chart(data)
+    assert closes[date(2024, 6, 27)] == 213.50
+    assert closes[date(2024, 6, 28)] == 210.00
+    assert YahooChartProvider._symbol("BRK/B") == "BRK-B"
+
+
 if __name__ == "__main__":
     test_valuation_pnl_and_weights()
     test_unpriced_when_no_ticker()
     test_stooq_csv_parse()
+    test_yahoo_chart_parse_adjusted_closes()
     print("All valuation offline tests passed.")

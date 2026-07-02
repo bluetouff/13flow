@@ -138,6 +138,9 @@ python run.py --validation-dataset /path/to/confluence_features.csv --validation
 The price exporter writes `ticker,date,adj_close` adjusted closes, resumes from existing
 rows unless `--validation-price-force` is set, deduplicates repeated ticker/date rows, retries
 `429`/`5xx` responses with exponential backoff and reports complete/partial history coverage.
+`massive` is the preferred price source; `yahoo` is available only as a no-key research
+fallback when the primary vendor account cannot serve enough history, and must be disclosed
+as such in any validation artifact.
 Reuse the same `--validation-tickers` file when building a priced sample dataset; otherwise
 unpriced tickers from the full universe will remain in the feature table. This is a publication
 gate, not a claim of validation. The output must be archived with the dataset hash,

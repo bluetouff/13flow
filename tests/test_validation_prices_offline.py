@@ -14,6 +14,7 @@ from smartmoney.prices import PriceProvider, StooqProvider
 from smartmoney.validation_prices import (
     PRICE_COLUMNS,
     build_validation_price_file,
+    make_price_provider,
     provider_symbol,
 )
 
@@ -175,7 +176,9 @@ def test_build_validation_price_file_reports_partial_history(tmp_path):
 
 def test_provider_symbol_maps_share_classes():
     assert provider_symbol("BRK/B", "massive") == "BRK.B"
+    assert provider_symbol("BRK/B", "yahoo") == "BRK-B"
     assert StooqProvider()._symbol("BRK/B") == "brk-b.us"
+    assert make_price_provider("yahoo").__class__.__name__ == "YahooChartProvider"
 
 
 def test_run_py_help_exposes_validation_price_export():

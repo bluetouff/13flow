@@ -9,6 +9,7 @@ Providers are pluggable behind a small interface so you can swap data sources:
   - StooqProvider     — free, no key, works out of the box. The sane default.
   - MassiveProvider   — Massive Market Data (Polygon-shaped REST); your preferred
                         source. Gives market cap + shares outstanding too. Needs a key.
+  - YahooChartProvider — no-key fallback for research validation price history.
 
 Historical daily closes are immutable, so they're memoized per run; add a disk cache
 later if you value large books frequently.
@@ -19,7 +20,7 @@ from __future__ import annotations
 import csv
 import io
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional
 
 import requests
@@ -84,6 +85,7 @@ class StooqProvider(PriceProvider):
     def __init__(self, session: Optional[requests.Session] = None, suffix: str = ".us"):
         super().__init__()
         self._session = session or requests.Session()
+        self._session.headers.setdefault("User-Agent", "13flow-validation/1.0")
         self._suffix = suffix
 
     def _symbol(self, ticker: str) -> str:
@@ -111,6 +113,68 @@ class StooqProvider(PriceProvider):
                 out[date.fromisoformat(row["Date"])] = float(row["Close"])
             except (ValueError, KeyError, TypeError):
                 continue
+        return out
+
+
+# ---------------------------------------------------------------------------
+class YahooChartProvider(PriceProvider):
+    """
+    No-key Yahoo chart adapter for research validation exports.
+
+    This is a fallback when the primary vendor account cannot serve enough history.
+    It should be disclosed as a research data source, not as the institutional-grade
+    production price feed.
+    """
+
+    BASE = "https://query1.finance.yahoo.com/v8/finance/chart/"
+
+    def __init__(self, session: Optional[requests.Session] = None):
+        super().__init__()
+        self._session = session or requests.Session()
+        self._session.headers.setdefault("User-Agent", "13flow-validation/1.0")
+
+    @staticmethod
+    def _symbol(ticker: str) -> str:
+        return ticker.upper().replace("/", "-").replace(".", "-")
+
+    @staticmethod
+    def _epoch(d: date) -> int:
+        return int(datetime.combine(d, time.min, tzinfo=timezone.utc).timestamp())
+
+    def daily_closes(self, ticker: str, start: date, end: date) -> dict[date, float]:
+        params = {
+            "period1": str(self._epoch(start)),
+            # Yahoo's period2 is exclusive; include the requested end date.
+            "period2": str(self._epoch(end + timedelta(days=1))),
+            "interval": "1d",
+            "events": "history",
+            "includeAdjustedClose": "true",
+        }
+        resp = self._session.get(self.BASE + self._symbol(ticker),
+                                 params=params, timeout=30)
+        resp.raise_for_status()
+        return self._parse_chart(resp.json())
+
+    @staticmethod
+    def _parse_chart(data: dict) -> dict[date, float]:
+        chart = data.get("chart") or {}
+        if chart.get("error"):
+            raise ValueError(str(chart["error"]))
+        results = chart.get("result") or []
+        if not results:
+            return {}
+        result = results[0]
+        timestamps = result.get("timestamp") or []
+        indicators = result.get("indicators") or {}
+        adj = ((indicators.get("adjclose") or [{}])[0].get("adjclose") or [])
+        close = ((indicators.get("quote") or [{}])[0].get("close") or [])
+        values = adj if adj else close
+        out: dict[date, float] = {}
+        for ts, px in zip(timestamps, values):
+            if ts is None or px is None:
+                continue
+            d = datetime.fromtimestamp(int(ts), tz=timezone.utc).date()
+            out[d] = float(px)
         return out
 
 

@@ -8,7 +8,7 @@ from .resolver import (CusipResolver, ResolutionCache, Resolution, resolve_portf
 from .db import Store
 from .accounts import AccountStore, User, AuthError, EmailTaken, EmailNotVerified, PasswordPolicyError
 from .pwhash import PasswordHasher
-from .prices import PriceProvider, StooqProvider, MassiveProvider, Fundamentals
+from .prices import PriceProvider, StooqProvider, MassiveProvider, YahooChartProvider, Fundamentals
 from .valuation import value_portfolio, ValuedPortfolio, ValuedPosition
 from .analytics import consensus_moves, ConsensusMove
 from .registry import Fund, SUPERINVESTORS, by_label
@@ -26,7 +26,7 @@ __all__ = [
     "coverage", "load_sec_ticker_index", "build_sec_index", "normalize_name",
     "Store", "consensus_moves", "ConsensusMove",
     "AccountStore", "User", "AuthError", "EmailTaken", "EmailNotVerified", "PasswordPolicyError", "PasswordHasher",
-    "PriceProvider", "StooqProvider", "MassiveProvider", "Fundamentals",
+    "PriceProvider", "StooqProvider", "MassiveProvider", "YahooChartProvider", "Fundamentals",
     "value_portfolio", "ValuedPortfolio", "ValuedPosition",
     "Fund", "SUPERINVESTORS", "by_label",
     "Tracker", "Tier", "EntitlementError", "FREE_TIER_FUND_LIMIT",

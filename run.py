@@ -834,7 +834,7 @@ def main() -> None:
                           "filter for --build-validation-dataset"))
     ap.add_argument("--validation-prices-out", metavar="CSV",
                     help="output adjusted-price CSV for --build-validation-prices")
-    ap.add_argument("--validation-price-provider", choices=["massive", "stooq"], default="massive",
+    ap.add_argument("--validation-price-provider", choices=["massive", "stooq", "yahoo"], default="massive",
                     help="price source for --build-validation-prices (default massive)")
     ap.add_argument("--validation-price-sleep-sec", type=float, default=0.0,
                     help="pause between ticker price requests (default 0)")
