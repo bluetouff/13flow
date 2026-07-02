@@ -82,6 +82,26 @@ def test_pro_api_fund_detail_is_self_describing(monkeypatch):
         assert c.get("/api/pro/v1/fund/not-a-cik", headers=hdr).status_code == 400
 
 
+def test_pro_api_fund_detail_payload_controls(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        c, token, key, pro_db = _client(monkeypatch, d)
+        hdr = {"Authorization": "Bearer " + token}
+        r = c.get("/api/pro/v1/fund/1?include_holds=0&limit_positions=1&limit_moves=2",
+                  headers=hdr)
+        assert r.status_code == 200
+        payload = r.get_json()
+        assert payload["meta"]["request"]["include_holds"] is False
+        assert payload["portfolio"]["positions_total"] >= payload["portfolio"]["positions_returned"]
+        assert payload["portfolio"]["positions_returned"] == 1
+        assert len(payload["portfolio"]["positions"]) == 1
+        assert payload["moves"]["changes_total"] >= payload["moves"]["changes_returned"]
+        assert payload["moves"]["changes_returned"] <= 2
+        assert len(payload["moves"]["changes"]) <= 2
+        assert all(c["move"] != "HOLD" for c in payload["moves"]["changes"])
+
+        assert c.get("/api/pro/v1/fund/1?include_holds=wat", headers=hdr).status_code == 400
+
+
 def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
     with tempfile.TemporaryDirectory() as d:
         c, token, key, pro_db = _client(monkeypatch, d)

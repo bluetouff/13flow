@@ -231,6 +231,17 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             raise BadRequest("invalid float parameter")
         return max(lo, min(hi, v))
 
+    def clean_bool(raw, default: bool = False) -> bool:
+        if raw is None:
+            return default
+        v = str(raw).strip().lower()
+        if v in ("1", "true", "yes", "on"):
+            return True
+        if v in ("0", "false", "no", "off"):
+            return False
+        from werkzeug.exceptions import BadRequest
+        raise BadRequest("invalid boolean parameter")
+
     def clean_date(raw: str | None) -> str | None:
         if raw is None or raw == "":
             return None
@@ -350,6 +361,12 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                              "schema": {"type": "string", "pattern": "^[0-9]{1,12}$"}},
                             {"name": "basis", "in": "query", "required": False,
                              "schema": {"type": "string", "format": "date"}},
+                            {"name": "include_holds", "in": "query", "required": False,
+                             "schema": {"type": "boolean", "default": True}},
+                            {"name": "limit_positions", "in": "query", "required": False,
+                             "schema": {"type": "integer", "minimum": 1, "maximum": 1000}},
+                            {"name": "limit_moves", "in": "query", "required": False,
+                             "schema": {"type": "integer", "minimum": 1, "maximum": 2000}},
                         ],
                         "responses": {"200": {"description": "Fund detail"}, "404": {"description": "Fund not found"}},
                     }
@@ -770,6 +787,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         def pro_fund_ep(cik):
             cik = clean_cik(cik)
             basis = clean_date(request.args.get("basis"))
+            include_holds = clean_bool(request.args.get("include_holds"), True)
+            limit_positions = clean_int(request.args.get("limit_positions"), 1000, 1, 1000)
+            limit_moves = clean_int(request.args.get("limit_moves"), 2000, 1, 2000)
             s = store()
             try:
                 pf = s.load_portfolio(cik, basis)
@@ -792,6 +812,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     key=lambda c: (c.move.value == Move.HOLD.value,
                                    -max(c.curr_value, c.prev_value)),
                 )
+                if not include_holds:
+                    changes = [c for c in changes if c.move != Move.HOLD]
                 counts = {m.value: len(diff.by_move(m)) for m in Move}
                 return jsonify({
                     "meta": {
@@ -799,6 +821,12 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                         "version": "v1",
                         "git_sha": _git_sha(),
                         "methodology": pro_methodology(quality["parameters"]["aum_jump_threshold"]),
+                        "request": {
+                            "basis": basis,
+                            "include_holds": include_holds,
+                            "limit_positions": limit_positions,
+                            "limit_moves": limit_moves,
+                        },
                     },
                     "fund": {
                         "cik": cik,
@@ -812,13 +840,17 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                         "form": pf.form,
                         "aum": pf.total_value,
                         "n_positions": len(pf.positions),
-                        "positions": [position_payload(p) for p in positions],
+                        "positions_total": len(positions),
+                        "positions_returned": min(len(positions), limit_positions),
+                        "positions": [position_payload(p) for p in positions[:limit_positions]],
                     },
                     "moves": {
                         "previous_report_date": prev_q,
                         "current_report_date": pf.report_date,
                         "counts": counts,
-                        "changes": [change_payload(c) for c in changes],
+                        "changes_total": len(changes),
+                        "changes_returned": min(len(changes), limit_moves),
+                        "changes": [change_payload(c) for c in changes[:limit_moves]],
                     },
                     "quality": {
                         "summary": {

@@ -142,6 +142,8 @@ Use `Authorization: Bearer <token>` or `X-13FLOW-Key: <token>`.
 curl -H "Authorization: Bearer $TOKEN" https://13flow.eu/api/pro/v1/status
 curl -H "Authorization: Bearer $TOKEN" https://13flow.eu/api/pro/v1/funds
 curl -H "Authorization: Bearer $TOKEN" https://13flow.eu/api/pro/v1/fund/0001067983
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://13flow.eu/api/pro/v1/fund/0001067983?include_holds=0&limit_positions=20&limit_moves=50"
 curl -H "Authorization: Bearer $TOKEN" https://13flow.eu/api/pro/v1/data-quality
 curl https://13flow.eu/api/pro/v1/openapi.json
 ```
@@ -153,7 +155,10 @@ for every Pro request including denied and rate-limited calls.
 `GET /api/pro/v1/fund/<cik>` is the institutional detail endpoint: it returns the selected
 filing metadata, previous filing metadata, full holdings, share-count moves versus the
 previous quarter, fund-scoped data-quality warnings, and the methodology block needed to
-reproduce the interpretation.
+reproduce the interpretation. For production integrations, use `include_holds=0`,
+`limit_positions`, and `limit_moves` to keep payloads bounded while retaining the same
+calculation basis. Responses include `positions_total`/`positions_returned` and
+`changes_total`/`changes_returned` so clients can detect truncation deterministically.
 
 ## Alerts — real delivery
 Subscribe to a fund and get the **diff** (not just "a filing appeared") delivered when a
