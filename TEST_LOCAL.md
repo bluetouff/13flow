@@ -138,6 +138,7 @@ Gate a real point-in-time feature table before publication:
 python run.py --db live.db \
   --build-validation-dataset /tmp/confluence_features.csv \
   --validation-prices /path/to/adjusted_prices.csv \
+  --validation-code-commit "$SHA" \
   --validation-json
 
 python run.py --validation-dataset /path/to/confluence_features.csv --validation-json

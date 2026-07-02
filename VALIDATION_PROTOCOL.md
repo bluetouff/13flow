@@ -62,6 +62,7 @@ horizons:
 python run.py --db /var/lib/13flow/13flow.db \
   --build-validation-dataset /var/lib/13flow/confluence_features.csv \
   --validation-prices /path/to/adjusted_prices.csv \
+  --validation-code-commit "$SHA" \
   --validation-json
 ```
 

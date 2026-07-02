@@ -115,6 +115,7 @@ Validate the minimum schema and metrics artifact for a point-in-time feature tab
 python run.py --db /var/lib/13flow/13flow.db \
   --build-validation-dataset /var/lib/13flow/confluence_features.csv \
   --validation-prices /path/to/adjusted_prices.csv \
+  --validation-code-commit "$SHA" \
   --validation-json
 
 python run.py --validation-dataset /path/to/confluence_features.csv --validation-json

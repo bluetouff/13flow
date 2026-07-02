@@ -85,7 +85,7 @@ def test_build_validation_dataset_without_prices_is_not_publishable(tmp_path):
 
     report = validation_report(str(out))
     assert report["status"] == "not_publishable"
-    assert report["manifest"]["row_error_count"] > 0
+    assert report["manifest"]["row_error_count"] == len(rows) * 3
 
 
 def test_build_validation_dataset_with_prices_passes_mechanical_gate(tmp_path):
@@ -122,6 +122,7 @@ def test_run_py_build_validation_dataset_json(tmp_path):
             "--validation-prices", str(prices),
             "--validation-start", "2024-06-30",
             "--validation-end", "2024-06-30",
+            "--validation-code-commit", "feedface",
             "--validation-json",
         ],
         cwd=Path(__file__).resolve().parents[1],
@@ -132,3 +133,7 @@ def test_run_py_build_validation_dataset_json(tmp_path):
     body = json.loads(proc.stdout)
     assert body["build"]["rows"] >= 3
     assert body["gate"]["status"] == "minimum_schema_valid_metrics_unreviewed"
+
+    with out.open("r", encoding="utf-8", newline="") as fh:
+        first = next(csv.DictReader(fh))
+    assert first["code_commit"] == "feedface"

@@ -241,6 +241,7 @@ are heuristic**. The offline dataset builder and publication gate are:
 python run.py --db /var/lib/13flow/13flow.db \
   --build-validation-dataset /var/lib/13flow/confluence_features.csv \
   --validation-prices /path/to/adjusted_prices.csv \
+  --validation-code-commit "$SHA" \
   --validation-json
 
 python run.py --validation-dataset /path/to/confluence_features.csv --validation-json
