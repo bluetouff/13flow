@@ -342,7 +342,12 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     #   2) live provider if SMARTMONEY_CONFLUENCE_LIVE=1 + SEC_UA (fetches Form 4 from EDGAR per request)
     #   3) explicit demo provider only when SMARTMONEY_CONFLUENCE_DEMO=1
     # Without cache/live/demo the endpoint returns a 503 JSON error. No silent samples.
-    from .api_signals import make_signals_blueprint, SampleConfluenceProvider, UnconfiguredConfluenceProvider
+    from .api_signals import (
+        make_signals_blueprint,
+        merge_methodology_metadata,
+        SampleConfluenceProvider,
+        UnconfiguredConfluenceProvider,
+    )
     if _truthy(os.environ.get("SMARTMONEY_CONFLUENCE_LIVE")) and os.environ.get("SEC_UA"):
         confluence_provider = _StoreConfluence(db_path, os.environ["SEC_UA"])
     elif demo_mode or _truthy(os.environ.get("SMARTMONEY_CONFLUENCE_DEMO")):
@@ -484,6 +489,68 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "share_change_pct": c.share_change_pct,
         }
 
+    def sec_accession_url(cik: str, accession: str) -> str:
+        cik_i = str(int(cik)) if str(cik).strip().isdigit() else str(cik).lstrip("0")
+        return (
+            "https://www.sec.gov/Archives/edgar/data/"
+            f"{cik_i}/{str(accession).replace('-', '')}/"
+        )
+
+    def public_openapi_doc() -> dict:
+        return {
+            "openapi": "3.1.0",
+            "info": {
+                "title": "13FLOW Public API",
+                "version": "v1",
+                "description": (
+                    "Read-only public API over SEC EDGAR-derived 13F data, live-status, "
+                    "data-quality review signals, Confluence methodology, and append-only "
+                    "signal history."
+                ),
+            },
+            "servers": [{"url": "https://13flow.eu"}],
+            "paths": {
+                "/api/version": {"get": {"summary": "Runtime version and public state",
+                                          "responses": {"200": {"description": "Version metadata"}}}},
+                "/api/live-status": {"get": {"summary": "Verifiable live/demo/degraded data state",
+                                             "responses": {"200": {"description": "Live status"}}}},
+                "/api/funds": {"get": {"summary": "List tracked funds with AUM series",
+                                        "responses": {"200": {"description": "Fund list"}}}},
+                "/api/fund/{cik}": {
+                    "get": {
+                        "summary": "Fund portfolio, moves and filing metadata",
+                        "parameters": [{"name": "cik", "in": "path", "required": True,
+                                        "schema": {"type": "string", "pattern": "^[0-9]{1,12}$"}}],
+                        "responses": {"200": {"description": "Fund detail"},
+                                      "404": {"description": "Fund not found"}},
+                    }
+                },
+                "/api/consensus/holdings": {"get": {"summary": "Consensus holdings by quarter",
+                                                     "responses": {"200": {"description": "Holdings"}}}},
+                "/api/consensus/buys": {"get": {"summary": "Consensus buys/openings by quarter",
+                                                 "responses": {"200": {"description": "Moves"}}}},
+                "/api/compare": {"get": {"summary": "Compare fund holdings overlap",
+                                          "responses": {"200": {"description": "Overlap matrix"}}}},
+                "/api/coverage": {"get": {"summary": "Ticker-resolution coverage",
+                                           "responses": {"200": {"description": "Coverage report"}}}},
+                "/api/data-quality": {"get": {"summary": "Read-only data-quality warnings",
+                                               "responses": {"200": {"description": "Quality report"}}}},
+                "/api/signals/confluence": {"get": {"summary": "Confluence signal screen",
+                                                     "responses": {"200": {"description": "Signals"},
+                                                                   "503": {"description": "Unavailable"}}}},
+                "/api/signals/confluence/history": {
+                    "get": {"summary": "Append-only Confluence signal revisions",
+                            "responses": {"200": {"description": "Signal history"}}}
+                },
+                "/api/methodology/confluence-v1": {
+                    "get": {"summary": "Frozen Confluence v1 research contract",
+                            "responses": {"200": {"description": "Methodology contract"}}}
+                },
+                "/api/mcp": {"post": {"summary": "Read-only MCP JSON-RPC endpoint",
+                                       "responses": {"200": {"description": "MCP response"}}}},
+            },
+        }
+
     def pro_openapi_doc() -> dict:
         security = [{"bearerAuth": []}, {"apiKeyHeader": []}]
         return {
@@ -538,6 +605,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                         ],
                         "responses": {"200": {"description": "Quality report"}},
                     }
+                },
+                "/api/pro/v1/openapi.json": {
+                    "get": {"summary": "OpenAPI document for the Pro API",
+                            "responses": {"200": {"description": "OpenAPI JSON"}}}
                 },
             },
         }
@@ -889,6 +960,174 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             return jsonify(data_quality_report(s, aum_jump_threshold=threshold, limit=limit))
         finally:
             s.close()
+
+    @app.get("/api/openapi.json")
+    def public_openapi_ep():
+        return jsonify(public_openapi_doc())
+
+    def _mcp_tools() -> list[dict]:
+        return [
+            {
+                "name": "funds.list",
+                "description": "List tracked funds with latest quarter and AUM.",
+                "inputSchema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "funds.get",
+                "description": "Get one fund portfolio by CIK.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"cik": {"type": "string"}},
+                    "required": ["cik"],
+                },
+            },
+            {
+                "name": "stocks.get",
+                "description": "Get latest holders for one ticker.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"ticker": {"type": "string"}},
+                    "required": ["ticker"],
+                },
+            },
+            {
+                "name": "signals.history",
+                "description": "Read append-only Confluence signal revisions.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "ticker": {"type": "string"},
+                        "window": {"type": "integer", "minimum": 7, "maximum": 365},
+                        "limit": {"type": "integer", "minimum": 1, "maximum": 1000},
+                    },
+                },
+            },
+            {
+                "name": "methodology.confluence_v1",
+                "description": "Return the frozen Confluence v1 methodology contract.",
+                "inputSchema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "data_quality.get",
+                "description": "Return read-only data-quality summary and warnings.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "threshold": {"type": "number", "default": 100},
+                        "limit": {"type": "integer", "minimum": 1, "maximum": 500},
+                    },
+                },
+            },
+        ]
+
+    def _stock_payload(ticker: str) -> dict:
+        t = (ticker or "").strip().upper()
+        if not re.fullmatch(r"[A-Z0-9.\-]{1,12}", t):
+            from werkzeug.exceptions import BadRequest
+            raise BadRequest("invalid ticker")
+        s = store()
+        try:
+            latest = s.conn.execute("SELECT MAX(report_date) d FROM latest_filings").fetchone()["d"]
+            rows = [dict(r) for r in s.conn.execute(
+                """SELECT fn.label, lf.cik, lf.report_date, f.accession, f.filing_date,
+                          h.cusip, h.ticker, h.issuer, h.title_of_class, h.value_usd,
+                          h.shares, h.weight
+                   FROM latest_filings lf
+                   JOIN filings f ON f.accession=lf.accession
+                   JOIN holdings h ON h.accession=lf.accession AND h.put_call=''
+                   JOIN funds fn ON fn.cik=lf.cik
+                   WHERE lf.report_date=? AND UPPER(h.ticker)=?
+                   ORDER BY h.value_usd DESC""",
+                (latest, t),
+            )]
+        finally:
+            s.close()
+        return {
+            "ticker": t,
+            "latest_13f_quarter": latest,
+            "holders": rows,
+            "holder_count": len(rows),
+            "total_value_usd": sum(r["value_usd"] or 0 for r in rows),
+            "sec_company_search": f"https://www.sec.gov/edgar/search/#/q={t}",
+        }
+
+    def _mcp_call_tool(name: str, args: dict) -> dict:
+        if name == "funds.list":
+            s = store()
+            try:
+                rows = [dict(r) for r in s.conn.execute(
+                    "SELECT cik,label,manager FROM funds ORDER BY label")]
+                return {"funds": rows}
+            finally:
+                s.close()
+        if name == "funds.get":
+            cik = clean_cik(args.get("cik"))
+            s = store()
+            try:
+                pf = s.load_portfolio(cik)
+                if pf is None:
+                    return {"error": "not_found"}
+                frow = filing_row_for(s, cik, pf.report_date)
+                return {
+                    "fund": {"cik": cik, "label": pf.fund_label},
+                    "filing": filing_payload(frow),
+                    "positions": [position_payload(p) for p in pf.positions.values()],
+                }
+            finally:
+                s.close()
+        if name == "stocks.get":
+            return _stock_payload(str(args.get("ticker") or ""))
+        if name == "signals.history":
+            from .research import HISTORY_FILENAME, read_signal_history
+            rows = read_signal_history(
+                os.path.join(_cache_dir, HISTORY_FILENAME),
+                limit=int(args.get("limit") or 100),
+                ticker=args.get("ticker"),
+                window_days=args.get("window"),
+            )
+            return {"history": rows, "count": len(rows)}
+        if name == "methodology.confluence_v1":
+            from .research import confluence_v1_spec
+            return confluence_v1_spec(_git_sha())
+        if name == "data_quality.get":
+            threshold = float(args.get("threshold") or 100.0)
+            limit = int(args.get("limit") or 100)
+            s = store()
+            try:
+                return data_quality_report(s, aum_jump_threshold=threshold, limit=limit)
+            finally:
+                s.close()
+        return {"error": "unknown_tool"}
+
+    @app.post("/api/mcp")
+    def mcp_ep():
+        req = request.get_json(silent=True) or {}
+        mid = req.get("id")
+        method = req.get("method")
+        try:
+            if method == "initialize":
+                result = {
+                    "protocolVersion": "2024-11-05",
+                    "serverInfo": {"name": "13flow-readonly", "version": _git_sha()},
+                    "capabilities": {"tools": {}},
+                }
+            elif method == "tools/list":
+                result = {"tools": _mcp_tools()}
+            elif method == "tools/call":
+                params = req.get("params") or {}
+                payload = _mcp_call_tool(params.get("name", ""), params.get("arguments") or {})
+                result = {
+                    "content": [{"type": "text", "text": jsonify(payload).get_data(as_text=True)}],
+                    "structuredContent": payload,
+                    "isError": bool(isinstance(payload, dict) and payload.get("error")),
+                }
+            else:
+                return jsonify({"jsonrpc": "2.0", "id": mid,
+                                "error": {"code": -32601, "message": "method not found"}})
+            return jsonify({"jsonrpc": "2.0", "id": mid, "result": result})
+        except Exception as e:  # noqa: BLE001
+            return jsonify({"jsonrpc": "2.0", "id": mid,
+                            "error": {"code": -32603, "message": str(e)}}), 500
 
     if pro_enabled:
         @app.get("/api/pro/v1/status")
@@ -1276,6 +1515,184 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         )
         return resp
 
+    def _html_response(title: str, body: str) -> Response:
+        nonce = secrets.token_urlsafe(16)
+        nav = (
+            '<nav><a class="brand" href="/">13<span>FL</span><b>OW</b></a>'
+            '<a href="/funds">Funds</a><a href="/stocks">Stocks</a>'
+            '<a href="/signals">Signals</a><a href="/faq">FAQ</a>'
+            '<a href="/legal">Legal</a></nav>'
+        )
+        html = f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{html_escape(title)} · 13FLOW</title><link href="/assets/fonts/13flow-fonts.css" rel="stylesheet">
+<style>
+:root{{--bg:#0c1611;--panel:#13241c;--line:#1f3329;--text:#eaf5ef;--muted:#a9c4b7;--faint:#6f897d;--accent:#19c187;--amber:#e0a534;--sans:'Hanken Grotesk',system-ui,sans-serif;--display:'Bricolage Grotesque',system-ui,sans-serif;--mono:'Geist Mono',ui-monospace,monospace}}
+*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.55;background-image:radial-gradient(46rem 30rem at 88% -8%,rgba(25,193,135,.14),transparent 60%)}}
+.wrap{{max-width:1120px;margin:0 auto;padding:24px 24px 72px}}a{{color:var(--accent);text-decoration:none}}nav{{display:flex;gap:14px;align-items:center;margin-bottom:34px;flex-wrap:wrap}}nav a{{color:var(--muted);font-weight:650}}.brand{{font-family:var(--display);font-size:24px;font-weight:800;color:var(--text);margin-right:auto}}.brand span{{color:var(--accent)}}.brand b{{color:var(--amber)}}h1{{font-family:var(--display);font-size:40px;line-height:1.05;margin:0 0 8px}}.lede{{color:var(--muted);max-width:760px;margin:0 0 26px}}.grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}}.card,.panel{{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px}}.card h2,.card h3{{font-family:var(--display);margin:0 0 6px}}.meta,.num{{font-family:var(--mono)}}.meta{{font-size:12px;color:var(--faint)}}.num{{font-size:13px}}table{{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:16px;overflow:hidden}}th,td{{padding:11px 13px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}}th:first-child,td:first-child{{text-align:left}}th{{font-family:var(--mono);font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em}}td{{font-size:14px}}.pill{{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:3px 8px;font-family:var(--mono);font-size:11px;color:var(--muted)}}.sec{{font-family:var(--mono);font-size:11px}}footer{{margin-top:34px;color:var(--faint);font-size:12px}}
+</style></head><body><div class="wrap">{nav}{body}<footer>13FLOW · SEC EDGAR public-domain data · screen, not investment advice.</footer></div><script nonce="{nonce}"></script></body></html>"""
+        resp = Response(html, mimetype="text/html; charset=utf-8")
+        resp.headers["Content-Security-Policy"] = (
+            "default-src 'none'; "
+            f"script-src 'self' 'nonce-{nonce}'; "
+            "style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; "
+            "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+        )
+        return resp
+
+    def _fmt_usd_html(x) -> str:
+        try:
+            v = float(x or 0)
+        except (TypeError, ValueError):
+            return "-"
+        av = abs(v)
+        if av >= 1e9:
+            return f"${v / 1e9:,.1f}B"
+        if av >= 1e6:
+            return f"${v / 1e6:,.1f}M"
+        if av >= 1e3:
+            return f"${v / 1e3:,.0f}K"
+        return f"${v:,.0f}"
+
+    def _load_confluence_cache(window: int = 90) -> dict:
+        import json
+        path = os.path.join(_cache_dir, f"confluence-{window}.json")
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                return merge_methodology_metadata(
+                    _enrich_confluence_cache_payload(db_path, json.load(fh)),
+                    {"served_from_cache": True},
+                )
+        except (OSError, ValueError):
+            return {"metadata": {"served_from_cache": False}, "kpis": {}, "signals": []}
+
+    @app.get("/funds")
+    def static_funds():
+        s = store()
+        try:
+            rows = [dict(r) for r in s.conn.execute(
+                "SELECT cik,label,manager FROM funds ORDER BY label")]
+            cards = []
+            for r in rows:
+                series = s.fund_value_timeline(r["cik"])
+                latest = series[-1] if series else {}
+                cards.append(
+                    f'<a class="card" href="/funds/{html_escape(r["cik"])}">'
+                    f'<h2>{html_escape(r["label"])}</h2>'
+                    f'<div class="meta">{html_escape(r["manager"] or "")}</div>'
+                    f'<p class="num">{html_escape(str(latest.get("report_date") or "-"))} · '
+                    f'{_fmt_usd_html(latest.get("total_value"))} · '
+                    f'{html_escape(str(latest.get("n_positions") or 0))} positions</p></a>'
+                )
+        finally:
+            s.close()
+        return _html_response("Funds", "<h1>Funds</h1><p class=\"lede\">Tracked 13F managers, latest filings and SEC source links.</p><div class=\"grid\">" + "".join(cards) + "</div>")
+
+    @app.get("/funds/<cik>")
+    def static_fund_detail(cik):
+        cik = clean_cik(cik)
+        s = store()
+        try:
+            pf = s.load_portfolio(cik)
+            if pf is None:
+                abort(404)
+            frow = filing_row_for(s, cik, pf.report_date)
+            positions = sorted(pf.positions.values(), key=lambda p: p.value_usd, reverse=True)
+        finally:
+            s.close()
+        sec = sec_accession_url(cik, frow["accession"]) if frow else "#"
+        rows = "".join(
+            f"<tr><td><a href=\"/stocks/{html_escape(p.ticker or p.cusip)}\">{html_escape(p.ticker or '-')}</a>"
+            f"<div class=\"meta\">{html_escape(p.cusip)}</div></td>"
+            f"<td>{html_escape(p.issuer or '')}</td><td class=\"num\">{p.weight * 100:.2f}%</td>"
+            f"<td class=\"num\">{_fmt_usd_html(p.value_usd)}</td></tr>"
+            for p in positions[:80]
+        )
+        body = (
+            f"<h1>{html_escape(pf.fund_label)}</h1>"
+            f"<p class=\"lede\">Latest 13F portfolio for {html_escape(pf.report_date)}. "
+            f"<a class=\"sec\" href=\"{html_escape(sec)}\" rel=\"noopener\" target=\"_blank\">SEC filing {html_escape(frow['accession'] if frow else '')}</a></p>"
+            f"<table><thead><tr><th>Ticker</th><th>Issuer</th><th>Weight</th><th>Value</th></tr></thead><tbody>{rows}</tbody></table>"
+        )
+        return _html_response(pf.fund_label, body)
+
+    @app.get("/stocks")
+    def static_stocks():
+        s = store()
+        try:
+            latest = s.conn.execute("SELECT MAX(report_date) d FROM latest_filings").fetchone()["d"]
+            rows = [dict(r) for r in s.conn.execute(
+                """SELECT UPPER(h.ticker) ticker, MAX(h.issuer) issuer,
+                          COUNT(DISTINCT lf.cik) holders, SUM(h.value_usd) value_usd
+                   FROM latest_filings lf
+                   JOIN holdings h ON h.accession=lf.accession AND h.put_call=''
+                   WHERE lf.report_date=? AND h.ticker IS NOT NULL AND h.ticker<>''
+                   GROUP BY UPPER(h.ticker)
+                   ORDER BY value_usd DESC LIMIT 300""",
+                (latest,),
+            )]
+        finally:
+            s.close()
+        table = "".join(
+            f"<tr><td><a href=\"/stocks/{html_escape(r['ticker'])}\">{html_escape(r['ticker'])}</a>"
+            f"<div class=\"meta\">{html_escape(r['issuer'] or '')}</div></td>"
+            f"<td class=\"num\">{r['holders']}</td><td class=\"num\">{_fmt_usd_html(r['value_usd'])}</td>"
+            f"<td><a class=\"sec\" href=\"https://www.sec.gov/edgar/search/#/q={html_escape(r['ticker'])}\" rel=\"noopener\" target=\"_blank\">SEC search</a></td></tr>"
+            for r in rows
+        )
+        return _html_response("Stocks", f"<h1>Stocks</h1><p class=\"lede\">Latest-quarter holdings by ticker across tracked funds.</p><table><thead><tr><th>Ticker</th><th>Funds</th><th>Value</th><th>SEC</th></tr></thead><tbody>{table}</tbody></table>")
+
+    @app.get("/stocks/<ticker>")
+    def static_stock_detail(ticker):
+        payload = _stock_payload(ticker)
+        rows = "".join(
+            f"<tr><td><a href=\"/funds/{html_escape(r['cik'])}\">{html_escape(r['label'])}</a></td>"
+            f"<td class=\"num\">{r['weight'] * 100:.2f}%</td><td class=\"num\">{_fmt_usd_html(r['value_usd'])}</td>"
+            f"<td><a class=\"sec\" href=\"{html_escape(sec_accession_url(r['cik'], r['accession']))}\" rel=\"noopener\" target=\"_blank\">{html_escape(r['accession'])}</a></td></tr>"
+            for r in payload["holders"]
+        )
+        body = (
+            f"<h1>{html_escape(payload['ticker'])}</h1>"
+            f"<p class=\"lede\">{payload['holder_count']} tracked funds held {html_escape(payload['ticker'])} "
+            f"at {html_escape(payload['latest_13f_quarter'] or '-')}; aggregate reported value {_fmt_usd_html(payload['total_value_usd'])}. "
+            f"<a href=\"{html_escape(payload['sec_company_search'])}\" rel=\"noopener\" target=\"_blank\">SEC company search</a></p>"
+            f"<table><thead><tr><th>Fund</th><th>Weight</th><th>Value</th><th>SEC filing</th></tr></thead><tbody>{rows}</tbody></table>"
+        )
+        return _html_response(payload["ticker"], body)
+
+    @app.get("/signals")
+    def static_signals():
+        payload = _load_confluence_cache(90)
+        rows = "".join(
+            f"<tr><td><a href=\"/signals/{html_escape(str(sig.get('ticker') or ''))}\">{html_escape(sig.get('ticker') or '')}</a>"
+            f"<div class=\"meta\">{html_escape(sig.get('issuer_name') or '')}</div></td>"
+            f"<td class=\"num\">{html_escape(str(sig.get('score') or 0))}</td>"
+            f"<td><span class=\"pill\">{html_escape(sig.get('quadrant') or '')}</span></td>"
+            f"<td>{html_escape(sig.get('rationale') or '')}</td></tr>"
+            for sig in payload.get("signals", [])
+        )
+        return _html_response("Signals", f"<h1>Signals</h1><p class=\"lede\">Confluence v1 cached signals. The score is an ordinal research screen, not a probability or expected return.</p><table><thead><tr><th>Ticker</th><th>Score</th><th>Quadrant</th><th>Rationale</th></tr></thead><tbody>{rows}</tbody></table>")
+
+    @app.get("/signals/<ticker>")
+    def static_signal_detail(ticker):
+        t = (ticker or "").strip().upper()
+        if not re.fullmatch(r"[A-Z0-9.\-]{1,12}", t):
+            abort(404)
+        payload = _load_confluence_cache(90)
+        sig = next((s for s in payload.get("signals", []) if str(s.get("ticker") or "").upper() == t), None)
+        if sig is None:
+            abort(404)
+        inst = sig.get("institutional") or {}
+        ins = sig.get("insider") or {}
+        body = (
+            f"<h1>{html_escape(t)}</h1><p class=\"lede\">{html_escape(sig.get('rationale') or '')}</p>"
+            f"<div class=\"grid\"><div class=\"card\"><h3>Score</h3><p class=\"num\">{html_escape(str(sig.get('score')))} / 100</p><p><span class=\"pill\">{html_escape(sig.get('quadrant') or '')}</span></p></div>"
+            f"<div class=\"card\"><h3>Institutional</h3><p>{html_escape(str(inst.get('funds_accumulating', 0)))} accumulating, {html_escape(str(inst.get('funds_trimming', 0)))} trimming</p><p class=\"num\">{_fmt_usd_html(inst.get('total_value_usd'))}</p></div>"
+            f"<div class=\"card\"><h3>Insiders</h3><p>{html_escape(str(ins.get('n_buyers', 0)))} buyers · {html_escape(str(ins.get('n_c_suite_buyers', 0)))} C-suite</p><p class=\"num\">{_fmt_usd_html(ins.get('buy_value_usd'))}</p></div></div>"
+            f"<p class=\"lede\"><a href=\"/stocks/{html_escape(t)}\">Latest 13F holders</a> · <a href=\"https://www.sec.gov/edgar/search/#/q={html_escape(t)}\" rel=\"noopener\" target=\"_blank\">SEC search</a></p>"
+        )
+        return _html_response(f"{t} signal", body)
+
     _FONT_DIR = os.path.join(os.path.dirname(dash), "assets", "fonts")
 
     @app.get("/assets/fonts/<path:filename>")
@@ -1305,6 +1722,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 
     _LEGAL = os.path.join(os.path.dirname(dash), "mentions-legales.html")
 
+    @app.get("/legal")
     @app.get("/mentions-legales")
     @app.get("/mentions-legales.html")
     def mentions_legales():

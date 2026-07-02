@@ -147,6 +147,61 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
         assert live["latest_13f_quarter"] == "2026-03-31"
 
 
+def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
+    import json
+    with tempfile.TemporaryDirectory() as d:
+        db = str(Path(d) / "static.db")
+        s = Store(db)
+        _save(s, "0001067983", "Berkshire Hathaway", "Warren Buffett",
+              "0001-26-000001", "13F-HR", "2026-05-15", "2026-03-31",
+              [("APPLE INC", AAPL, 1000, 100, "")])
+        s.conn.execute("UPDATE holdings SET ticker='AAPL' WHERE cusip=?", (AAPL,))
+        s.conn.commit()
+        s.close()
+
+        cache = Path(d)
+        (cache / "confluence-90.json").write_text(json.dumps({
+            "kpis": {"n_signals": 1, "window_days": 90},
+            "signals": [{"ticker": "AAPL", "issuer_name": "Apple Inc.",
+                         "score": 71.2, "quadrant": "conviction",
+                         "rationale": "test signal",
+                         "institutional": {"fund_labels": ["Berkshire Hathaway"]},
+                         "insider": {}}],
+        }), encoding="utf-8")
+        monkeypatch.setenv("SMARTMONEY_CACHE_DIR", str(cache))
+        c = create_app(db, secure_cookies=False, open_mode=True).test_client()
+
+        for path, needle in (
+            ("/funds", "Berkshire Hathaway"),
+            ("/funds/0001067983", "SEC filing"),
+            ("/stocks", "AAPL"),
+            ("/stocks/AAPL", "SEC company search"),
+            ("/signals", "test signal"),
+            ("/signals/AAPL", "Latest 13F holders"),
+            ("/faq", "Frequently asked questions"),
+            ("/legal", "Legal, privacy and data terms"),
+        ):
+            r = c.get(path)
+            assert r.status_code == 200, path
+            assert needle in r.get_data(as_text=True), path
+
+        doc = c.get("/api/openapi.json").get_json()
+        assert "/api/mcp" in doc["paths"]
+        assert "/api/methodology/confluence-v1" in doc["paths"]
+
+        mcp = c.post("/api/mcp", json={
+            "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}
+        }).get_json()
+        assert any(t["name"] == "stocks.get" for t in mcp["result"]["tools"])
+
+        stock = c.post("/api/mcp", json={
+            "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+            "params": {"name": "stocks.get", "arguments": {"ticker": "AAPL"}},
+        }).get_json()
+        assert stock["result"]["structuredContent"]["ticker"] == "AAPL"
+        assert stock["result"]["structuredContent"]["holder_count"] == 1
+
+
 if __name__ == "__main__":
     import sys, pytest
     sys.exit(pytest.main([__file__, "-q"]))

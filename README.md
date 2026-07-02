@@ -59,8 +59,13 @@ explicitly requested (`?demo=1` in the browser or `SMARTMONEY_CONFLUENCE_DEMO=1`
 Confluence API); production errors are shown instead of silently substituting samples. API endpoints:
 `/api/live-status`, `/api/funds`, `/api/fund/<cik>`,
 `/api/consensus/{buys,holdings}`, `/api/compare`, `/api/alerts/preview/<cik>`,
-`/api/signals/confluence`, `/api/data-quality` (all public, read-only), plus authenticated
-`/api/auth/*` and user-scoped `/api/subscriptions`. `/api/live-status` is the public,
+`/api/signals/confluence`, `/api/signals/confluence/history`,
+`/api/methodology/confluence-v1`, `/api/data-quality`, `/api/openapi.json`, and the
+read-only MCP JSON-RPC endpoint `/api/mcp` (all public, read-only), plus authenticated
+`/api/auth/*` and user-scoped `/api/subscriptions`. Static, crawler-friendly pages are
+served at `/funds`, `/funds/<cik>`, `/stocks`, `/stocks/<ticker>`, `/signals`, and
+`/signals/<ticker>`, with SEC links where an accession or issuer search can be resolved.
+`/api/live-status` is the public,
 machine-readable proof of live state: SHA, source (`SEC EDGAR`), latest quarter, row counts,
 data-quality summary, and `uses_synthetic_data=false`.
 
