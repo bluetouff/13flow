@@ -164,11 +164,15 @@ def test_confluence_cache_served_when_present():
             j = c.get("/api/signals/confluence?window=90").get_json()
             assert j["kpis"]["top_ticker"] == "CACHED"
             assert j["signals"][0]["ticker"] == "CACHED"
+            assert j["metadata"]["validation_status"] == "hypothesis_not_live_validated"
+            assert "heuristic" in j["metadata"]["weight_policy"]
+            assert j["metadata"]["validation_protocol"]["forward_horizons_days"] == [20, 60, 120]
             # window without a cache file -> falls back to the (sample) provider
             j2 = c.get("/api/signals/confluence?window=45").get_json()
             assert j2["signals"] and j2["signals"][0]["ticker"] != "CACHED"
             assert j2["metadata"]["score_interpretation"].startswith("Ordinal exploratory")
             assert j2["metadata"]["calibration_status"] == "not_calibrated_on_live_history"
+            assert "Backtest harness available" in j2["metadata"]["backtest_status"]
         finally:
             del os.environ["SMARTMONEY_CACHE_DIR"]
 
@@ -176,6 +180,7 @@ def test_confluence_cache_served_when_present():
     p = confluence_payload(sample_signals(90), 90)
     assert set(p) == {"metadata", "kpis", "signals"} and p["kpis"]["window_days"] == 90
     assert p["metadata"]["known_limitations"]
+    assert p["metadata"]["quantitative_evidence_boundary"].startswith("Current production score")
 
 
 def test_live_confluence_provider_enriches_institutional_signal(monkeypatch):

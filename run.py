@@ -519,7 +519,8 @@ def cmd_confluence(db_path: str, ua: str, windows) -> None:
     prov = _StoreConfluence(db_path, ua)
     for w in windows:
         signals = prov.confluence(w)
-        payload = confluence_payload(signals, w)
+        metadata = getattr(prov, "confluence_metadata", lambda: {})()
+        payload = confluence_payload(signals, w, metadata=metadata)
         path = os.path.join(outdir, f"confluence-{w}.json")
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(payload, fh)

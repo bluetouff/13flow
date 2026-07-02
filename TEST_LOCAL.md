@@ -130,10 +130,12 @@ To run it **live** (pulls real Form 4s from EDGAR for the tickers your funds are
 SEC_UA="you@example.com" SMARTMONEY_CONFLUENCE_LIVE=1 \
   SMARTMONEY_INSECURE_COOKIES=1 python -m smartmoney.api --db live.db
 ```
-Calibrate the scoring weights against forward returns with the backtest harness:
+Evaluate the scoring hypothesis or fit research weights with the backtest harness:
 ```bash
-python -m smartmoney.backtest        # synthetic demo: optimiser recovers a planted signal
+python -m smartmoney.backtest        # synthetic demo only; not live-history validation
 ```
+Treat default weights as heuristic until `VALIDATION_PROTOCOL.md` has been run and published
+for a frozen score version.
 
 ---
 

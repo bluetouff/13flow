@@ -1,9 +1,10 @@
 """
-Backtest & weight-tuning harness for the Confluence score (13FLOW).
+Backtest harness for the Confluence score (13FLOW).
 
 The score combines pillars with weights (crosssignal.Weights). This module answers the
-only question that matters: *do higher-scored names actually outperform afterwards?* —
-and tunes the weights to maximise that relationship on your history.
+only question that matters once a point-in-time dataset exists: *do higher-scored names
+actually outperform afterwards?* It can also fit alternative weights on a declared
+training sample.
 
 Metrics (all rank-based, so they don't care about score scale):
   - rank IC: Spearman correlation between score and forward return. The headline number.
@@ -12,7 +13,8 @@ Metrics (all rank-based, so they don't care about score scale):
 
 Optimiser: coordinate ascent over Weights.TUNABLE within Weights.BOUNDS, maximising a
 blended objective (IC + a slice of quantile spread). Robust, derivative-free, and easy
-to reason about for six parameters.
+to reason about for six parameters. Optimised weights are research output, not product
+truth, until they survive a frozen validation and out-of-sample test.
 
 DATA CONTRACT — you supply observations from your own store:
     Observation(inst=InstitutionalSignal, insider=InsiderActivity, fwd_return=float)
@@ -20,7 +22,9 @@ where fwd_return is the realised return over your chosen horizon AFTER the as-of
 features were computed (e.g. the next quarter). Build these by snapshotting features at
 historical filing dates and joining to forward prices (Massive Market Data / stooq).
 
-There is no look-ahead help here and no network — feed it real history to get real weights.
+There is no look-ahead help here and no network. Feed it real history to evaluate a
+hypothesis; publish the feature version, split, baselines, costs, and out-of-sample
+results before calling any weight set validated.
 """
 
 from __future__ import annotations

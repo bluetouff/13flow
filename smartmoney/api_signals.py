@@ -39,6 +39,36 @@ def default_methodology_metadata() -> dict:
             "historical frequency, and not an expected return estimate."
         ),
         "calibration_status": "not_calibrated_on_live_history",
+        "validation_status": "hypothesis_not_live_validated",
+        "backtest_status": (
+            "Backtest harness available; no published point-in-time live-history "
+            "out-of-sample result is attached to this score version."
+        ),
+        "weight_policy": (
+            "Default weights are heuristic judgement parameters. Optimized weights must be "
+            "reported separately with their train/validation/test split, feature version, "
+            "and out-of-sample evidence."
+        ),
+        "validation_protocol": {
+            "train": "2014-01-01 through 2022-12-31",
+            "validation": "2023-01-01 through 2024-12-31",
+            "test": "2025-01-01 through 2026-12-31",
+            "forward_horizons_days": [20, 60, 120],
+            "required_controls": [
+                "point-in-time feature availability",
+                "tradable universe and liquidity rules",
+                "adjusted prices including delistings where available",
+                "transaction costs, execution lag, and rebalance frequency",
+                "sector, size, and beta neutralization",
+                "confidence intervals, permutation tests, and walk-forward stability",
+                "baselines: insider-only, fund-count-only, confluence-without-score, equal-weight",
+            ],
+        },
+        "quantitative_evidence_boundary": (
+            "Current production score is a transparent hypothesis and ranking heuristic. "
+            "It must not be described as validated until a frozen version passes the "
+            "published out-of-sample protocol."
+        ),
         "known_limitations": [
             "Feature half-lives, seniority multipliers, dollar caps, saturation curves, and "
             "agreement bonus are judgement parameters until sensitivity tables and live "
@@ -79,6 +109,19 @@ def confluence_payload(signals, window: int, min_score: float = 0.0,
     return {"metadata": meta, "kpis": kpis, "signals": payload}
 
 
+def merge_methodology_metadata(payload: dict, provider_metadata: dict | None = None) -> dict:
+    """Attach current methodology metadata to live or cached Confluence payloads."""
+    out = dict(payload)
+    meta = default_methodology_metadata()
+    existing = out.get("metadata")
+    if isinstance(existing, dict):
+        meta.update(existing)
+    if provider_metadata:
+        meta.update(provider_metadata)
+    out["metadata"] = meta
+    return out
+
+
 def make_signals_blueprint(provider: ConfluenceProvider, cache_dir=None) -> Blueprint:
     bp = Blueprint("signals", __name__)
 
@@ -100,7 +143,8 @@ def make_signals_blueprint(provider: ConfluenceProvider, cache_dir=None) -> Blue
             cpath = os.path.join(cache_dir, f"confluence-{window}.json")
             try:
                 with open(cpath, "r", encoding="utf-8") as fh:
-                    return jsonify(json.load(fh))
+                    metadata = getattr(provider, "confluence_metadata", lambda: {})()
+                    return jsonify(merge_methodology_metadata(json.load(fh), metadata))
             except (FileNotFoundError, OSError, ValueError):
                 pass  # no/invalid cache -> fall back to the provider
 

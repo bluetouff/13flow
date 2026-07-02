@@ -193,11 +193,18 @@ frequency, and not an expected-return estimate. `FeatureParams` controls *what t
 measures* (recency half-life, buy-size curve, cluster window, seniority) and remains a set of
 judgement parameters until sensitivity tables are published. `Weights` controls *how the
 pillars combine* (institutional breadth, insider conviction, recency-weighted dollars,
-agreement bonus, minus trim/sell penalties). The current live build must be treated as
-**not calibrated on live historical outcomes**. Each signal exposes its per-pillar `breakdown`
+agreement bonus, minus trim/sell penalties). The default weights are **heuristic**; the
+current live build must be treated as **not calibrated on live historical outcomes** and not
+validated out-of-sample. Each signal exposes its per-pillar `breakdown`
 and a quadrant label (Conviction / Institutional bid / Insider conviction / Distribution /
 Divergent / Neutral), but the quadrant describes direction while the score describes heuristic
 intensity, so they can diverge.
+
+The quantitative proof boundary is public: `VALIDATION_PROTOCOL.md` defines the required
+point-in-time dataset, train/validation/test split, baselines, neutralization, costs,
+confidence intervals, permutation tests, and version log before any score can be called
+validated. Until then, the correct wording is: **backtest harness available; default weights
+are heuristic**.
 
 The production live provider also has an explicit effective universe: to keep the public tier
 off abusive Form 4 fan-out, it scans insider filings only for tickers with at least
@@ -212,8 +219,9 @@ network). The live provider needs EDGAR access for Form 4s:
 SEC_UA="you@example.com" SMARTMONEY_CONFLUENCE_LIVE=1 python -m smartmoney.api --db demo.db
 ```
 With the flag off (default), the endpoint serves the same-shaped sample so the UI lights up
-immediately. Calibrate the weights against forward returns with `python -m smartmoney.backtest`
-(synthetic demo) — see `FORMS4_INTEGRATION.md` for the full feature write-up.
+immediately. Evaluate hypotheses or fit research weights with `python -m smartmoney.backtest`
+(synthetic demo only) — see `FORMS4_INTEGRATION.md` and `VALIDATION_PROTOCOL.md` for the
+feature write-up and validation contract.
 
 ## Valuation — current weights & implied P&L
 A 13F reports value at *quarter-end*. To see what the book is worth *now* and the paper
@@ -323,7 +331,7 @@ separated from the web user, and a scheduled refresh) lives in [`deploy/`](deplo
 - `billing.py` — Stripe subscriptions (signature-verified, idempotent webhook) + local mock.
 - `forms4.py` — Form 4 discovery by issuer CIK + ownership-XML parser (open-market P/S), XXE-hardened.
 - `crosssignal.py` — Confluence engine: 13F accumulation × insider buying → scored, classified signal.
-- `backtest.py` — rank-IC / quantile-spread evaluation + coordinate-ascent weight optimiser.
+- `backtest.py` — rank-IC / quantile-spread harness + coordinate-ascent research optimiser.
 - `api_signals.py` — read-only `GET /api/signals/confluence` blueprint (live + sample providers).
 - `dashboard.html` — single-file web UI (consensus / funds / compare / alerts / confluence + auth + upgrade).
 - `faq.html` — branded FAQ / explainer page, served at `/faq`, sharing the dashboard's theme.

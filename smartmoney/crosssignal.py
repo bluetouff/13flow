@@ -9,9 +9,11 @@ When BOTH point the same way on the same ticker, you get a rare, hard-to-fake si
 The scoring is split in two on purpose:
   - FEATURE EXTRACTION (`FeatureParams`): turns raw filings into conviction features —
     recency decay, buy-size vs prior holdings, cluster timing, seniority. These shape
-    *what the signal measures* and are tuned by judgement / domain knowledge.
+    *what the signal measures* and are judgement / domain-knowledge parameters until
+    sensitivity tables are published.
   - COMBINATION (`Weights`): folds the features into a 0-100 score. These are tuned
-    empirically by the backtest harness (backtest.py) to maximise rank-IC vs forward returns.
+    heuristic defaults; the backtest harness can fit alternatives, but any fitted weight
+    set must carry its train/validation/test split and out-of-sample evidence.
 
 This separation is what lets you optimise the weights without re-deriving the features,
 and re-derive features without invalidating a fitted weight set.
@@ -54,7 +56,7 @@ DEFAULT_FEATURES = FeatureParams()
 
 
 # ===========================================================================
-# Combination weights (the "how we fold it together" knobs — tuned by backtest)
+# Combination weights (the "how we fold it together" knobs; heuristic defaults)
 # ===========================================================================
 @dataclass(frozen=True)
 class Weights:

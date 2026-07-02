@@ -1,7 +1,7 @@
 # Confluence — Form 4 × 13F (13FLOW)
 
 Surfaces the names where **superinvestor 13F accumulation** and **open-market insider
-buying** coincide, scores the overlap with a tunable, backtested model, and ranks it.
+buying** coincide, scores the overlap with transparent heuristic defaults, and ranks it.
 Reuses the existing EDGAR etiquette (UA + 8 req/s), `defusedxml` hardening, the dashboard
 theme and `esc()`.
 
@@ -10,7 +10,7 @@ theme and `esc()`.
 |---|---|
 | `smartmoney/forms4.py` | Form 4 discovery (by issuer CIK) + ownership-XML parser → typed `Form4` / `Form4Transaction`. |
 | `smartmoney/crosssignal.py` | Confluence engine. `FeatureParams` (extraction) + `Weights` (combination) → scored, classified `ConfluenceSignal` with a per-pillar `breakdown`. |
-| `smartmoney/backtest.py` | Rank-IC / quantile-spread / hit-rate evaluation + coordinate-ascent weight optimiser. Synthetic demo proves it recovers a known relationship. |
+| `smartmoney/backtest.py` | Rank-IC / quantile-spread / hit-rate evaluation + coordinate-ascent weight optimiser. Synthetic demo exercises the harness; it is not live-history validation. |
 | `smartmoney/api_signals.py` | Read-only Flask blueprint `GET /api/signals/confluence`; `StoreConfluenceProvider` (real) + `SampleConfluenceProvider` (demo). |
 | `smartmoney/sample_confluence.py` | Synthetic data routed through the real pipeline so the UI/endpoint run with no DB or network. |
 | `tests/test_forms4_offline.py` | Offline tests: parsing, recency/sizing features, ranking, and the optimiser. |
@@ -36,12 +36,15 @@ theme and `esc()`.
 
 ## Two-layer scoring: features vs weights
 `FeatureParams` controls **what the signal measures** (half-life, sizing curve, seniority
-multipliers) — tune by judgement. `Weights` controls **how the pillars combine** — tune
-empirically with the backtest. The split means you can refit weights without re-deriving
-features, and vice versa.
+multipliers) — judgement parameters until sensitivity tables are published. `Weights`
+controls **how the pillars combine**. The shipped defaults are heuristic, not calibrated
+on published live history. The split means you can fit alternative weights without
+re-deriving features, and vice versa, but fitted weights must carry their train/validation/
+test split and out-of-sample evidence.
 
-## Calibrating the weights (backtest.py)
-Feed historical observations and let the optimiser fit the weights to forward returns:
+## Validation and weight research (backtest.py)
+Feed point-in-time historical observations to evaluate the hypothesis or fit research
+weights against forward returns:
 ```python
 from smartmoney.backtest import Observation, evaluate, optimize_weights
 # build from your store: features snapshotted at a past as-of date, joined to the
@@ -60,6 +63,11 @@ The shape/feature params stay fixed during weight optimisation by design.
 > The synthetic IC is high because the demo's returns are mostly signal; on real data expect a
 > modest IC (single-digit % to ~0.1 is already useful in cross-sectional equity screens). The
 > point of the harness is the *workflow* and the *relative* before/after comparison, not the level.
+
+Current production wording is therefore: **backtest harness available; default weights are
+heuristic**. Do not describe the live Confluence score as validated, calibrated, or
+backtested until a frozen score version has passed `VALIDATION_PROTOCOL.md` with published
+train, validation, and out-of-sample results.
 
 ## Wire-in (two steps)
 
@@ -104,4 +112,5 @@ GET /api/signals/confluence?window=90&min_score=0
 - **Joint/multi-owner filings** are attributed to the first reporting owner; rare, low impact.
 - **Tickers vs CIKs**: the join relies on your existing CUSIP→ticker→CIK mapping; no-match names
   simply won't get an insider rail (they degrade to single-rail institutional signals).
-- Not investment advice — this is a **screen**, weighting two public, high-quality signals.
+- **Validation boundary**: this is a transparent **screen**, not investment advice and not a
+  validated expected-return model until the protocol evidence is published.
