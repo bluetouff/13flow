@@ -196,6 +196,11 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         doc = c.get("/api/openapi.json").get_json()
         assert "/api/mcp" in doc["paths"]
         assert "/api/methodology/confluence-v1" in doc["paths"]
+        assert "/api/stocks/{ticker}" in doc["paths"]
+
+        api_stock = c.get("/api/stocks/AAPL").get_json()
+        assert api_stock["ticker"] == "AAPL"
+        assert api_stock["holder_count"] == 1
 
         mcp = c.post("/api/mcp", json={
             "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}

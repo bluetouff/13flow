@@ -1,0 +1,48 @@
+[Unit]
+Description=13FLOW MCP server (Streamable HTTP, public + x402-gated Pro tools)
+After=network.target 13flow.service
+Wants=13flow.service
+
+[Service]
+Type=simple
+User=flowapp
+Group=flowapp
+WorkingDirectory=/opt/13flow/mcp-server
+EnvironmentFile=/etc/13flow/13flow-mcp.env
+Environment=NODE_ENV=production
+RuntimeDirectory=13flow-mcp
+Environment=HOME=%t/13flow-mcp
+ExecStart=/usr/bin/node /opt/13flow/mcp-server/server.mjs
+Restart=on-failure
+RestartSec=3
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/opt/13flow
+ReadWritePaths=
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+LimitNOFILE=4096
+MemoryMax=256M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

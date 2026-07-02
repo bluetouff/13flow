@@ -525,6 +525,15 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                       "404": {"description": "Fund not found"}},
                     }
                 },
+                "/api/stocks/{ticker}": {
+                    "get": {
+                        "summary": "Latest holders for one ticker",
+                        "parameters": [{"name": "ticker", "in": "path", "required": True,
+                                        "schema": {"type": "string", "pattern": "^[A-Z0-9.\\-]{1,12}$"}}],
+                        "responses": {"200": {"description": "Ticker holder detail"},
+                                      "400": {"description": "Invalid ticker"}},
+                    }
+                },
                 "/api/consensus/holdings": {"get": {"summary": "Consensus holdings by quarter",
                                                      "responses": {"200": {"description": "Holdings"}}}},
                 "/api/consensus/buys": {"get": {"summary": "Consensus buys/openings by quarter",
@@ -1050,6 +1059,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "total_value_usd": sum(r["value_usd"] or 0 for r in rows),
             "sec_company_search": f"https://www.sec.gov/edgar/search/#/q={t}",
         }
+
+    @app.get("/api/stocks/<ticker>")
+    def stock_ep(ticker):
+        return jsonify(_stock_payload(ticker))
 
     def _mcp_call_tool(name: str, args: dict) -> dict:
         if name == "funds.list":
