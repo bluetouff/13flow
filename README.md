@@ -126,11 +126,22 @@ audit events in a dedicated control-plane SQLite file via `SMARTMONEY_PRO_DB`.
 
 Recommended production split:
 ```bash
+# /etc/13flow/13flow-web.env, used by 13flow.service on 127.0.0.1:8000
 SMARTMONEY_OPEN=1
 SMARTMONEY_DB_READONLY=1
+SMARTMONEY_DB=/var/lib/13flow/13flow.db
+
+# /etc/13flow/13flow-pro.env, used by 13flow-pro.service on 127.0.0.1:8001
+SMARTMONEY_OPEN=1
+SMARTMONEY_DB_READONLY=1
+SMARTMONEY_DB=/var/lib/13flow/13flow.db
 SMARTMONEY_PRO_API=1
-SMARTMONEY_PRO_DB=/var/lib/13flow/13flow-pro.db
+SMARTMONEY_PRO_DB=/var/lib/13flow-pro/13flow-pro.db
 ```
+
+Do not grant `/var/lib/13flow-pro` write access to the public `13flow.service`. Apache
+should route only `/api/pro/` to `13flow-pro.service`, while the public site and open JSON
+endpoints stay on the read-only service.
 
 Create an API key offline as the operator. The plaintext token is shown exactly once; only
 its SHA-256 hash is stored.
@@ -316,8 +327,9 @@ routes (`/api/auth/*`, `/api/billing/*`, `/api/subscriptions`, `/api/alerts/*` a
 404, not 401), `SMARTMONEY_DB_READONLY=1` opens SQLite read-only so the web process can't
 write the database, and the dashboard auto-detects the build via `/api/config` — hiding the
 Sign in button and the Alerts tab. The same codebase runs the full build when the flag is
-absent. The Pro API is separate: if `SMARTMONEY_PRO_API=1`, `/api/pro/v1/*` is registered
-and writes only to `SMARTMONEY_PRO_DB`, not to the read-only 13F data DB. A complete
+absent. The Pro API is separate: run it in the dedicated `13flow-pro.service` with
+`SMARTMONEY_PRO_API=1`; `/api/pro/v1/*` writes only to `SMARTMONEY_PRO_DB`, not to the
+read-only 13F data DB, and the public `13flow.service` should keep no Pro DB write path. A complete
 **Debian + Apache** deployment kit (gunicorn systemd unit with a sandbox,
 Apache TLS reverse-proxy vhost with a GET-only method allow-list + HSTS/CSP, an ingest user
 separated from the web user, and a scheduled refresh) lives in [`deploy/`](deploy/) — see

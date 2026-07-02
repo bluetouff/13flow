@@ -23,6 +23,7 @@ const PORT = Number.parseInt(process.env.MCP_PORT || '8849', 10);
 const MCP_PATH = process.env.MCP_PATH || '/mcp';
 const SITE = (process.env.MCP_PUBLIC_SITE || process.env.SITE || 'https://13flow.eu').replace(/\/$/, '');
 const API_BASE = (process.env.MCP_13FLOW_API_BASE || 'http://127.0.0.1:8000').replace(/\/$/, '');
+const PRO_API_BASE = (process.env.MCP_13FLOW_PRO_API_BASE || API_BASE).replace(/\/$/, '');
 const MCP_VERSION = '0.1.0';
 const MAX_BODY = Number.parseInt(process.env.MCP_MAX_BODY || String(1024 * 1024), 10);
 const RATE_MAX = Number.parseInt(process.env.MCP_RATE_MAX || '120', 10);
@@ -161,17 +162,18 @@ function originAllowed(req) {
   return ALLOWED_ORIGINS.includes(String(origin));
 }
 
-function apiUrl(path) {
+function apiUrl(path, base = API_BASE) {
   const clean = String(path || '').startsWith('/') ? String(path) : `/${path}`;
-  return `${API_BASE}${clean}`;
+  return `${base}${clean}`;
 }
 
 async function fetchJson(path, options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
-  const headers = { Accept: 'application/json', ...(options.headers || {}) };
+  const { base, ...fetchOptions } = options;
+  const headers = { Accept: 'application/json', ...(fetchOptions.headers || {}) };
   try {
-    const res = await fetch(apiUrl(path), { ...options, headers, signal: controller.signal });
+    const res = await fetch(apiUrl(path, base || API_BASE), { ...fetchOptions, headers, signal: controller.signal });
     const text = await res.text();
     let payload = null;
     try {
@@ -484,7 +486,7 @@ function buildServer(context = {}) {
     if (!Object.keys(proHeaders).length && !paymentGrant) {
       throw new McpError(ErrorCode.InvalidRequest, 'Pro authorization missing');
     }
-    return fetchJson(path, { headers: proHeaders });
+    return fetchJson(path, { base: PRO_API_BASE, headers: proHeaders });
   }
 
   server.registerResource(
@@ -494,6 +496,7 @@ function buildServer(context = {}) {
     async (uri) => resourceJson(uri.toString(), {
       ...SERVER_INFO,
       apiBase: API_BASE.replace(/^http:\/\/127\.0\.0\.1:\d+$/, 'local-gunicorn'),
+      proApiBase: PRO_API_BASE.replace(/^http:\/\/127\.0\.0\.1:\d+$/, 'local-gunicorn-pro'),
       security: {
         readOnly: true,
         stateless: true,
@@ -787,5 +790,5 @@ const httpServer = http.createServer((req, res) => {
 });
 
 httpServer.listen(PORT, HOST, () => {
-  console.error(`[13flow-mcp] listening on http://${HOST}:${PORT}${MCP_PATH} -> ${API_BASE}`);
+  console.error(`[13flow-mcp] listening on http://${HOST}:${PORT}${MCP_PATH} -> public ${API_BASE}, pro ${PRO_API_BASE}`);
 });

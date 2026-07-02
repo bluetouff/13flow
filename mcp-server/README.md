@@ -83,6 +83,8 @@ MCP_PORT=8849
 MCP_PATH=/mcp
 MCP_PUBLIC_SITE=https://13flow.eu
 MCP_13FLOW_API_BASE=http://127.0.0.1:8000
+# Optional but recommended in production: premium tools call the isolated Pro API service.
+MCP_13FLOW_PRO_API_BASE=http://127.0.0.1:8001
 MCP_ALLOWED_HOSTS=13flow.eu,www.13flow.eu,127.0.0.1,localhost
 MCP_ALLOWED_ORIGINS=https://13flow.eu,https://www.13flow.eu
 MCP_RATE_MAX=120
@@ -98,7 +100,7 @@ MCP_X402_FACILITATOR_URL=https://...
 MCP_X402_FACILITATOR_AUTH="Bearer ..."
 
 # Server-side Pro credential used only after a verified x402 settlement.
-# Prefer the _FILE form with a root-readable/flowapp-readable 0640 secret.
+# Prefer the _FILE form with a root-readable/flowmcp-readable 0640 secret.
 MCP_13FLOW_INTERNAL_PRO_TOKEN_FILE=/etc/13flow/mcp-internal-pro-token
 ```
 

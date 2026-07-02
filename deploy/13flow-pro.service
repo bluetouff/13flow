@@ -1,0 +1,57 @@
+[Unit]
+Description=13FLOW Pro API (gunicorn, API keys and audit)
+After=network.target 13flow.service
+Wants=13flow.service
+
+[Service]
+Type=notify
+# Dedicated Pro API identity. It reads the public market DB but is the only web-facing
+# service allowed to write the Pro control-plane DB.
+User=flowpro
+Group=flowpro
+SupplementaryGroups=flowapp
+WorkingDirectory=/opt/13flow
+EnvironmentFile=/etc/13flow/13flow-pro.env
+RuntimeDirectory=13flow-pro
+Environment=HOME=%t/13flow-pro
+Environment=SMARTMONEY_OPEN=1
+Environment=SMARTMONEY_DB_READONLY=1
+Environment=SMARTMONEY_PRO_API=1
+ExecStart=/opt/13flow/.venv/bin/gunicorn --workers 2 --bind 127.0.0.1:8001 \
+          --access-logfile - --error-logfile - --timeout 30 wsgi:app
+Restart=on-failure
+RestartSec=3
+
+# ---- hardening (systemd sandbox) ----
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/opt/13flow /var/lib/13flow
+ReadWritePaths=/var/lib/13flow-pro
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0027
+LimitNOFILE=4096
+MemoryMax=384M
+TasksMax=96
+
+[Install]
+WantedBy=multi-user.target

@@ -9,6 +9,7 @@ from smartmoney.db import Store
 from smartmoney.preflight import (
     deployed_sha_from_systemd,
     run_preflight,
+    _public_service_isolation_checks,
     _public_surface_checks,
     _runtime_env_checks,
 )
@@ -111,6 +112,53 @@ def test_runtime_env_check_requires_db_alignment():
 
         checks = {c.name: c for c in _runtime_env_checks("/other.db", str(env))}
         assert checks["runtime_env.db_path"].status == "fail"
+
+
+def test_runtime_env_check_rejects_ingest_secrets_in_web_env():
+    with tempfile.TemporaryDirectory() as d:
+        env = Path(d) / "13flow-web.env"
+        expected = str(Path(d) / "market.db")
+        env.write_text(
+            "SMARTMONEY_OPEN=1\n"
+            f"SMARTMONEY_DB={expected}\n"
+            "SMARTMONEY_DB_READONLY=1\n"
+            "SEC_UA=13flow operator@example.com\n",
+            encoding="utf-8",
+        )
+
+        checks = {c.name: c for c in _runtime_env_checks(expected, str(env))}
+        assert checks["runtime_env.no_ingest_secrets"].status == "fail"
+
+
+def test_public_service_isolation_rejects_pro_dropin():
+    with tempfile.TemporaryDirectory() as d:
+        dropin = Path(d) / "13flow.service.d"
+        dropin.mkdir()
+        (dropin / "pro-api.conf").write_text(
+            "[Service]\n"
+            "Environment=SMARTMONEY_PRO_API=1\n"
+            "Environment=SMARTMONEY_PRO_DB=/var/lib/13flow-pro/13flow-pro.db\n"
+            "ReadWritePaths=/var/lib/13flow-pro\n",
+            encoding="utf-8",
+        )
+
+        checks = {c.name: c for c in _public_service_isolation_checks(str(dropin))}
+        assert checks["runtime_env.public_no_pro_api"].status == "fail"
+        assert checks["runtime_env.public_no_pro_db_write"].status == "fail"
+
+
+def test_public_service_isolation_passes_without_pro_dropin():
+    with tempfile.TemporaryDirectory() as d:
+        dropin = Path(d) / "13flow.service.d"
+        dropin.mkdir()
+        (dropin / "version.conf").write_text(
+            "[Service]\nEnvironment=SMARTMONEY_GIT_SHA=abc123\n",
+            encoding="utf-8",
+        )
+
+        checks = {c.name: c for c in _public_service_isolation_checks(str(dropin))}
+        assert checks["runtime_env.public_no_pro_api"].status == "pass"
+        assert checks["runtime_env.public_no_pro_db_write"].status == "pass"
 
 
 def test_preflight_fails_if_public_root_exposes_sample_data(monkeypatch):

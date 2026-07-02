@@ -12,6 +12,7 @@ import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 from .db import Store
@@ -20,6 +21,8 @@ from .quality import data_quality_report
 
 SYSTEMD_VERSION_CONF = "/etc/systemd/system/13flow.service.d/version.conf"
 SYSTEMD_ENV_FILE = "/etc/13flow/13flow.env"
+SYSTEMD_WEB_ENV_FILE = "/etc/13flow/13flow-web.env"
+SYSTEMD_WEB_DROPIN_DIR = "/etc/systemd/system/13flow.service.d"
 
 
 @dataclass(frozen=True)
@@ -78,8 +81,10 @@ def _parse_env_file(path: str) -> dict[str, str] | None:
     return out
 
 
-def _runtime_env_checks(db_path: str, env_file: str = SYSTEMD_ENV_FILE) -> list[Check]:
+def _runtime_env_checks(db_path: str, env_file: str | None = None) -> list[Check]:
     checks: list[Check] = []
+    if env_file is None:
+        env_file = SYSTEMD_WEB_ENV_FILE if os.path.exists(SYSTEMD_WEB_ENV_FILE) else SYSTEMD_ENV_FILE
     env = _parse_env_file(env_file)
     if env is None:
         return checks
@@ -101,6 +106,56 @@ def _runtime_env_checks(db_path: str, env_file: str = SYSTEMD_ENV_FILE) -> list[
     else:
         checks.append(_check("runtime_env.db_readonly", "fail",
                              "SMARTMONEY_DB_READONLY must be enabled in production"))
+    leaked = sorted(k for k in ("SEC_UA", "OPENFIGI_APIKEY") if env.get(k))
+    if leaked:
+        checks.append(_check("runtime_env.no_ingest_secrets", "fail",
+                             f"web env contains ingest-only keys: {', '.join(leaked)}",
+                             keys=leaked, env_file=env_file))
+    else:
+        checks.append(_check("runtime_env.no_ingest_secrets", "pass",
+                             f"no ingest-only secrets in {env_file}",
+                             env_file=env_file))
+    return checks
+
+
+def _public_service_isolation_checks(dropin_dir: str = SYSTEMD_WEB_DROPIN_DIR) -> list[Check]:
+    if not os.path.isdir(dropin_dir):
+        return []
+    texts: list[tuple[str, str]] = []
+    for path in sorted(Path(dropin_dir).glob("*.conf")):
+        try:
+            texts.append((str(path), path.read_text(encoding="utf-8")))
+        except OSError:
+            continue
+    if not texts:
+        return []
+
+    pro_env_hits = [
+        p for p, text in texts
+        if "Environment=SMARTMONEY_PRO_API=1" in text
+        or "Environment=SMARTMONEY_PRO_DB=" in text
+    ]
+    pro_write_hits = [
+        p for p, text in texts
+        if "ReadWritePaths=/var/lib/13flow-pro" in text
+        or "ReadWritePaths=/var/lib/13flow-pro/" in text
+    ]
+    checks = []
+    if pro_env_hits:
+        checks.append(_check("runtime_env.public_no_pro_api", "fail",
+                             "13flow.service still enables Pro API; route /api/pro/ to 13flow-pro.service",
+                             files=pro_env_hits))
+    else:
+        checks.append(_check("runtime_env.public_no_pro_api", "pass",
+                             "public service has no Pro API environment drop-in"))
+
+    if pro_write_hits:
+        checks.append(_check("runtime_env.public_no_pro_db_write", "fail",
+                             "13flow.service still has writable access to /var/lib/13flow-pro",
+                             files=pro_write_hits))
+    else:
+        checks.append(_check("runtime_env.public_no_pro_db_write", "pass",
+                             "public service has no Pro DB write path"))
     return checks
 
 
@@ -379,6 +434,7 @@ def run_preflight(
         checks.append(_check("deploy.sha", "warn", "not checked"))
 
     checks.extend(_runtime_env_checks(db_path))
+    checks.extend(_public_service_isolation_checks())
     checks.extend(_market_db_checks(db_path))
     checks.extend(_public_surface_checks(db_path))
     if pro_db_path and os.path.exists(pro_db_path):
