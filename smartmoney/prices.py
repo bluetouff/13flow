@@ -77,7 +77,7 @@ class PriceProvider:
 
 # ---------------------------------------------------------------------------
 class StooqProvider(PriceProvider):
-    """Free CSV endpoints, no key. US tickers map to '<sym>.us' (dots -> dashes)."""
+    """Free CSV endpoints, no key. US tickers map to '<sym>.us' (dots/slashes -> dashes)."""
 
     BASE = "https://stooq.com/q/d/l/"
 
@@ -87,7 +87,7 @@ class StooqProvider(PriceProvider):
         self._suffix = suffix
 
     def _symbol(self, ticker: str) -> str:
-        return ticker.lower().replace(".", "-") + self._suffix
+        return ticker.lower().replace(".", "-").replace("/", "-") + self._suffix
 
     def daily_closes(self, ticker: str, start: date, end: date) -> dict[date, float]:
         params = {

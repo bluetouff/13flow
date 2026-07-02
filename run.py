@@ -649,6 +649,64 @@ def cmd_build_validation_dataset(db_path: str, output: str, fmt: str,
         print(f"  row errors: {out['gate']['row_error_count']}")
 
 
+def cmd_build_validation_prices(tickers_path: str | None,
+                                output: str | None,
+                                provider_name: str,
+                                start: str | None,
+                                end: str | None,
+                                sleep_sec: float,
+                                force: bool,
+                                as_json: bool) -> None:
+    import json
+    from smartmoney.validation_prices import (
+        build_validation_price_file,
+        make_price_provider,
+        parse_date,
+    )
+    missing = []
+    if not tickers_path:
+        missing.append("--validation-tickers")
+    if not output:
+        missing.append("--validation-prices-out")
+    if not start:
+        missing.append("--validation-start")
+    if not end:
+        missing.append("--validation-end")
+    if missing:
+        print("--build-validation-prices requires " + ", ".join(missing), file=sys.stderr)
+        sys.exit(2)
+    try:
+        start_date = parse_date(start)
+        end_date = parse_date(end)
+        provider = make_price_provider(provider_name)
+    except Exception as exc:  # noqa: BLE001 - CLI should return a clear operator error
+        print(f"--build-validation-prices setup failed: {exc}", file=sys.stderr)
+        sys.exit(2)
+    summary = build_validation_price_file(
+        tickers_path,
+        output,
+        provider,
+        provider_name=provider_name,
+        start=start_date,
+        end=end_date,
+        sleep_sec=max(0.0, sleep_sec),
+        force=force,
+    )
+    if as_json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+        return
+    print(f"validation prices -> {summary['path']}")
+    print(f"  provider: {summary['provider']}")
+    print(f"  window:   {summary['start']} -> {summary['end']}")
+    print(f"  tickers:  {summary['tickers_requested']} "
+          f"({summary['tickers_cached']} cached, {summary['tickers_fetched']} fetched)")
+    print(f"  rows:     {summary['rows_total']} total, {summary['rows_new']} new")
+    print(f"  coverage: {summary['coverage']}")
+    if summary["tickers_with_errors"]:
+        print(f"  errors:   {summary['tickers_with_errors']} "
+              f"(sample in --validation-json)")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="SmartMoney 13F tracker")
     ap.add_argument("--list", action="store_true", help="list tracked superinvestors")
@@ -750,10 +808,22 @@ def main() -> None:
                     help="print --validation-dataset report as JSON")
     ap.add_argument("--build-validation-dataset", metavar="PATH",
                     help="export a point-in-time Confluence feature dataset from the local 13F DB")
+    ap.add_argument("--build-validation-prices", action="store_true",
+                    help="export adjusted daily closes for validation tickers")
     ap.add_argument("--validation-format", choices=["csv", "jsonl"], default="csv",
                     help="format for --build-validation-dataset (default csv)")
     ap.add_argument("--validation-prices", metavar="CSV",
                     help="optional adjusted-price CSV: ticker,date,adj_close")
+    ap.add_argument("--validation-tickers", metavar="FILE",
+                    help="ticker list for --build-validation-prices")
+    ap.add_argument("--validation-prices-out", metavar="CSV",
+                    help="output adjusted-price CSV for --build-validation-prices")
+    ap.add_argument("--validation-price-provider", choices=["massive", "stooq"], default="massive",
+                    help="price source for --build-validation-prices (default massive)")
+    ap.add_argument("--validation-price-sleep-sec", type=float, default=0.0,
+                    help="pause between ticker price requests (default 0)")
+    ap.add_argument("--validation-price-force", action="store_true",
+                    help="ignore existing price CSV cache and refetch all tickers")
     ap.add_argument("--validation-execution-lag-days", type=int, default=1,
                     help="trading-day lag after as_of before entry price (default 1)")
     ap.add_argument("--validation-start", metavar="YYYY-MM-DD",
@@ -811,6 +881,12 @@ def main() -> None:
             args.validation_prices, args.validation_execution_lag_days,
             args.validation_start, args.validation_end, args.validation_code_commit,
             args.validation_include_non_priceable, args.validation_json)
+    if args.build_validation_prices:
+        return cmd_build_validation_prices(
+            args.validation_tickers, args.validation_prices_out,
+            args.validation_price_provider, args.validation_start, args.validation_end,
+            args.validation_price_sleep_sec, args.validation_price_force,
+            args.validation_json)
     if args.create_api_key:
         return cmd_create_api_key(args.pro_db, args.create_api_key, args.api_key_scopes,
                                   args.api_key_rate_per_min, args.api_key_rate_per_day,

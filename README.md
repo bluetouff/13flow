@@ -235,20 +235,33 @@ The quantitative proof boundary is public: `VALIDATION_PROTOCOL.md` defines the 
 point-in-time dataset, train/validation/test split, baselines, neutralization, costs,
 confidence intervals, permutation tests, and version log before any score can be called
 validated. Until then, the correct wording is: **backtest harness available; default weights
-are heuristic**. The offline dataset builder and publication gate are:
+are heuristic**. The offline price export, dataset builder and publication gate are:
 
 ```bash
+python run.py \
+  --build-validation-prices \
+  --validation-tickers /var/lib/13flow/validation_tickers_sample25.txt \
+  --validation-prices-out /var/lib/13flow/validation_prices_sample25.csv \
+  --validation-price-provider massive \
+  --validation-start 2013-01-01 \
+  --validation-end 2026-07-02 \
+  --validation-json
+
 python run.py --db /var/lib/13flow/13flow.db \
   --build-validation-dataset /var/lib/13flow/confluence_features.csv \
-  --validation-prices /path/to/adjusted_prices.csv \
+  --validation-prices /var/lib/13flow/validation_prices_sample25.csv \
   --validation-code-commit "$SHA" \
   --validation-json
 
 python run.py --validation-dataset /path/to/confluence_features.csv --validation-json
 ```
 
-They return the feature-table SHA256, split counts, schema gaps, version mismatches and
-rank metrics for the score plus available baselines. The current builder exports
+The price exporter writes a provider-neutral `ticker,date,adj_close` CSV and reuses
+already exported ticker rows unless `--validation-price-force` is set. Massive requires
+`MASSIVE_API_KEY` in the process environment; `stooq` is available as a free fallback for
+operator smoke tests. The dataset gate returns the feature-table SHA256, split counts,
+schema gaps, version mismatches and rank metrics for the score plus available baselines.
+The current builder exports
 `feature_scope=13f_only_no_form4`; this is mechanically useful but not a full Confluence
 validation claim until Form 4 insider features are joined and reviewed. Non-priceable/common
 equity suspects are excluded by default; use `--validation-include-non-priceable` only for
