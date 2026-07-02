@@ -161,8 +161,8 @@ are about output encoding and a strict CSP.
   the page's single (nonce'd) script — there are zero `on*=` attributes and zero
   `javascript:` URLs in the markup, so the script CSP needs no `'unsafe-inline'`.
 - **Per-request nonce CSP.** HTML responses carry
-  `default-src 'none'; script-src 'self' 'nonce-…'; style-src 'self' 'unsafe-inline'
-  https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:;
+  `default-src 'none'; script-src 'self' 'nonce-…'; style-src 'self' 'unsafe-inline';
+  font-src 'self'; img-src 'self' data:;
   connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`.
   The nonce is generated per request (`secrets.token_urlsafe`) and injected into the one
   inline `<script>`. JSON responses get `default-src 'none'`. Even if an escaping bug slipped
@@ -176,9 +176,9 @@ are about output encoding and a strict CSP.
   `safeGo()`, which requires an `http(s)://` scheme — no `javascript:`/`data:` open-redirect.
 - **Clickjacking / framing.** `X-Frame-Options: DENY` (app) plus `frame-ancestors 'none'`
   (CSP) plus `base-uri 'none'`.
-- **Third-party surface.** The only external origins are Google Fonts (CSS + font files),
-  pinned in the CSP. No third-party JS, analytics, or trackers. (Self-hosting the fonts would
-  drop even that origin — a further-hardening option.)
+- **Third-party surface.** Public UI fonts are self-hosted from `/assets/fonts/`; the CSP no
+  longer allows Google Fonts origins. No third-party JS, analytics, or trackers are loaded by
+  the public dashboard, FAQ, legal notice, or mock checkout.
 
 ## Open (public, read-only) build
 Toggled by `SMARTMONEY_OPEN=1`; intended for an unauthenticated public deployment.

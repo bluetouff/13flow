@@ -125,6 +125,10 @@ def test_csp_nonce_and_no_inline_handlers_and_json_errors():
         nonce = m.group(1)
         assert "'unsafe-inline'" not in csp.split("style-src")[0]   # not in script-src
         assert "default-src 'none'" in csp and "frame-ancestors 'none'" in csp
+        assert "font-src 'self'" in csp
+        assert "fonts.googleapis.com" not in csp and "fonts.gstatic.com" not in csp
+        assert "/assets/fonts/13flow-fonts.css" in html
+        assert "fonts.googleapis.com" not in html and "fonts.gstatic.com" not in html
         # the served page's single <script> carries that exact nonce
         assert f'<script nonce="{nonce}">' in html
         # nonce is per-request (different each call)
@@ -142,6 +146,10 @@ def test_csp_nonce_and_no_inline_handlers_and_json_errors():
         # JSON responses carry a locked-down baseline CSP
         assert c.get("/api/funds").headers.get("Content-Security-Policy") == \
             "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+        font_css = c.get("/assets/fonts/13flow-fonts.css")
+        assert font_css.status_code == 200
+        assert font_css.headers.get("Cache-Control") == "public, max-age=31536000, immutable"
+        assert "fonts.gstatic.com" not in font_css.get_data(as_text=True)
 
 
 def test_confluence_cache_served_when_present():

@@ -218,7 +218,7 @@ def init_billing(app, factory, secure_cookies: bool = True):
 _MOCK_CHECKOUT_HTML = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Checkout (test mode)</title>
-<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="/assets/fonts/13flow-fonts.css" rel="stylesheet">
 <style>
   :root{--accent:#0f9d76;--ink:#15171c;--muted:#71757e;--line:#e9e7e0}
   *{box-sizing:border-box}

@@ -30,7 +30,7 @@ from typing import Optional
 
 import functools
 import secrets
-from flask import Flask, Response, jsonify, make_response, request
+from flask import Flask, Response, abort, jsonify, make_response, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 
 from .analytics import consensus_moves
@@ -1070,12 +1070,24 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         resp.headers["Content-Security-Policy"] = (
             "default-src 'none'; "
             f"script-src 'self' 'nonce-{nonce}'; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src https://fonts.gstatic.com; "
+            "style-src 'self' 'unsafe-inline'; "
+            "font-src 'self'; "
             "img-src 'self' data:; "
             "connect-src 'self'; "
             "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
         )
+        return resp
+
+    _FONT_DIR = os.path.join(os.path.dirname(dash), "assets", "fonts")
+
+    @app.get("/assets/fonts/<path:filename>")
+    def font_asset(filename):
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", filename or ""):
+            abort(404)
+        if not filename.endswith((".css", ".ttf", ".woff2")):
+            abort(404)
+        resp = send_from_directory(_FONT_DIR, filename)
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return resp
 
     @app.get("/")
