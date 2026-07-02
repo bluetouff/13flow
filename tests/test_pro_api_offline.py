@@ -56,6 +56,42 @@ def test_pro_api_funds_payload_includes_quality_summary(monkeypatch):
         assert any(f["quality_warnings"] for f in payload["funds"])
 
 
+def test_pro_api_fund_detail_is_self_describing(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        c, token, key, pro_db = _client(monkeypatch, d)
+        hdr = {"Authorization": "Bearer " + token}
+
+        r = c.get("/api/pro/v1/fund/1", headers=hdr)
+        assert r.status_code == 200
+        payload = r.get_json()
+        assert payload["meta"]["methodology"]["source"].startswith("SEC EDGAR")
+        assert payload["fund"]["cik"] == "0000000001"
+        assert payload["filing"]["accession"] == "A3"
+        assert payload["previous_filing"]["accession"] == "A2"
+        assert payload["portfolio"]["report_date"] == "2024-09-30"
+        assert payload["portfolio"]["positions"][0]["cusip"]
+        assert payload["moves"]["previous_report_date"] == "2024-06-30"
+        assert payload["moves"]["counts"]["HOLD"] == 1
+        assert payload["quality"]["summary"]["fund_warnings"] == 2
+
+        historical = c.get("/api/pro/v1/fund/1?basis=2024-06-30", headers=hdr)
+        assert historical.status_code == 200
+        assert historical.get_json()["filing"]["accession"] == "A2"
+
+        assert c.get("/api/pro/v1/fund/1?basis=bad-date", headers=hdr).status_code == 400
+        assert c.get("/api/pro/v1/fund/not-a-cik", headers=hdr).status_code == 400
+
+
+def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        c, token, key, pro_db = _client(monkeypatch, d)
+        r = c.get("/api/pro/v1/openapi.json")
+        assert r.status_code == 200
+        doc = r.get_json()
+        assert doc["openapi"].startswith("3.")
+        assert "/api/pro/v1/fund/{cik}" in doc["paths"]
+
+
 def test_pro_api_rate_limit_is_persistent(monkeypatch):
     with tempfile.TemporaryDirectory() as d:
         c, token, key, pro_db = _client(monkeypatch, d, rate_per_min=1)

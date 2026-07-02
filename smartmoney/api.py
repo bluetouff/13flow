@@ -10,7 +10,9 @@ Endpoints (all under /api):
   GET /data-quality?threshold=&limit=
   GET /pro/v1/status                  -> Pro API key status (API key)
   GET /pro/v1/funds                   -> Pro fund series + quality summary (API key)
+  GET /pro/v1/fund/<cik>?basis=       -> Pro fund detail + moves + quality (API key)
   GET /pro/v1/data-quality            -> Pro data-quality report (API key)
+  GET /pro/v1/openapi.json            -> Pro API OpenAPI document
   GET /subscriptions
   GET /alerts/preview/<cik>
 GET /  -> dashboard.html
@@ -22,6 +24,7 @@ needs a price provider and hits the network at request time, so it's opt-in.
 from __future__ import annotations
 
 import os
+import re
 from typing import Optional
 
 import functools
@@ -51,6 +54,7 @@ APP_ROOT = os.path.dirname(HERE)
 DASHBOARD = os.path.join(APP_ROOT, "dashboard.html")
 
 MAX_SUBSCRIPTIONS_PER_USER = 50
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def _git_sha() -> str:
@@ -226,6 +230,143 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             from werkzeug.exceptions import BadRequest
             raise BadRequest("invalid float parameter")
         return max(lo, min(hi, v))
+
+    def clean_date(raw: str | None) -> str | None:
+        if raw is None or raw == "":
+            return None
+        if not DATE_RE.match(raw):
+            from werkzeug.exceptions import BadRequest
+            raise BadRequest("invalid date parameter")
+        return raw
+
+    def pro_methodology(threshold: float = 100.0) -> dict:
+        return {
+            "source": "SEC EDGAR 13F-HR information tables",
+            "unit_normalization": (
+                "13F value fields are normalized to USD using filing_date: filings before "
+                "2023-01-03 report values in thousands; later filings report whole dollars."
+            ),
+            "latest_filing_rule": (
+                "For each CIK/report_date, use the latest complete-enough accession; tiny "
+                "partial amendments do not replace fuller portfolio snapshots."
+            ),
+            "move_classification": (
+                "Quarter-over-quarter moves are classified by share count, not value, with "
+                "a 0.5% hold epsilon to absorb rounding noise."
+            ),
+            "quality_policy": (
+                "Warnings are read-only review signals. They are not automatic corrections."
+            ),
+            "aum_jump_threshold": threshold,
+        }
+
+    def filing_row_for(s: Store, cik: str, report_date: str | None = None) -> Optional[dict]:
+        args = [cik.zfill(10)]
+        where = "WHERE lf.cik=?"
+        if report_date:
+            where += " AND lf.report_date=?"
+            args.append(report_date)
+        row = s.conn.execute(
+            f"""SELECT f.* FROM latest_filings lf
+                JOIN filings f ON f.accession=lf.accession
+                {where}
+                ORDER BY lf.report_date DESC LIMIT 1""",
+            tuple(args),
+        ).fetchone()
+        return dict(row) if row else None
+
+    def filing_payload(row: Optional[dict]) -> Optional[dict]:
+        if not row:
+            return None
+        return {
+            "accession": row["accession"],
+            "form": row["form"],
+            "filing_date": row["filing_date"],
+            "report_date": row["report_date"],
+            "total_value": row["total_value"],
+            "n_positions": row["n_positions"],
+        }
+
+    def position_payload(p) -> dict:
+        return {
+            "cusip": p.cusip,
+            "ticker": p.ticker,
+            "issuer": p.issuer,
+            "title_of_class": p.title_of_class,
+            "put_call": p.put_call,
+            "shares": p.shares,
+            "value_usd": p.value_usd,
+            "weight": p.weight,
+            "ticker_source": p.ticker_source,
+            "ticker_confidence": p.ticker_confidence,
+        }
+
+    def change_payload(c) -> dict:
+        return {
+            "move": c.move.value,
+            "cusip": c.cusip,
+            "ticker": c.ticker,
+            "issuer": c.issuer,
+            "put_call": c.put_call,
+            "prev_shares": c.prev_shares,
+            "curr_shares": c.curr_shares,
+            "prev_value_usd": c.prev_value,
+            "curr_value_usd": c.curr_value,
+            "curr_weight": c.curr_weight,
+            "share_change_pct": c.share_change_pct,
+        }
+
+    def pro_openapi_doc() -> dict:
+        security = [{"bearerAuth": []}, {"apiKeyHeader": []}]
+        return {
+            "openapi": "3.1.0",
+            "info": {
+                "title": "13FLOW Pro API",
+                "version": "v1",
+                "description": "Versioned institutional API over SEC EDGAR-derived 13F datasets.",
+            },
+            "servers": [{"url": "https://13flow.eu"}],
+            "components": {
+                "securitySchemes": {
+                    "bearerAuth": {"type": "http", "scheme": "bearer"},
+                    "apiKeyHeader": {"type": "apiKey", "in": "header", "name": "X-13FLOW-Key"},
+                }
+            },
+            "paths": {
+                "/api/pro/v1/status": {
+                    "get": {"security": security, "summary": "Validate an API key",
+                            "responses": {"200": {"description": "API key metadata"}}}
+                },
+                "/api/pro/v1/funds": {
+                    "get": {"security": security, "summary": "List funds with AUM series and quality flags",
+                            "responses": {"200": {"description": "Fund list"}}}
+                },
+                "/api/pro/v1/fund/{cik}": {
+                    "get": {
+                        "security": security,
+                        "summary": "Get a fund portfolio, filing metadata, moves, and quality flags",
+                        "parameters": [
+                            {"name": "cik", "in": "path", "required": True,
+                             "schema": {"type": "string", "pattern": "^[0-9]{1,12}$"}},
+                            {"name": "basis", "in": "query", "required": False,
+                             "schema": {"type": "string", "format": "date"}},
+                        ],
+                        "responses": {"200": {"description": "Fund detail"}, "404": {"description": "Fund not found"}},
+                    }
+                },
+                "/api/pro/v1/data-quality": {
+                    "get": {
+                        "security": security,
+                        "summary": "Get the data-quality report",
+                        "parameters": [
+                            {"name": "threshold", "in": "query", "schema": {"type": "number", "default": 100}},
+                            {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 100}},
+                        ],
+                        "responses": {"200": {"description": "Quality report"}},
+                    }
+                },
+            },
+        }
 
     def client_ip() -> str:
         xff = request.headers.get("X-Forwarded-For", "")
@@ -616,14 +757,77 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                         "api": "13flow-pro",
                         "version": "v1",
                         "git_sha": _git_sha(),
-                        "methodology": {
-                            "source": "SEC EDGAR 13F-HR information tables",
-                            "latest_filing_rule": "latest complete-enough accession per CIK/report_date",
-                            "aum_jump_threshold": quality["parameters"]["aum_jump_threshold"],
-                        },
+                        "methodology": pro_methodology(quality["parameters"]["aum_jump_threshold"]),
                     },
                     "quality_summary": quality["summary"],
                     "funds": out,
+                })
+            finally:
+                s.close()
+
+        @app.get("/api/pro/v1/fund/<cik>")
+        @pro_required("funds:read")
+        def pro_fund_ep(cik):
+            cik = clean_cik(cik)
+            basis = clean_date(request.args.get("basis"))
+            s = store()
+            try:
+                pf = s.load_portfolio(cik, basis)
+                if pf is None:
+                    return jsonify({"error": "not_found"}), 404
+                current_filing = filing_row_for(s, cik, pf.report_date)
+                prev_q = s.previous_quarter(cik, pf.report_date)
+                prev = s.load_portfolio(cik, prev_q) if prev_q else Portfolio(
+                    cik=cik, fund_label=pf.fund_label, report_date="", form="")
+                prev_filing = filing_row_for(s, cik, prev_q) if prev_q else None
+                diff = diff_portfolios(prev, pf)
+                quality = data_quality_report(s, limit=500)
+                fund_warnings = [
+                    w for w in quality["warnings"] if w["fund"]["cik"] == cik
+                ]
+                frow = s.fund_row(cik) or {}
+                positions = sorted(pf.positions.values(), key=lambda p: p.value_usd, reverse=True)
+                changes = sorted(
+                    diff.changes,
+                    key=lambda c: (c.move.value == Move.HOLD.value,
+                                   -max(c.curr_value, c.prev_value)),
+                )
+                counts = {m.value: len(diff.by_move(m)) for m in Move}
+                return jsonify({
+                    "meta": {
+                        "api": "13flow-pro",
+                        "version": "v1",
+                        "git_sha": _git_sha(),
+                        "methodology": pro_methodology(quality["parameters"]["aum_jump_threshold"]),
+                    },
+                    "fund": {
+                        "cik": cik,
+                        "label": pf.fund_label,
+                        "manager": frow.get("manager"),
+                    },
+                    "filing": filing_payload(current_filing),
+                    "previous_filing": filing_payload(prev_filing),
+                    "portfolio": {
+                        "report_date": pf.report_date,
+                        "form": pf.form,
+                        "aum": pf.total_value,
+                        "n_positions": len(pf.positions),
+                        "positions": [position_payload(p) for p in positions],
+                    },
+                    "moves": {
+                        "previous_report_date": prev_q,
+                        "current_report_date": pf.report_date,
+                        "counts": counts,
+                        "changes": [change_payload(c) for c in changes],
+                    },
+                    "quality": {
+                        "summary": {
+                            "fund_warnings": len(fund_warnings),
+                            "global_aum_jump_warnings": quality["summary"]["aum_jump_warnings"],
+                            "global_unit_scale_candidates": quality["summary"]["unit_scale_candidates"],
+                        },
+                        "warnings": fund_warnings,
+                    },
                 })
             finally:
                 s.close()
@@ -641,6 +845,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 })
             finally:
                 s.close()
+
+        @app.get("/api/pro/v1/openapi.json")
+        def pro_openapi_ep():
+            return jsonify(pro_openapi_doc())
 
     @app.get("/api/config")
     def config_ep():

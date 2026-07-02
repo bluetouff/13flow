@@ -141,12 +141,19 @@ Use `Authorization: Bearer <token>` or `X-13FLOW-Key: <token>`.
 ```bash
 curl -H "Authorization: Bearer $TOKEN" https://13flow.eu/api/pro/v1/status
 curl -H "Authorization: Bearer $TOKEN" https://13flow.eu/api/pro/v1/funds
+curl -H "Authorization: Bearer $TOKEN" https://13flow.eu/api/pro/v1/fund/0001067983
 curl -H "Authorization: Bearer $TOKEN" https://13flow.eu/api/pro/v1/data-quality
+curl https://13flow.eu/api/pro/v1/openapi.json
 ```
 
 Security properties: opaque high-entropy tokens, key hashes only at rest, scoped access
 (`funds:read`, `quality:read`), persistent per-minute/per-day rate limits, and an audit row
 for every Pro request including denied and rate-limited calls.
+
+`GET /api/pro/v1/fund/<cik>` is the institutional detail endpoint: it returns the selected
+filing metadata, previous filing metadata, full holdings, share-count moves versus the
+previous quarter, fund-scoped data-quality warnings, and the methodology block needed to
+reproduce the interpretation.
 
 ## Alerts — real delivery
 Subscribe to a fund and get the **diff** (not just "a filing appeared") delivered when a
