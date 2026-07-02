@@ -59,10 +59,18 @@ the frozen Confluence version fields, the parameter hash and all three forward-r
 horizons:
 
 ```bash
+python run.py --db /var/lib/13flow/13flow.db \
+  --build-validation-dataset /var/lib/13flow/confluence_features.csv \
+  --validation-prices /path/to/adjusted_prices.csv \
+  --validation-json
+```
+
+```bash
 python run.py --validation-dataset /path/to/confluence_features.csv --validation-json
 ```
 
-The command emits:
+The first command builds a local point-in-time feature table from the 13F database and an
+optional adjusted-price CSV. The second command gates an existing dataset. They emit:
 
 - the dataset SHA256 hash;
 - row count, ticker count, date range and train/validation/test split counts;
@@ -77,6 +85,11 @@ It does **not** mean the score is validated: the dataset builder, no-lookahead c
 price source, delisting handling, costs, liquidity filters and neutralization still require
 review before publication. `status=not_publishable` means no public performance claim is
 allowed from that artifact.
+
+The current builder exports the institutional 13F side first (`feature_scope=13f_only_no_form4`).
+That is enough to test the file contract, institutional baselines and price-return join, but
+not enough for a full Confluence validation claim. Form 4 insider features must be joined in
+a later artifact before validating the complete score.
 
 ## Frozen split
 

@@ -235,15 +235,21 @@ The quantitative proof boundary is public: `VALIDATION_PROTOCOL.md` defines the 
 point-in-time dataset, train/validation/test split, baselines, neutralization, costs,
 confidence intervals, permutation tests, and version log before any score can be called
 validated. Until then, the correct wording is: **backtest harness available; default weights
-are heuristic**. The offline publication gate is:
+are heuristic**. The offline dataset builder and publication gate are:
 
 ```bash
+python run.py --db /var/lib/13flow/13flow.db \
+  --build-validation-dataset /var/lib/13flow/confluence_features.csv \
+  --validation-prices /path/to/adjusted_prices.csv \
+  --validation-json
+
 python run.py --validation-dataset /path/to/confluence_features.csv --validation-json
 ```
 
-It returns the feature-table SHA256, split counts, schema gaps, version mismatches and
-rank metrics for the full score plus any available baselines. Passing this gate only means
-the artifact is mechanically reviewable; it is not a validation claim by itself.
+They return the feature-table SHA256, split counts, schema gaps, version mismatches and
+rank metrics for the score plus available baselines. The current builder exports
+`feature_scope=13f_only_no_form4`; this is mechanically useful but not a full Confluence
+validation claim until Form 4 insider features are joined and reviewed.
 
 Confluence v1 is frozen as a machine-readable research contract in
 `docs/confluence_v1.json` and documented in `docs/CONFLUENCE_V1.md`. The append-only signal

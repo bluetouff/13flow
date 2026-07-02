@@ -135,6 +135,11 @@ python -m smartmoney.backtest        # synthetic demo only; not live-history val
 ```
 Gate a real point-in-time feature table before publication:
 ```bash
+python run.py --db live.db \
+  --build-validation-dataset /tmp/confluence_features.csv \
+  --validation-prices /path/to/adjusted_prices.csv \
+  --validation-json
+
 python run.py --validation-dataset /path/to/confluence_features.csv --validation-json
 ```
 Treat default weights as heuristic until `VALIDATION_PROTOCOL.md` has been run and published

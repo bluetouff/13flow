@@ -606,6 +606,45 @@ def cmd_validation_dataset(path: str, horizon: int, as_json: bool) -> None:
                   ))
 
 
+def cmd_build_validation_dataset(db_path: str, output: str, fmt: str,
+                                 prices_path: str | None,
+                                 execution_lag_days: int,
+                                 start: str | None,
+                                 end: str | None,
+                                 as_json: bool) -> None:
+    import json
+    from smartmoney.validation import validation_report
+    from smartmoney.validation_dataset import build_validation_rows, write_validation_dataset
+    rows = build_validation_rows(
+        db_path,
+        prices_path=prices_path,
+        start=start,
+        end=end,
+        execution_lag_days=execution_lag_days,
+    )
+    summary = write_validation_dataset(rows, output, fmt=fmt)
+    gate = validation_report(output, horizon=60)
+    out = {"build": summary, "gate": {
+        "status": gate["status"],
+        "row_count": gate["manifest"]["row_count"],
+        "ticker_count": gate["manifest"]["ticker_count"],
+        "split_counts": gate["manifest"]["split_counts"],
+        "missing_required_columns": gate["manifest"]["missing_required_columns"],
+        "row_error_count": gate["manifest"]["row_error_count"],
+    }}
+    if as_json:
+        print(json.dumps(out, indent=2, sort_keys=True))
+        return
+    print(f"validation dataset -> {summary['path']}")
+    print(f"  rows:   {summary['rows']}")
+    print(f"  scope:  {summary['feature_scope']}")
+    print(f"  gate:   {out['gate']['status']}")
+    if out["gate"]["missing_required_columns"]:
+        print(f"  missing columns: {', '.join(out['gate']['missing_required_columns'])}")
+    if out["gate"]["row_error_count"]:
+        print(f"  row errors: {out['gate']['row_error_count']}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="SmartMoney 13F tracker")
     ap.add_argument("--list", action="store_true", help="list tracked superinvestors")
@@ -705,6 +744,18 @@ def main() -> None:
                     help="forward-return horizon for --validation-dataset (default 60)")
     ap.add_argument("--validation-json", action="store_true",
                     help="print --validation-dataset report as JSON")
+    ap.add_argument("--build-validation-dataset", metavar="PATH",
+                    help="export a point-in-time Confluence feature dataset from the local 13F DB")
+    ap.add_argument("--validation-format", choices=["csv", "jsonl"], default="csv",
+                    help="format for --build-validation-dataset (default csv)")
+    ap.add_argument("--validation-prices", metavar="CSV",
+                    help="optional adjusted-price CSV: ticker,date,adj_close")
+    ap.add_argument("--validation-execution-lag-days", type=int, default=1,
+                    help="trading-day lag after as_of before entry price (default 1)")
+    ap.add_argument("--validation-start", metavar="YYYY-MM-DD",
+                    help="first 13F report_date for --build-validation-dataset")
+    ap.add_argument("--validation-end", metavar="YYYY-MM-DD",
+                    help="last 13F report_date for --build-validation-dataset")
     args = ap.parse_args()
 
     # DB-only commands: no EDGAR, no SEC_UA required.
@@ -746,6 +797,11 @@ def main() -> None:
     if args.validation_dataset:
         return cmd_validation_dataset(args.validation_dataset, args.validation_horizon,
                                       args.validation_json)
+    if args.build_validation_dataset:
+        return cmd_build_validation_dataset(
+            args.db, args.build_validation_dataset, args.validation_format,
+            args.validation_prices, args.validation_execution_lag_days,
+            args.validation_start, args.validation_end, args.validation_json)
     if args.create_api_key:
         return cmd_create_api_key(args.pro_db, args.create_api_key, args.api_key_scopes,
                                   args.api_key_rate_per_min, args.api_key_rate_per_day,

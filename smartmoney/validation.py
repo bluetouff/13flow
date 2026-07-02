@@ -163,7 +163,8 @@ def dataset_manifest(path: str, rows: Iterable[dict[str, Any]] | None = None) ->
     expected_parameter_hash = confluence_v1_spec("validation")["parameter_hash"]
     for idx, row in enumerate(rows, start=1):
         for col in REQUIRED_COLUMNS:
-            if col in columns and str(row.get(col) or "").strip() == "":
+            value = row.get(col)
+            if col in columns and (value is None or str(value).strip() == ""):
                 row_errors.append({"row": idx, "field": col, "error": "missing_value"})
         if _parse_date(row.get("as_of")) is None:
             row_errors.append({"row": idx, "field": "as_of", "error": "invalid_date",

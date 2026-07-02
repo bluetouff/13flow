@@ -112,12 +112,19 @@ python run.py --append-signal-history --confluence-windows 30,90,180
 Validate the minimum schema and metrics artifact for a point-in-time feature table:
 
 ```bash
+python run.py --db /var/lib/13flow/13flow.db \
+  --build-validation-dataset /var/lib/13flow/confluence_features.csv \
+  --validation-prices /path/to/adjusted_prices.csv \
+  --validation-json
+
 python run.py --validation-dataset /path/to/confluence_features.csv --validation-json
 ```
 
 This is a publication gate, not a claim of validation. The output must be archived with
 the dataset hash, price-source notes, costs, liquidity rules and review notes before any
-public result is described as validated.
+public result is described as validated. The first builder release exports
+`feature_scope=13f_only_no_form4`; complete Confluence validation still requires Form 4
+insider features to be joined point-in-time.
 
 Precompute live Confluence and append revisions:
 
