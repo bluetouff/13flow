@@ -613,6 +613,7 @@ def cmd_build_validation_dataset(db_path: str, output: str, fmt: str,
                                  end: str | None,
                                  code_commit: str | None,
                                  include_non_priceable: bool,
+                                 ticker_universe_path: str | None,
                                  as_json: bool) -> None:
     import json
     from smartmoney.validation import validation_report
@@ -625,6 +626,7 @@ def cmd_build_validation_dataset(db_path: str, output: str, fmt: str,
         execution_lag_days=execution_lag_days,
         code_commit=code_commit,
         include_non_priceable=include_non_priceable,
+        ticker_universe_path=ticker_universe_path,
     )
     summary = write_validation_dataset(rows, output, fmt=fmt)
     gate = validation_report(output, horizon=60)
@@ -815,7 +817,8 @@ def main() -> None:
     ap.add_argument("--validation-prices", metavar="CSV",
                     help="optional adjusted-price CSV: ticker,date,adj_close")
     ap.add_argument("--validation-tickers", metavar="FILE",
-                    help="ticker list for --build-validation-prices")
+                    help=("ticker list for --build-validation-prices, or optional universe "
+                          "filter for --build-validation-dataset"))
     ap.add_argument("--validation-prices-out", metavar="CSV",
                     help="output adjusted-price CSV for --build-validation-prices")
     ap.add_argument("--validation-price-provider", choices=["massive", "stooq"], default="massive",
@@ -880,7 +883,8 @@ def main() -> None:
             args.db, args.build_validation_dataset, args.validation_format,
             args.validation_prices, args.validation_execution_lag_days,
             args.validation_start, args.validation_end, args.validation_code_commit,
-            args.validation_include_non_priceable, args.validation_json)
+            args.validation_include_non_priceable, args.validation_tickers,
+            args.validation_json)
     if args.build_validation_prices:
         return cmd_build_validation_prices(
             args.validation_tickers, args.validation_prices_out,

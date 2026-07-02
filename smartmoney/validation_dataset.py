@@ -135,6 +135,18 @@ def load_adjusted_prices(path: str | None) -> dict[str, list[PricePoint]]:
     return {t: sorted(points, key=lambda p: p.d) for t, points in out.items()}
 
 
+def load_ticker_universe(path: str | None) -> set[str] | None:
+    if not path:
+        return None
+    out: set[str] = set()
+    with open(path, "r", encoding="utf-8") as fh:
+        for line in fh:
+            ticker = line.strip().upper()
+            if ticker and not ticker.startswith("#"):
+                out.add(ticker)
+    return out
+
+
 def _price_at_or_after(points: list[PricePoint], target: date) -> int | None:
     for i, p in enumerate(points):
         if p.d >= target:
@@ -237,9 +249,11 @@ def build_validation_rows(
     execution_lag_days: int = 1,
     code_commit: str | None = None,
     include_non_priceable: bool = False,
+    ticker_universe_path: str | None = None,
 ) -> list[dict[str, Any]]:
     prices = load_adjusted_prices(prices_path)
     price_source = f"local_csv:{os.path.basename(prices_path)}" if prices_path else ""
+    ticker_universe = load_ticker_universe(ticker_universe_path)
     commit = code_commit or current_git_sha()
     spec = confluence_v1_spec(commit)
     parameter_hash = spec["parameter_hash"]
@@ -284,6 +298,8 @@ def build_validation_rows(
                     if not ticker:
                         continue
                     t = ticker.upper()
+                    if ticker_universe is not None and t not in ticker_universe:
+                        continue
                     row_flags = validation_ticker_flags(t, issuer, title)
                     if row_flags and not include_non_priceable:
                         continue

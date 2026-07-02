@@ -15,6 +15,7 @@ from smartmoney.validation_dataset import (
     build_validation_rows,
     forward_returns,
     load_adjusted_prices,
+    load_ticker_universe,
     write_validation_dataset,
 )
 from tests.test_db_offline import AAPL, MSFT, NVDA, _save
@@ -126,6 +127,29 @@ def test_build_validation_dataset_with_prices_passes_mechanical_gate(tmp_path):
     assert report["manifest"]["missing_recommended_columns"] == []
 
 
+def test_build_validation_dataset_can_filter_to_ticker_universe(tmp_path):
+    db = tmp_path / "market.db"
+    prices = tmp_path / "prices.csv"
+    universe = tmp_path / "tickers.txt"
+    _market_db(db)
+    _price_csv(prices)
+    universe.write_text("NVDA\n# comment\n", encoding="utf-8")
+
+    rows = build_validation_rows(
+        str(db),
+        prices_path=str(prices),
+        start="2024-06-30",
+        end="2024-06-30",
+        code_commit="abc123",
+        ticker_universe_path=str(universe),
+    )
+
+    assert load_ticker_universe(str(universe)) == {"NVDA"}
+    assert rows
+    assert {r["ticker"] for r in rows} == {"NVDA"}
+    assert all(r["forward_return_60d"] != "" for r in rows)
+
+
 def test_run_py_build_validation_dataset_json(tmp_path):
     db = tmp_path / "market.db"
     prices = tmp_path / "prices.csv"
@@ -156,3 +180,36 @@ def test_run_py_build_validation_dataset_json(tmp_path):
     with out.open("r", encoding="utf-8", newline="") as fh:
         first = next(csv.DictReader(fh))
     assert first["code_commit"] == "feedface"
+
+
+def test_run_py_build_validation_dataset_can_filter_to_ticker_universe(tmp_path):
+    db = tmp_path / "market.db"
+    prices = tmp_path / "prices.csv"
+    universe = tmp_path / "tickers.txt"
+    out = tmp_path / "features.csv"
+    _market_db(db)
+    _price_csv(prices)
+    universe.write_text("AAPL\n", encoding="utf-8")
+
+    subprocess.run(
+        [
+            sys.executable, "run.py",
+            "--db", str(db),
+            "--build-validation-dataset", str(out),
+            "--validation-prices", str(prices),
+            "--validation-tickers", str(universe),
+            "--validation-start", "2024-06-30",
+            "--validation-end", "2024-06-30",
+            "--validation-code-commit", "feedface",
+            "--validation-json",
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    with out.open("r", encoding="utf-8", newline="") as fh:
+        rows = list(csv.DictReader(fh))
+    assert rows
+    assert {r["ticker"] for r in rows} == {"AAPL"}

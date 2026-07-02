@@ -250,6 +250,7 @@ python run.py \
 python run.py --db /var/lib/13flow/13flow.db \
   --build-validation-dataset /var/lib/13flow/confluence_features.csv \
   --validation-prices /var/lib/13flow/validation_prices_sample25.csv \
+  --validation-tickers /var/lib/13flow/validation_tickers_sample25.txt \
   --validation-code-commit "$SHA" \
   --validation-json
 
@@ -259,7 +260,9 @@ python run.py --validation-dataset /path/to/confluence_features.csv --validation
 The price exporter writes a provider-neutral `ticker,date,adj_close` CSV and reuses
 already exported ticker rows unless `--validation-price-force` is set. Massive requires
 `MASSIVE_API_KEY` in the process environment; `stooq` is available as a free fallback for
-operator smoke tests. The dataset gate returns the feature-table SHA256, split counts,
+operator smoke tests. Passing the same `--validation-tickers` file to the dataset builder
+filters the feature export to that priced universe; omit it only when the price CSV covers
+the full validation universe. The dataset gate returns the feature-table SHA256, split counts,
 schema gaps, version mismatches and rank metrics for the score plus available baselines.
 The current builder exports
 `feature_scope=13f_only_no_form4`; this is mechanically useful but not a full Confluence
