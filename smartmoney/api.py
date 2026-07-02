@@ -1488,6 +1488,37 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             '<div id="crawlerState" class="crawler-state">Live data status pending. Public verification endpoints: /api/version, /api/funds, /api/data-quality.</div>',
             f'<div id="crawlerState" class="crawler-state">{html_escape(status["crawler"])}</div>',
         )
+        if open_mode:
+            markup = _strip_open_build_dashboard(markup)
+        return markup
+
+    def _strip_open_build_dashboard(markup: str) -> str:
+        """Keep crawler-visible open builds free of auth, checkout, and alert upsell UI."""
+        markup = re.sub(
+            r'\s*<div class="nav-item" data-view="alerts"><span class="ico">!</span> Alerts</div>',
+            "",
+            markup,
+        )
+        markup = re.sub(
+            r'\s*<div class="modal" id="authModal">.*?</div>\s*<div class="modal" id="upgradeModal">',
+            '\n<div class="modal" id="upgradeModal">',
+            markup,
+            flags=re.S,
+        )
+        markup = re.sub(
+            r'\s*<div class="modal" id="upgradeModal">.*?</div>\s*<div id="toast"',
+            '\n<div id="toast"',
+            markup,
+            flags=re.S,
+        )
+        for old, new in (
+            ('data-view="alerts"', 'data-view="open-disabled"'),
+            ("Sign in", "Open build"),
+            ("Upgrade to Pro", "API access"),
+            ("Continue to checkout", "Checkout disabled"),
+            ("€12", "Pro API"),
+        ):
+            markup = markup.replace(old, new)
         return markup
 
     def _serve_html(path):

@@ -123,6 +123,11 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
 
         assert '<span id="srcText">LIVE · EDGAR</span>' in html
         assert "SAMPLE DATA" not in html
+        assert "Sign in" not in html
+        assert "Upgrade to Pro" not in html
+        assert "Continue to checkout" not in html
+        assert "€12" not in html
+        assert 'data-view="alerts"' not in html
         assert "Live data status: LIVE EDGAR." in html
         assert "uses_synthetic_data=false" in html
         assert "/api/funds serves 1 funds" in html
