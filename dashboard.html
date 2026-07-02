@@ -150,6 +150,16 @@
   .alert h4{font-family:var(--display);font-size:17px;margin:9px 0 13px;font-weight:700;letter-spacing:-.02em}
   .alert .ml{display:flex;gap:9px;margin:6px 0;font-family:var(--mono);font-size:12px;align-items:center}
   .empty{color:var(--faint);font-family:var(--mono);font-size:12px;padding:44px;text-align:center}
+  .qrow{display:grid;grid-template-columns:1.1fr 88px 1fr 1fr 86px;gap:12px;align-items:center;
+    padding:14px 18px;border-top:1px solid var(--line-soft);font-family:var(--mono);font-size:12px}
+  .qrow:hover{background:var(--panel-2)}
+  .qfund{font-family:var(--sans);font-weight:600;font-size:14px;color:var(--text)}
+  .qsev{font-size:10px;text-transform:uppercase;letter-spacing:.07em;padding:4px 8px;border-radius:999px;text-align:center;font-weight:700}
+  .qsev.critical{background:rgba(239,106,82,.16);color:var(--down)}
+  .qsev.high{background:rgba(224,165,52,.16);color:#e9b85a}
+  .qsev.review{background:var(--accent-soft);color:var(--accent-2)}
+  .qmeta{color:var(--faint);font-size:11px}
+  .qval{color:var(--muted)}
 
   /* motion */
   .fade{animation:fadeup .5s cubic-bezier(.2,.7,.2,1) both}
@@ -297,6 +307,7 @@
       <div class="nav-item" data-view="compare"><span class="ico">⊞</span> Compare</div>
       <div class="nav-item" data-view="alerts"><span class="ico">!</span> Alerts</div>
       <div class="nav-item" data-view="confluence"><span class="ico">✦</span> Confluence</div>
+      <div class="nav-item" data-view="quality"><span class="ico">◇</span> Quality</div>
     </nav>
     <div class="rail-foot">
       <div id="authbox"></div>
@@ -436,9 +447,9 @@ let OPEN_MODE=false;
 async function boot(){
   // Ask the backend which build this is. Missing endpoint (e.g. file://) -> full build.
   try{ const cfg=await api("/api/config"); OPEN_MODE=!!(cfg&&cfg.open); }catch(e){ OPEN_MODE=false; }
-  let VIEWS=["consensus","funds","compare","alerts","confluence"];
+  let VIEWS=["consensus","funds","compare","alerts","confluence","quality"];
   if(OPEN_MODE){
-    VIEWS=["consensus","funds","compare","confluence"];
+    VIEWS=["consensus","funds","compare","confluence","quality"];
     const al=document.querySelector('.nav-item[data-view="alerts"]'); if(al) al.remove();
     const ab=document.getElementById("authbox");
     if(ab) ab.innerHTML='<div style="font-size:11px;color:var(--faint);line-height:1.5">Public access · read-only<br>no account needed</div>';
@@ -463,7 +474,7 @@ document.getElementById("nav").addEventListener("click",e=>{
   document.querySelectorAll(".nav-item").forEach(n=>n.classList.toggle("active",n===it));
   route(it.dataset.view);
 });
-function route(v){ ({consensus:vConsensus,funds:vFunds,compare:vCompare,alerts:vAlerts,confluence:vConfluence}[v])(); }
+function route(v){ ({consensus:vConsensus,funds:vFunds,compare:vCompare,alerts:vAlerts,confluence:vConfluence,quality:vQuality}[v])(); }
 
 //---- Consensus ----
 async function vConsensus(){
@@ -642,6 +653,46 @@ async function vAlerts(){
         <span class="gold">${esc(m.ticker)||""}</span> <span style="color:var(--muted)">${esc(m.issuer)}</span>
         <span style="margin-left:auto" class="num">${esc(m.detail.replace(m.move,'').trim())}</span></div>`).join("")}
     </div>`).join("") || `<div class="empty">No recent filings.</div>`;
+}
+
+//---- Data quality ----
+async function vQuality(){
+  V.innerHTML=`<p class="view-title">SEC-derived series with review flags kept visible.</p>
+    <div class="stats" id="qstats"></div>
+    <div class="panel">
+      <div class="panel-h"><h3>AUM discontinuities</h3><span class="hint" id="qhint">THRESHOLD 100X</span></div>
+      <div id="qrows"></div>
+    </div>
+    <div class="panel" style="margin-top:20px">
+      <div class="panel-h"><h3>Strict unit-scale candidates</h3><span class="hint">OPERATOR REVIEW</span></div>
+      <div id="qcands"></div>
+    </div>`;
+  const q=await api("/api/data-quality?threshold=100&limit=50");
+  const s=q.summary||{};
+  document.getElementById("qstats").innerHTML=[
+    ["Status",esc((s.status||"unknown").toUpperCase())],
+    ["Funds scanned",s.funds_scanned||0],
+    ["Warnings",s.aum_jump_warnings||0],
+    ["x1000 candidates",s.unit_scale_candidates||0],
+  ].map(([l,v])=>`<div class="stat"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
+  const warnings=q.warnings||[];
+  document.getElementById("qrows").innerHTML=warnings.length?warnings.map(w=>`
+    <div class="qrow fade">
+      <div><div class="qfund">${esc(w.fund.label)}</div><div class="qmeta">${esc(w.fund.cik)}</div></div>
+      <div><span class="qsev ${esc(w.severity)}">${esc(w.severity)}</span></div>
+      <div><div class="qval">${esc(w.from.report_date)} · ${fmtUSD(w.from.total_value)}</div><div class="qmeta">${esc(w.from.form)} · ${esc(w.from.n_positions)} pos.</div></div>
+      <div><div class="qval">${esc(w.to.report_date)} · ${fmtUSD(w.to.total_value)}</div><div class="qmeta">${esc(w.to.form)} · ${esc(w.to.n_positions)} pos.</div></div>
+      <div class="count" style="font-size:20px;text-align:right">${(+w.ratio).toFixed(0)}<small>x ${esc(w.direction)}</small></div>
+    </div>`).join(""):`<div class="empty">No AUM jumps above threshold.</div>`;
+  const cands=q.unit_scale_candidates||[];
+  document.getElementById("qcands").innerHTML=cands.length?cands.map(c=>`
+    <div class="qrow fade">
+      <div><div class="qfund">${esc(c.fund.label)}</div><div class="qmeta">${esc(c.fund.cik)}</div></div>
+      <div><span class="qsev high">${esc(c.action)}</span></div>
+      <div class="qval">${esc(c.previous.report_date)} · ${fmtUSD(c.previous.total_value)}</div>
+      <div class="qval">${esc(c.current.report_date)} · ${fmtUSD(c.current.total_value)}</div>
+      <div class="num" style="text-align:right">${(+c.ratio_to_neighbor_geomean).toFixed(6)}</div>
+    </div>`).join(""):`<div class="empty">No strict x1000 correction candidate.</div>`;
 }
 
 //=================== auth UI ===================
@@ -1004,6 +1055,7 @@ function sampleFor(path){
   if(path.startsWith("/api/subscriptions")) return SAMPLE.subs;
   if(path.startsWith("/api/alerts/preview/")) return SAMPLE.alerts[path.split("/")[4]]||{error:"none"};
   if(path.startsWith("/api/coverage")) return SAMPLE.coverage;
+  if(path.startsWith("/api/data-quality")) return SAMPLE.quality;
   if(path.startsWith("/api/signals/confluence")) return CFL_SAMPLE;
   return [];
 }
@@ -1052,6 +1104,20 @@ const SAMPLE={
   {id:3,fund_label:"Pershing Square",channel:"email",target:"me@fund.io"},
  ],
  coverage:{coverage:{overall_value_share:0.978,value_unresolved:1.9e9,per_fund:[]},tail:[]},
+ quality:{notes:["Warnings are read-only data-quality signals, not automatic corrections."],
+  parameters:{aum_jump_threshold:100,limit:50},
+  summary:{status:"review",funds_scanned:39,series_points:1144,aum_jump_warnings:2,unit_scale_candidates:0},
+  unit_scale_candidates:[],
+  warnings:[
+   {type:"aum_jump",severity:"critical",status:"review_required",direction:"up",ratio:1842.9,
+    fund:{cik:"0001541617",label:"Altimeter"},
+    from:{accession:"0001541617-23-000003",filing_date:"2023-02-14",form:"13F-HR",n_positions:11,report_date:"2022-12-31",total_value:3652571},
+    to:{accession:"0001541617-24-000007",filing_date:"2024-08-14",form:"13F-HR",n_positions:20,report_date:"2024-06-30",total_value:6731598776}},
+   {type:"aum_jump",severity:"review",status:"review_required",direction:"up",ratio:120,
+    fund:{cik:"0001112520",label:"Akre Capital"},
+    from:{accession:"0000919574-13-004202",filing_date:"2013-07-29",form:"13F-HR/A",n_positions:1,report_date:"2013-03-31",total_value:18428000},
+    to:{accession:"0000919574-13-004807",filing_date:"2013-08-14",form:"13F-HR",n_positions:37,report_date:"2013-06-30",total_value:2210576000}},
+  ]},
  detail:{
   "0001067983":{cik:"0001067983",label:"Berkshire Hathaway",manager:"Warren Buffett",report_date:"2024-06-30",prev_report_date:"2024-03-31",form:"13F-HR",aum:279000000000,n_positions:41,quarters:QS,
     valuation:{basis_date:"2024-06-28",current_total:298000000000,pnl_abs:19000000000,pnl_pct:0.068},
