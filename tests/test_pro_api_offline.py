@@ -143,6 +143,22 @@ def test_pro_api_rate_limit_is_persistent(monkeypatch):
         assert [r[0] for r in rows] == [200, 429]
 
 
+def test_pro_api_audit_uses_trusted_proxy_xff(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        c, token, key, pro_db = _client(monkeypatch, d)
+        hdr = {
+            "Authorization": "Bearer " + token,
+            "User-Agent": "audit-test",
+            "X-Forwarded-For": "198.51.100.10, 203.0.113.99",
+        }
+        assert c.get("/api/pro/v1/status", headers=hdr).status_code == 200
+
+        row = sqlite3.connect(pro_db).execute(
+            "SELECT ip, user_agent FROM api_audit ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert row == ("203.0.113.99", "audit-test")
+
+
 def test_pro_api_key_revocation_is_immediate():
     with tempfile.TemporaryDirectory() as d:
         pro_db = str(Path(d) / "pro.db")

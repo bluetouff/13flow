@@ -624,7 +624,11 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 
     def client_ip() -> str:
         xff = request.headers.get("X-Forwarded-For", "")
-        return (xff.split(",")[0].strip() if xff else request.remote_addr) or "?"
+        if xff:
+            # Apache is the trusted reverse proxy; use the last hop it appends,
+            # not the first client-supplied value.
+            return xff.split(",")[-1].strip() or "?"
+        return request.remote_addr or "?"
 
     def bearer_token() -> str:
         auth = request.headers.get("Authorization", "")
