@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -30,6 +31,13 @@ from .research import (
 )
 
 HORIZONS = (20, 60, 120)
+PRICEABLE_TICKER_RE = re.compile(r"^[A-Z]{1,5}([./][A-Z]{1,2})?$")
+NON_PRICEABLE_TITLE_HINTS = (
+    "NOTE", "NOTES", "NT ", "BOND", "DEBENTURE", "DEB ",
+    "CONV", "CONVERTIBLE", "PFD", "PREF", "PREFERRED",
+    "WARRANT", "WRT", "RIGHT", "UNIT",
+)
+CURRENCY_SUFFIXES = ("USD", "EUR", "CHF", "GBP")
 
 EXPORT_COLUMNS = [
     "as_of",
@@ -203,6 +211,23 @@ def _empty_return_fields() -> dict[str, Any]:
     return out
 
 
+def validation_ticker_flags(ticker: str, issuer: str = "",
+                            title_of_class: str = "") -> list[str]:
+    """Return non-empty flags for rows that should not enter the default priceable universe."""
+    t = str(ticker or "").upper().strip()
+    title = str(title_of_class or "").upper()
+    flags: list[str] = []
+    if not t:
+        return ["missing_ticker"]
+    if any(t.endswith(sfx) and len(t) > 5 for sfx in CURRENCY_SUFFIXES):
+        flags.append("currency_suffixed_ticker")
+    if not PRICEABLE_TICKER_RE.match(t):
+        flags.append("non_priceable_ticker")
+    if any(hint in title for hint in NON_PRICEABLE_TITLE_HINTS):
+        flags.append("non_common_equity_title")
+    return sorted(set(flags))
+
+
 def build_validation_rows(
     db_path: str,
     *,
@@ -211,6 +236,7 @@ def build_validation_rows(
     end: str | None = None,
     execution_lag_days: int = 1,
     code_commit: str | None = None,
+    include_non_priceable: bool = False,
 ) -> list[dict[str, Any]]:
     prices = load_adjusted_prices(prices_path)
     price_source = f"local_csv:{os.path.basename(prices_path)}" if prices_path else ""
@@ -240,25 +266,36 @@ def build_validation_rows(
                     for p in curr.positions.values():
                         if not p.put_call:
                             changes.append((Move.NEW, p.cusip, p.ticker, p.issuer,
-                                            p.value_usd, p.weight))
+                                            p.title_of_class, p.value_usd, p.weight))
                 else:
                     diff = diff_portfolios(prev, curr)
+                    curr_by_cusip = {p.cusip: p for p in curr.positions.values()}
+                    prev_by_cusip = {p.cusip: p for p in prev.positions.values()}
                     changes = [
-                        (c.move, c.cusip, c.ticker, c.issuer, c.curr_value, c.curr_weight)
+                        (
+                            c.move, c.cusip, c.ticker, c.issuer,
+                            (curr_by_cusip.get(c.cusip) or prev_by_cusip.get(c.cusip)).title_of_class,
+                            c.curr_value, c.curr_weight,
+                        )
                         for c in diff.changes if not c.put_call
                     ]
 
-                for move, _cusip, ticker, issuer, value_usd, weight in changes:
+                for move, _cusip, ticker, issuer, title, value_usd, weight in changes:
                     if not ticker:
                         continue
                     t = ticker.upper()
+                    row_flags = validation_ticker_flags(t, issuer, title)
+                    if row_flags and not include_non_priceable:
+                        continue
                     slot = by_ticker.setdefault(t, {
                         "ticker": t,
                         "issuer_name": issuer or "",
+                        "title_of_class": title or "",
                         "fund_labels": [],
                         "fund_moves": [],
                         "accessions": [],
                         "filing_dates": [],
+                        "quality_flags": set(),
                         "funds_accumulating": 0,
                         "funds_trimming": 0,
                         "total_value_usd": 0.0,
@@ -266,6 +303,8 @@ def build_validation_rows(
                         "conviction_funds": 0,
                     })
                     slot["issuer_name"] = slot["issuer_name"] or issuer or ""
+                    slot["title_of_class"] = slot["title_of_class"] or title or ""
+                    slot["quality_flags"].update(row_flags)
                     slot["fund_labels"].append(curr.fund_label)
                     slot["fund_moves"].append(move.value)
                     if meta.get("accession"):
@@ -300,6 +339,7 @@ def build_validation_rows(
                 )
                 sig = score_confluence(inst, InsiderActivity(ticker=t))
                 accessions = sorted(set(item["accessions"]))
+                flags = sorted(set(item["quality_flags"]) | {"insider_features_not_joined"})
                 row = {
                     "as_of": as_of,
                     "report_date": report_date,
@@ -333,7 +373,7 @@ def build_validation_rows(
                     "market_cap": "",
                     "sector": "",
                     "beta": "",
-                    "data_quality_flags": "insider_features_not_joined",
+                    "data_quality_flags": _split_csv(flags),
                 }
                 returns = _empty_return_fields()
                 if t in prices:

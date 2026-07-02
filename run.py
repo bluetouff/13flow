@@ -612,6 +612,7 @@ def cmd_build_validation_dataset(db_path: str, output: str, fmt: str,
                                  start: str | None,
                                  end: str | None,
                                  code_commit: str | None,
+                                 include_non_priceable: bool,
                                  as_json: bool) -> None:
     import json
     from smartmoney.validation import validation_report
@@ -623,6 +624,7 @@ def cmd_build_validation_dataset(db_path: str, output: str, fmt: str,
         end=end,
         execution_lag_days=execution_lag_days,
         code_commit=code_commit,
+        include_non_priceable=include_non_priceable,
     )
     summary = write_validation_dataset(rows, output, fmt=fmt)
     gate = validation_report(output, horizon=60)
@@ -760,6 +762,8 @@ def main() -> None:
                     help="last 13F report_date for --build-validation-dataset")
     ap.add_argument("--validation-code-commit", default=os.environ.get("SMARTMONEY_GIT_SHA"),
                     help="code commit to stamp into --build-validation-dataset rows")
+    ap.add_argument("--validation-include-non-priceable", action="store_true",
+                    help="include non-priceable/common-equity suspect tickers with flags")
     args = ap.parse_args()
 
     # DB-only commands: no EDGAR, no SEC_UA required.
@@ -806,7 +810,7 @@ def main() -> None:
             args.db, args.build_validation_dataset, args.validation_format,
             args.validation_prices, args.validation_execution_lag_days,
             args.validation_start, args.validation_end, args.validation_code_commit,
-            args.validation_json)
+            args.validation_include_non_priceable, args.validation_json)
     if args.create_api_key:
         return cmd_create_api_key(args.pro_db, args.create_api_key, args.api_key_scopes,
                                   args.api_key_rate_per_min, args.api_key_rate_per_day,

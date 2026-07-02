@@ -92,6 +92,11 @@ That is enough to test the file contract, institutional baselines and price-retu
 not enough for a full Confluence validation claim. Form 4 insider features must be joined in
 a later artifact before validating the complete score.
 
+By default, the builder excludes non-priceable/common-equity suspects from validation rows:
+convertible notes, preferreds, warrants, currency-suffixed FIGI artefacts, tickers with
+spaces/digits and similar rows. Use `--validation-include-non-priceable` only for audit
+exports; those rows carry `data_quality_flags` and must not enter headline metrics.
+
 ## Frozen split
 
 Use a calendar split first, then add walk-forward analysis:

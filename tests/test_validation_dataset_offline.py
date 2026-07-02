@@ -19,6 +19,8 @@ from smartmoney.validation_dataset import (
 )
 from tests.test_db_offline import AAPL, MSFT, NVDA, _save
 
+NOTE_CUSIP = "123456789"
+
 
 def _market_db(path: Path) -> None:
     store = Store(str(path))
@@ -30,13 +32,16 @@ def _market_db(path: Path) -> None:
               "2024-03-31", [("MICROSOFT", MSFT, 1000, 100, "")])
         _save(store, f1, "Fund One", "PM1", "A2", "13F-HR", "2024-08-01",
               "2024-06-30", [("APPLE INC", AAPL, 1100, 100, ""),
-                              ("NVIDIA", NVDA, 500, 50, "")])
+                              ("NVIDIA", NVDA, 500, 50, ""),
+                              ("CADENCE CONV NOTE", NOTE_CUSIP, 100, 10, "")])
         _save(store, f2, "Fund Two", "PM2", "B2", "13F-HR", "2024-08-02",
               "2024-06-30", [("MICROSOFT", MSFT, 900, 90, ""),
                               ("NVIDIA", NVDA, 300, 30, "")])
         store.conn.execute("UPDATE holdings SET ticker='AAPL' WHERE cusip=?", (AAPL,))
         store.conn.execute("UPDATE holdings SET ticker='MSFT' WHERE cusip=?", (MSFT,))
         store.conn.execute("UPDATE holdings SET ticker='NVDA' WHERE cusip=?", (NVDA,))
+        store.conn.execute("UPDATE holdings SET ticker='CDNS 1.5 12/15/13 B', "
+                           "title_of_class='CONV NOTE' WHERE cusip=?", (NOTE_CUSIP,))
         store.close()
     finally:
         try:
@@ -82,10 +87,24 @@ def test_build_validation_dataset_without_prices_is_not_publishable(tmp_path):
     assert nvda["funds_accumulating"] == 2
     assert nvda["13f_accession_hash"]
     assert nvda["forward_return_60d"] == ""
+    assert "CDNS 1.5 12/15/13 B" not in {r["ticker"] for r in rows}
 
     report = validation_report(str(out))
     assert report["status"] == "not_publishable"
     assert report["manifest"]["row_error_count"] == len(rows) * 3
+
+
+def test_build_validation_dataset_can_include_non_priceable_for_audit(tmp_path):
+    db = tmp_path / "market.db"
+    _market_db(db)
+
+    rows = build_validation_rows(str(db), start="2024-06-30", end="2024-06-30",
+                                 code_commit="abc123",
+                                 include_non_priceable=True)
+
+    bad = next(r for r in rows if r["ticker"] == "CDNS 1.5 12/15/13 B")
+    assert "non_priceable_ticker" in bad["data_quality_flags"]
+    assert "non_common_equity_title" in bad["data_quality_flags"]
 
 
 def test_build_validation_dataset_with_prices_passes_mechanical_gate(tmp_path):

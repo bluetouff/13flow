@@ -250,7 +250,9 @@ python run.py --validation-dataset /path/to/confluence_features.csv --validation
 They return the feature-table SHA256, split counts, schema gaps, version mismatches and
 rank metrics for the score plus available baselines. The current builder exports
 `feature_scope=13f_only_no_form4`; this is mechanically useful but not a full Confluence
-validation claim until Form 4 insider features are joined and reviewed.
+validation claim until Form 4 insider features are joined and reviewed. Non-priceable/common
+equity suspects are excluded by default; use `--validation-include-non-priceable` only for
+auditing noisy 13F rows.
 
 Confluence v1 is frozen as a machine-readable research contract in
 `docs/confluence_v1.json` and documented in `docs/CONFLUENCE_V1.md`. The append-only signal
