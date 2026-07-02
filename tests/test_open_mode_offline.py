@@ -29,7 +29,8 @@ def test_open_mode_hides_private_surface_and_keeps_public():
         # config advertises the open build
         cfg = c.get("/api/config").get_json()
         assert cfg["open"] is True
-        assert cfg["features"] == {"auth": False, "alerts": False, "billing": False}
+        assert cfg["features"] == {"auth": False, "alerts": False, "billing": False,
+                                   "pro_api": False}
         ver = c.get("/api/version").get_json()
         assert ver["app"] == "13flow"
         assert ver["open"] is True

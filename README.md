@@ -111,6 +111,43 @@ Endpoints: `POST /api/billing/checkout`, `POST /api/billing/portal`,
 `POST /api/billing/webhook` (signature-verified, CSRF-exempt), and — mock only —
 `GET /billing/mock-checkout` + `POST /api/billing/mock-complete`.
 
+## Pro API
+The Pro API is an explicit, versioned API-key surface for institutional and automated use.
+It is off by default. Enable it with `SMARTMONEY_PRO_API=1` and store keys, counters, and
+audit events in a dedicated control-plane SQLite file via `SMARTMONEY_PRO_DB`.
+
+Recommended production split:
+```bash
+SMARTMONEY_OPEN=1
+SMARTMONEY_DB_READONLY=1
+SMARTMONEY_PRO_API=1
+SMARTMONEY_PRO_DB=/var/lib/13flow/13flow-pro.db
+```
+
+Create an API key offline as the operator. The plaintext token is shown exactly once; only
+its SHA-256 hash is stored.
+```bash
+python run.py --create-api-key "Acme Asset Management" \
+  --pro-db /var/lib/13flow/13flow-pro.db \
+  --api-key-scopes funds:read,quality:read \
+  --api-key-rate-per-min 120 \
+  --api-key-rate-per-day 10000
+
+python run.py --list-api-keys --pro-db /var/lib/13flow/13flow-pro.db
+python run.py --revoke-api-key <key_id> --pro-db /var/lib/13flow/13flow-pro.db
+```
+
+Use `Authorization: Bearer <token>` or `X-13FLOW-Key: <token>`.
+```bash
+curl -H "Authorization: Bearer $TOKEN" https://13flow.eu/api/pro/v1/status
+curl -H "Authorization: Bearer $TOKEN" https://13flow.eu/api/pro/v1/funds
+curl -H "Authorization: Bearer $TOKEN" https://13flow.eu/api/pro/v1/data-quality
+```
+
+Security properties: opaque high-entropy tokens, key hashes only at rest, scoped access
+(`funds:read`, `quality:read`), persistent per-minute/per-day rate limits, and an audit row
+for every Pro request including denied and rate-limited calls.
+
 ## Alerts — real delivery
 Subscribe to a fund and get the **diff** (not just "a filing appeared") delivered when a
 new 13F lands. Channels: console (default), webhook, email.
@@ -194,7 +231,9 @@ routes (`/api/auth/*`, `/api/billing/*`, `/api/subscriptions`, `/api/alerts/*` a
 404, not 401), `SMARTMONEY_DB_READONLY=1` opens SQLite read-only so the web process can't
 write the database, and the dashboard auto-detects the build via `/api/config` — hiding the
 Sign in button and the Alerts tab. The same codebase runs the full build when the flag is
-absent. A complete **Debian + Apache** deployment kit (gunicorn systemd unit with a sandbox,
+absent. The Pro API is separate: if `SMARTMONEY_PRO_API=1`, `/api/pro/v1/*` is registered
+and writes only to `SMARTMONEY_PRO_DB`, not to the read-only 13F data DB. A complete
+**Debian + Apache** deployment kit (gunicorn systemd unit with a sandbox,
 Apache TLS reverse-proxy vhost with a GET-only method allow-list + HSTS/CSP, an ingest user
 separated from the web user, and a scheduled refresh) lives in [`deploy/`](deploy/) — see
 [`deploy/INSTALL_DEBIAN_APACHE.md`](deploy/INSTALL_DEBIAN_APACHE.md).
@@ -224,6 +263,7 @@ separated from the web user, and a scheduled refresh) lives in [`deploy/`](deplo
 - `pwhash.py` — password hashing (Argon2id, scrypt fallback, optional pepper, rehash).
 - `accounts.py` — users, opaque revocable sessions, lockout, reset tokens, email verification, server-side tier.
 - `auth.py` — Flask glue: secure cookies, double-submit CSRF, rate limiting, `/api/auth/*`.
+- `pro.py` — Pro API keys, scopes, persistent rate limits, and request audit.
 - `hibp.py` — HaveIBeenPwned k-anonymity breached-password check (privacy-preserving).
 - `notify.py` — transactional email (verification links) over hardened SMTP, with a dev fallback.
 - `billing.py` — Stripe subscriptions (signature-verified, idempotent webhook) + local mock.

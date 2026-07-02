@@ -38,6 +38,7 @@ from smartmoney.channels import ConsoleChannel, WebhookChannel, EmailChannel
 from smartmoney.tracker import Tier
 from smartmoney.accounts import AccountStore, EmailTaken, PasswordPolicyError
 from smartmoney.hibp import default_breach_checker
+from smartmoney.pro import ProAPIStore
 from smartmoney.quality import data_quality_report
 from smartmoney.registry import SUPERINVESTORS, by_label
 
@@ -204,6 +205,45 @@ def cmd_quality(db_path, threshold, top) -> None:
             cur = c["current"]
             print(f"  {c['action']:<13} {c['fund']['label']:<22} {cur['report_date']}"
                   f" {cur['accession']} ratio={c['ratio_to_neighbor_geomean']:.6f}")
+
+
+def cmd_create_api_key(pro_db, label, scopes, rate_per_min, rate_per_day, expires_days) -> None:
+    scope_list = [s.strip() for s in scopes.split(",") if s.strip()]
+    with ProAPIStore(pro_db) as pro:
+        token, key = pro.create_key(
+            label=label,
+            scopes=scope_list,
+            rate_per_min=rate_per_min,
+            rate_per_day=rate_per_day,
+            expires_days=expires_days,
+        )
+    print("Created API key:")
+    print(f"  id: {key.key_id}")
+    print(f"  label: {key.label}")
+    print(f"  scopes: {' '.join(key.scopes)}")
+    print(f"  rate: {key.rate_per_min}/min, {key.rate_per_day}/day")
+    print("\nCopy this token now; only the SHA-256 hash is stored:")
+    print(token)
+
+
+def cmd_list_api_keys(pro_db) -> None:
+    with ProAPIStore(pro_db) as pro:
+        rows = pro.list_keys()
+    if not rows:
+        print("No API keys.")
+        return
+    print("API keys:\n")
+    for r in rows:
+        state = "revoked" if r["revoked_at"] else "active"
+        print(f"  {r['key_id']}  {state:<7}  {r['label']:<24}  scopes={r['scopes']}  "
+              f"rate={r['rate_per_min']}/min,{r['rate_per_day']}/day  "
+              f"last_used={r['last_used_at'] or '-'}")
+
+
+def cmd_revoke_api_key(pro_db, key_id) -> None:
+    with ProAPIStore(pro_db) as pro:
+        ok = pro.revoke_key(key_id)
+    print("revoked" if ok else "not found or already revoked")
 
 
 def cmd_resolve_sweep(client, db_path) -> None:
@@ -473,6 +513,19 @@ def main() -> None:
     ap.add_argument("--quality", action="store_true", help="data-quality warnings report (DB only)")
     ap.add_argument("--quality-threshold", type=float, default=100.0,
                     help="AUM jump threshold for --quality (default 100x)")
+    ap.add_argument("--create-api-key", metavar="LABEL", help="create a Pro API key")
+    ap.add_argument("--list-api-keys", action="store_true", help="list Pro API keys")
+    ap.add_argument("--revoke-api-key", metavar="KEY_ID", help="revoke a Pro API key")
+    ap.add_argument("--pro-db", default=os.environ.get("SMARTMONEY_PRO_DB", "13flow-pro.db"),
+                    help="Pro API control-plane SQLite path")
+    ap.add_argument("--api-key-scopes", default="funds:read,quality:read",
+                    help="comma-separated scopes for --create-api-key")
+    ap.add_argument("--api-key-rate-per-min", type=int, default=120,
+                    help="requests per minute for --create-api-key")
+    ap.add_argument("--api-key-rate-per-day", type=int, default=10000,
+                    help="requests per day for --create-api-key")
+    ap.add_argument("--api-key-expires-days", type=int, default=None,
+                    help="optional expiration in days for --create-api-key")
     ap.add_argument("--resolve-sweep", action="store_true",
                     help="re-run the resolver chain over the unresolved tail and back-fill")
     ap.add_argument("--create-user", metavar="EMAIL", help="create an account (password prompted)")
@@ -543,6 +596,14 @@ def main() -> None:
         return cmd_coverage(args.db, args.basis)
     if args.quality:
         return cmd_quality(args.db, args.quality_threshold, args.top)
+    if args.create_api_key:
+        return cmd_create_api_key(args.pro_db, args.create_api_key, args.api_key_scopes,
+                                  args.api_key_rate_per_min, args.api_key_rate_per_day,
+                                  args.api_key_expires_days)
+    if args.list_api_keys:
+        return cmd_list_api_keys(args.pro_db)
+    if args.revoke_api_key:
+        return cmd_revoke_api_key(args.pro_db, args.revoke_api_key)
     if args.create_user:
         return cmd_create_user(args.db, args.create_user, args.tier)
     if args.verify_user:

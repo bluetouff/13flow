@@ -8,6 +8,9 @@ Endpoints (all under /api):
   GET /consensus/buys?date=&min_funds=
   GET /compare?ciks=a,b&date=
   GET /data-quality?threshold=&limit=
+  GET /pro/v1/status                  -> Pro API key status (API key)
+  GET /pro/v1/funds                   -> Pro fund series + quality summary (API key)
+  GET /pro/v1/data-quality            -> Pro data-quality report (API key)
   GET /subscriptions
   GET /alerts/preview/<cik>
 GET /  -> dashboard.html
@@ -21,8 +24,9 @@ from __future__ import annotations
 import os
 from typing import Optional
 
+import functools
 import secrets
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, make_response, request
 from werkzeug.exceptions import HTTPException
 
 from .analytics import consensus_moves
@@ -38,6 +42,7 @@ from .tracker import Tier, EntitlementError
 from .db import Store
 from .diff import Move, diff_portfolios
 from .portfolio import Portfolio
+from .pro import APIKeyError, APIRateLimited, ProAPIStore
 from .quality import data_quality_report
 from .valuation import value_portfolio
 
@@ -163,6 +168,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     _truthy = lambda v: str(v or "").strip().lower() in ("1", "true", "yes", "on")
     open_mode = open_mode or _truthy(os.environ.get("SMARTMONEY_OPEN"))
     read_only = _truthy(os.environ.get("SMARTMONEY_DB_READONLY"))
+    pro_enabled = _truthy(os.environ.get("SMARTMONEY_PRO_API"))
+    pro_db_path = os.environ.get("SMARTMONEY_PRO_DB") or os.path.join(APP_ROOT, "13flow-pro.db")
 
     # Auth + billing exist only in the full build. The open build skips them entirely:
     # no accounts, no Stripe, no sessions/CSRF machinery is even registered.
@@ -219,6 +226,48 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             from werkzeug.exceptions import BadRequest
             raise BadRequest("invalid float parameter")
         return max(lo, min(hi, v))
+
+    def client_ip() -> str:
+        xff = request.headers.get("X-Forwarded-For", "")
+        return (xff.split(",")[0].strip() if xff else request.remote_addr) or "?"
+
+    def bearer_token() -> str:
+        auth = request.headers.get("Authorization", "")
+        if auth.lower().startswith("bearer "):
+            return auth.split(" ", 1)[1].strip()
+        return request.headers.get("X-13FLOW-Key", "").strip()
+
+    def pro_required(scope: str):
+        def deco(fn):
+            @functools.wraps(fn)
+            def wrapper(*args, **kwargs):
+                ps = ProAPIStore(pro_db_path)
+                key_id = None
+                status = 500
+                try:
+                    key = ps.authenticate(bearer_token(), scope)
+                    key_id = key.key_id
+                    request.pro_api_key = key
+                    resp = make_response(fn(*args, **kwargs))
+                    status = resp.status_code
+                    return resp
+                except APIRateLimited as e:
+                    status = e.status_code
+                    resp = jsonify({"error": e.code})
+                    resp.status_code = e.status_code
+                    resp.headers["Retry-After"] = str(e.retry_after)
+                    return resp
+                except APIKeyError as e:
+                    status = e.status_code
+                    return jsonify({"error": e.code}), e.status_code
+                finally:
+                    try:
+                        ps.audit(key_id, request.method, request.path, status,
+                                 client_ip(), request.headers.get("User-Agent", ""))
+                    finally:
+                        ps.close()
+            return wrapper
+        return deco
 
     @app.after_request
     def _security_headers(resp):
@@ -516,13 +565,91 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         finally:
             s.close()
 
+    if pro_enabled:
+        @app.get("/api/pro/v1/status")
+        @pro_required("funds:read")
+        def pro_status_ep():
+            key = request.pro_api_key
+            return jsonify({
+                "api": "13flow-pro",
+                "version": "v1",
+                "key": {
+                    "id": key.key_id,
+                    "label": key.label,
+                    "tier": key.tier,
+                    "scopes": list(key.scopes),
+                    "rate_per_min": key.rate_per_min,
+                    "rate_per_day": key.rate_per_day,
+                },
+            })
+
+        @app.get("/api/pro/v1/funds")
+        @pro_required("funds:read")
+        def pro_funds_ep():
+            s = store()
+            try:
+                rows = [dict(r) for r in s.conn.execute(
+                    "SELECT cik,label,manager FROM funds ORDER BY label")]
+                quality = data_quality_report(s, limit=500)
+                warnings_by_cik = {}
+                for w in quality["warnings"]:
+                    warnings_by_cik.setdefault(w["fund"]["cik"], []).append(w)
+                out = []
+                for r in rows:
+                    cik = r["cik"]
+                    series = s.fund_value_timeline(cik)
+                    latest = series[-1] if series else None
+                    out.append({
+                        "cik": cik,
+                        "label": r["label"],
+                        "manager": r["manager"],
+                        "latest_quarter": latest["report_date"] if latest else None,
+                        "n_quarters": len(series),
+                        "aum": latest["total_value"] if latest else None,
+                        "n_positions": latest["n_positions"] if latest else None,
+                        "aum_series": [{"q": x["report_date"], "aum": x["total_value"],
+                                        "n_positions": x["n_positions"]} for x in series],
+                        "quality_warnings": warnings_by_cik.get(cik, []),
+                    })
+                return jsonify({
+                    "meta": {
+                        "api": "13flow-pro",
+                        "version": "v1",
+                        "git_sha": _git_sha(),
+                        "methodology": {
+                            "source": "SEC EDGAR 13F-HR information tables",
+                            "latest_filing_rule": "latest complete-enough accession per CIK/report_date",
+                            "aum_jump_threshold": quality["parameters"]["aum_jump_threshold"],
+                        },
+                    },
+                    "quality_summary": quality["summary"],
+                    "funds": out,
+                })
+            finally:
+                s.close()
+
+        @app.get("/api/pro/v1/data-quality")
+        @pro_required("quality:read")
+        def pro_data_quality_ep():
+            threshold = clean_float(request.args.get("threshold"), 100.0, 2.0, 10000.0)
+            limit = clean_int(request.args.get("limit"), 100, 1, 500)
+            s = store()
+            try:
+                return jsonify({
+                    "meta": {"api": "13flow-pro", "version": "v1", "git_sha": _git_sha()},
+                    "report": data_quality_report(s, aum_jump_threshold=threshold, limit=limit),
+                })
+            finally:
+                s.close()
+
     @app.get("/api/config")
     def config_ep():
         # Lets the single-page dashboard adapt to the build it is served by.
         return jsonify({"open": open_mode,
                         "features": {"auth": not open_mode,
                                      "alerts": not open_mode,
-                                     "billing": not open_mode}})
+                                     "billing": not open_mode,
+                                     "pro_api": pro_enabled}})
 
     @app.get("/api/version")
     @app.get("/healthz")

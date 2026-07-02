@@ -71,6 +71,33 @@ chosen for security:
   request; paid features (alert subscriptions) return **402** for free users. The client
   cannot assert its own tier. Public read-only market data stays open (it is public-domain).
 
+## Pro API control plane
+The Pro API is intentionally separate from browser sessions. It is disabled unless
+`SMARTMONEY_PRO_API=1` is set.
+
+- **API-key format** — the plaintext token is high-entropy and shown only once at creation
+  time. The database stores only a SHA-256 hash plus a non-secret key id used for lookup.
+- **Scopes** — every Pro route declares a required scope. Current scopes are `funds:read`
+  and `quality:read`; missing scope returns **403**.
+- **Rate limits** — per-key minute and day buckets are persisted in `SMARTMONEY_PRO_DB`, so
+  limits survive worker restarts. Exceeding a bucket returns **429** with `Retry-After`.
+- **Audit** — every Pro request writes an audit event with key id when known, route, method,
+  status, IP, user agent, and timestamp. Denied and rate-limited calls are audited too.
+- **Data-plane separation** — the Pro DB should be a small writable runtime DB
+  (`/var/lib/13flow/13flow-pro.db`). The 13F data DB can remain read-only for the web process.
+- **Revocation** — `run.py --revoke-api-key <key_id>` marks a key revoked immediately; no
+  bearer token material is required or stored for revocation.
+
+Operational requirements:
+- Put `SMARTMONEY_PRO_DB` outside the code tree, owned by the web service user, mode `0600`
+  or as restrictive as your backup/ops model allows.
+- Keep the market-data DB read-only for gunicorn (`SMARTMONEY_DB_READONLY=1`); grant write
+  access only to the Pro DB when enabling Pro API audit/rate limits.
+- Treat generated tokens like passwords: never put them in shell history, logs, URLs, or
+  screenshots. Prefer a vault and rotate keys per institution.
+- Keep edge rate limiting in front of the app as a second layer. The app-level limiter is a
+  product/abuse control, not a DDoS shield.
+
 Operational requirements (also in INSTALL_SERVER.md):
 - Secure cookies require **HTTPS** (the nginx/TLS step). For local http testing only, set
   `SMARTMONEY_INSECURE_COOKIES=1`.
@@ -96,6 +123,8 @@ Operational requirements (also in INSTALL_SERVER.md):
 - [ ] Restrict DB file permissions (`chmod 600`); it holds subscription targets.
 - [ ] Add rate limiting at the proxy (the app has none) and request logging.
 - [ ] When auth lands: server-side identity → `Tier`; CSRF tokens on any mutating route.
+- [ ] If Pro API is enabled, keep `SMARTMONEY_PRO_DB` writable but separate from the read-only
+      market DB; back it up and monitor audit volume.
 
 ## Residual risks (known, documented)
 - **DNS rebinding** on webhooks (mitigated, not eliminated — see egress proxy above).
@@ -155,6 +184,8 @@ Toggled by `SMARTMONEY_OPEN=1`; intended for an unauthenticated public deploymen
 - **Whole classes of risk removed by construction.** Auth, billing, subscriptions, and alert
   routes are **not registered** — `/api/auth/*`, `/api/billing/*`, `/api/subscriptions`,
   `/api/alerts/*` return **404**. No sessions, cookies, CSRF, password, or payment code runs.
+- **Pro API is explicit.** `/api/pro/v1/*` is registered only when `SMARTMONEY_PRO_API=1`
+  and is protected by API keys, scopes, rate limits, and audit in the separate Pro DB.
 - **GET-only, enforced twice.** Only read endpoints exist; Apache also denies anything but
   `GET/HEAD/OPTIONS` at the edge (`<LimitExcept>`).
 - **The web process cannot write the DB.** `SMARTMONEY_DB_READONLY=1` opens SQLite
