@@ -90,6 +90,8 @@ The Pro API is intentionally separate from browser sessions. It is disabled unle
   13F data DB remains read-only for both public and Pro API services.
 - **Revocation** — `run.py --revoke-api-key <key_id>` marks a key revoked immediately; no
   bearer token material is required or stored for revocation.
+- **Retention** — `run.py --prune-pro-audit-days DAYS` deletes Pro audit rows older than
+  the chosen retention window. Run this only after encrypted backups are confirmed.
 
 Operational requirements:
 - Put `SMARTMONEY_PRO_DB` outside the code tree, owned by the dedicated `flowpro` service
@@ -99,6 +101,11 @@ Operational requirements:
   `13flow.service`.
 - Treat generated tokens like passwords: never put them in shell history, logs, URLs, or
   screenshots. Prefer a vault and rotate keys per institution.
+- Back up `SMARTMONEY_PRO_DB` with encryption only. The bundled `deploy/backup-pro-db.sh`
+  refuses plaintext backups and supports GPG public-key encryption or a symmetric
+  passphrase file fallback.
+- Define a retention window for Pro audit rows. A practical starting point is 180 days
+  online plus encrypted backups retained according to the legal/commercial policy.
 - Keep edge rate limiting in front of the app as a second layer. The app-level limiter is a
   product/abuse control, not a DDoS shield.
 

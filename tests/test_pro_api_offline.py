@@ -4,6 +4,7 @@ Offline Pro API tests: API-key auth, scopes, persistent rate limits, and audit.
 
 import sqlite3
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from smartmoney.api import create_app
@@ -171,3 +172,32 @@ def test_pro_api_key_revocation_is_immediate():
                 assert False, "revoked key must not authenticate"
             except APIKeyError:
                 pass
+
+
+def test_pro_api_audit_retention_prunes_only_old_rows():
+    with tempfile.TemporaryDirectory() as d:
+        pro_db = str(Path(d) / "pro.db")
+        old = (datetime.now(timezone.utc) - timedelta(days=120)).isoformat(timespec="seconds")
+        recent = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat(timespec="seconds")
+        with ProAPIStore(pro_db) as pro:
+            with pro.conn:
+                pro.conn.execute(
+                    """INSERT INTO api_audit(key_id,method,route,status,ip,user_agent,at)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    ("old", "GET", "/api/pro/v1/status", 200, "127.0.0.1", "old", old),
+                )
+                pro.conn.execute(
+                    """INSERT INTO api_audit(key_id,method,route,status,ip,user_agent,at)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    ("recent", "GET", "/api/pro/v1/status", 200, "127.0.0.1", "recent", recent),
+                )
+
+            result = pro.prune_audit(30)
+            rows = pro.conn.execute(
+                "SELECT key_id FROM api_audit ORDER BY id"
+            ).fetchall()
+
+    assert result["before"] == 2
+    assert result["deleted"] == 1
+    assert result["after"] == 1
+    assert [r[0] for r in rows] == ["recent"]

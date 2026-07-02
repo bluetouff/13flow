@@ -247,3 +247,25 @@ class ProAPIStore:
                 (key_id, method, route, int(status), (ip or "")[:80],
                  (user_agent or "")[:300], _iso(_now())),
             )
+
+    def prune_audit(self, retention_days: int) -> dict:
+        days = int(retention_days)
+        if days < 1:
+            raise ValueError("retention_days must be >= 1")
+        cutoff = _iso(_now() - timedelta(days=days))
+        before = self.conn.execute("SELECT COUNT(*) c FROM api_audit").fetchone()["c"]
+        with self.conn:
+            cur = self.conn.execute("DELETE FROM api_audit WHERE at < ?", (cutoff,))
+            deleted = int(cur.rowcount or 0)
+        try:
+            self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except sqlite3.OperationalError:
+            pass
+        after = self.conn.execute("SELECT COUNT(*) c FROM api_audit").fetchone()["c"]
+        return {
+            "retention_days": days,
+            "cutoff": cutoff,
+            "before": int(before or 0),
+            "after": int(after or 0),
+            "deleted": deleted,
+        }

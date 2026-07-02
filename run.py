@@ -247,6 +247,17 @@ def cmd_revoke_api_key(pro_db, key_id) -> None:
     print("revoked" if ok else "not found or already revoked")
 
 
+def cmd_prune_pro_audit(pro_db, retention_days) -> None:
+    with ProAPIStore(pro_db) as pro:
+        result = pro.prune_audit(retention_days)
+    print("Pro API audit retention:")
+    print(f"  retention_days: {result['retention_days']}")
+    print(f"  cutoff: {result['cutoff']}")
+    print(f"  rows_before: {result['before']}")
+    print(f"  rows_deleted: {result['deleted']}")
+    print(f"  rows_after: {result['after']}")
+
+
 def cmd_preflight(db_path, pro_db, require_pro, expected_sha, audit_recent_hours,
                   token_env, as_json) -> None:
     from smartmoney.api import _git_sha
@@ -590,6 +601,8 @@ def main() -> None:
     ap.add_argument("--create-api-key", metavar="LABEL", help="create a Pro API key")
     ap.add_argument("--list-api-keys", action="store_true", help="list Pro API keys")
     ap.add_argument("--revoke-api-key", metavar="KEY_ID", help="revoke a Pro API key")
+    ap.add_argument("--prune-pro-audit-days", type=int, metavar="DAYS",
+                    help="delete Pro API audit rows older than DAYS")
     ap.add_argument("--pro-db", default=os.environ.get("SMARTMONEY_PRO_DB", "13flow-pro.db"),
                     help="Pro API control-plane SQLite path")
     ap.add_argument("--api-key-scopes", default="funds:read,quality:read",
@@ -696,6 +709,8 @@ def main() -> None:
         return cmd_list_api_keys(args.pro_db)
     if args.revoke_api_key:
         return cmd_revoke_api_key(args.pro_db, args.revoke_api_key)
+    if args.prune_pro_audit_days:
+        return cmd_prune_pro_audit(args.pro_db, args.prune_pro_audit_days)
     if args.create_user:
         return cmd_create_user(args.db, args.create_user, args.tier)
     if args.verify_user:

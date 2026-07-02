@@ -154,6 +154,7 @@ python run.py --create-api-key "Acme Asset Management" \
 
 python run.py --list-api-keys --pro-db /var/lib/13flow/13flow-pro.db
 python run.py --revoke-api-key <key_id> --pro-db /var/lib/13flow/13flow-pro.db
+python run.py --prune-pro-audit-days 180 --pro-db /var/lib/13flow/13flow-pro.db
 ```
 
 Use `Authorization: Bearer <token>` or `X-13FLOW-Key: <token>`.
@@ -172,6 +173,15 @@ Security properties: opaque high-entropy tokens, key hashes only at rest, scoped
 for every Pro request including denied and rate-limited calls. Pro responses are explicitly
 non-cacheable (`private, no-store, max-age=0`) and vary on both supported key headers so
 reverse proxies cannot mix responses across credentials.
+
+Operational baseline:
+- one active key per institution or internal service;
+- revoke unused QA/bootstrap keys immediately;
+- rotate institutional keys on a fixed schedule and after personnel/vendor changes;
+- keep Pro audit rows long enough for incident response, then prune with
+  `--prune-pro-audit-days`;
+- back up `SMARTMONEY_PRO_DB` with encrypted backups only. See
+  [`deploy/PRO_API_SPLIT.md`](deploy/PRO_API_SPLIT.md) and `deploy/backup-pro-db.sh`.
 
 `GET /api/pro/v1/fund/<cik>` is the institutional detail endpoint: it returns the selected
 filing metadata, previous filing metadata, full holdings, share-count moves versus the

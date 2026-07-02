@@ -79,3 +79,47 @@ sudo systemctl show 13flow-pro -p User -p Group -p SupplementaryGroups -p ReadWr
 
 The production preflight fails if `13flow.service` still exposes Pro API env or keeps
 writable access to `/var/lib/13flow-pro`.
+
+## Encrypted backup
+
+The Pro DB contains API-key hashes, rate counters and audit metadata. Back it up encrypted;
+never copy it to a world-readable archive.
+
+Prepare a GPG public backup key, then:
+
+```bash
+sudo install -o root -g root -m 600 /opt/13flow/deploy/13flow-pro-backup.env.example \
+  /etc/13flow/13flow-pro-backup.env
+sudo nano /etc/13flow/13flow-pro-backup.env
+
+sudo install -d -o root -g root -m 700 /var/lib/13flow-pro-backup/gnupg
+sudo GNUPGHOME=/var/lib/13flow-pro-backup/gnupg gpg --import /path/to/backup-public-key.asc
+
+sudo install -o root -g root -m 755 /opt/13flow/deploy/backup-pro-db.sh \
+  /opt/13flow/deploy/backup-pro-db.sh
+sudo install -o root -g root -m 644 /opt/13flow/deploy/13flow-pro-backup.service \
+  /etc/systemd/system/13flow-pro-backup.service
+sudo install -o root -g root -m 644 /opt/13flow/deploy/13flow-pro-backup.timer \
+  /etc/systemd/system/13flow-pro-backup.timer
+
+sudo systemctl daemon-reload
+sudo systemctl start 13flow-pro-backup.service
+sudo systemctl enable --now 13flow-pro-backup.timer
+sudo systemctl list-timers | grep 13flow-pro-backup
+```
+
+The backup script uses SQLite `.backup`, writes a manifest with integrity/counts/SHA-256,
+encrypts with GPG, and deletes old encrypted archives after `BACKUP_RETENTION_DAYS`.
+
+## Audit retention
+
+After backups are confirmed, prune old online audit rows:
+
+```bash
+sudo /opt/13flow/.venv/bin/python /opt/13flow/run.py \
+  --prune-pro-audit-days 180 \
+  --pro-db /var/lib/13flow-pro/13flow-pro.db
+```
+
+Recommended baseline: 180 days online audit, one active key per institution/internal
+service, immediate revocation of unused QA/bootstrap keys, and documented key rotation.
