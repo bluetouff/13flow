@@ -6,7 +6,12 @@ import tempfile
 from pathlib import Path
 
 from smartmoney.db import Store
-from smartmoney.preflight import deployed_sha_from_systemd, run_preflight, _public_surface_checks
+from smartmoney.preflight import (
+    deployed_sha_from_systemd,
+    run_preflight,
+    _public_surface_checks,
+    _runtime_env_checks,
+)
 from smartmoney.pro import ProAPIStore
 from tests.test_db_offline import AAPL, KO, MSFT, _save
 
@@ -50,6 +55,9 @@ def test_preflight_passes_for_stable_market_and_pro_dbs():
     assert checks["market_db.data_quality"]["data"]["summary"]["unit_scale_candidates"] == 0
     assert checks["public_surface.no_sample_badge"]["status"] == "pass"
     assert checks["public_surface.open_features"]["status"] == "pass"
+    assert checks["public_api.funds"]["status"] == "pass"
+    assert checks["public_api.live_status"]["status"] == "pass"
+    assert checks["public_api.data_quality"]["status"] == "pass"
     assert checks["pro_api.unauth_challenge"]["status"] == "pass"
     assert checks["pro_api.cache_headers"]["status"] == "pass"
     assert checks["pro_api.rate_limits_configured"]["status"] == "pass"
@@ -84,6 +92,25 @@ def test_deployed_sha_can_be_read_from_systemd_dropin():
 
         assert deployed_sha_from_systemd(str(path)) == "abc123"
         assert deployed_sha_from_systemd(str(Path(d) / "missing.conf")) is None
+
+
+def test_runtime_env_check_requires_db_alignment():
+    with tempfile.TemporaryDirectory() as d:
+        env = Path(d) / "13flow.env"
+        expected = str(Path(d) / "market.db")
+        env.write_text(
+            "SMARTMONEY_OPEN=1\n"
+            f"SMARTMONEY_DB={expected}\n"
+            "SMARTMONEY_DB_READONLY=1\n",
+            encoding="utf-8",
+        )
+
+        checks = {c.name: c for c in _runtime_env_checks(expected, str(env))}
+        assert checks["runtime_env.db_path"].status == "pass"
+        assert checks["runtime_env.db_readonly"].status == "pass"
+
+        checks = {c.name: c for c in _runtime_env_checks("/other.db", str(env))}
+        assert checks["runtime_env.db_path"].status == "fail"
 
 
 def test_preflight_fails_if_public_root_exposes_sample_data(monkeypatch):

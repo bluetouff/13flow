@@ -2,7 +2,7 @@
 WSGI entrypoint for production (gunicorn wsgi:app).
 
 Configured via environment:
-  SMARTMONEY_DB     path to the SQLite database (default: smartmoney.db)
+  SMARTMONEY_DB     path to the SQLite database (default: /var/lib/13flow/13flow.db)
   SMARTMONEY_VALUE  "1" to enable live valuation in /api/fund?value=1 (hits price API per
                     request; off by default)
 
@@ -19,4 +19,5 @@ if os.environ.get("SMARTMONEY_VALUE", "").lower() in ("1", "true", "yes"):
     from smartmoney.prices import StooqProvider
     _provider = StooqProvider()
 
-app = create_app(os.environ.get("SMARTMONEY_DB", "smartmoney.db"), provider=_provider)
+app = create_app(os.environ.get("SMARTMONEY_DB", "/var/lib/13flow/13flow.db"),
+                 provider=_provider)

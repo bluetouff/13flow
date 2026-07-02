@@ -19,6 +19,7 @@ from .pro import ProAPIStore
 from .quality import data_quality_report
 
 SYSTEMD_VERSION_CONF = "/etc/systemd/system/13flow.service.d/version.conf"
+SYSTEMD_ENV_FILE = "/etc/13flow/13flow.env"
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,47 @@ def deployed_sha_from_systemd(path: str = SYSTEMD_VERSION_CONF) -> str | None:
     except OSError:
         return None
     return None
+
+
+def _parse_env_file(path: str) -> dict[str, str] | None:
+    try:
+        lines = open(path, "r", encoding="utf-8").read().splitlines()
+    except OSError:
+        return None
+    out: dict[str, str] = {}
+    for line in lines:
+        raw = line.strip()
+        if not raw or raw.startswith("#") or "=" not in raw:
+            continue
+        k, v = raw.split("=", 1)
+        out[k.strip()] = v.strip().strip('"').strip("'")
+    return out
+
+
+def _runtime_env_checks(db_path: str, env_file: str = SYSTEMD_ENV_FILE) -> list[Check]:
+    checks: list[Check] = []
+    env = _parse_env_file(env_file)
+    if env is None:
+        return checks
+
+    configured_db = env.get("SMARTMONEY_DB", "").strip()
+    if configured_db == db_path:
+        checks.append(_check("runtime_env.db_path", "pass", configured_db))
+    elif configured_db:
+        checks.append(_check("runtime_env.db_path", "fail",
+                             f"SMARTMONEY_DB={configured_db}, preflight --db={db_path}",
+                             configured_db=configured_db, preflight_db=db_path))
+    else:
+        checks.append(_check("runtime_env.db_path", "fail",
+                             f"SMARTMONEY_DB missing from {env_file}",
+                             env_file=env_file))
+
+    if env.get("SMARTMONEY_DB_READONLY") in {"1", "true", "yes", "on"}:
+        checks.append(_check("runtime_env.db_readonly", "pass", "SMARTMONEY_DB_READONLY=1"))
+    else:
+        checks.append(_check("runtime_env.db_readonly", "fail",
+                             "SMARTMONEY_DB_READONLY must be enabled in production"))
+    return checks
 
 
 def _market_db_checks(db_path: str) -> list[Check]:
@@ -261,6 +303,51 @@ def _public_surface_checks(db_path: str) -> list[Check]:
             checks.append(_check("public_surface.open_features", "pass",
                                  "auth, billing, and alerts disabled in open build",
                                  features=features))
+
+        funds = client.get("/api/funds")
+        if funds.status_code != 200:
+            checks.append(_check("public_api.funds", "fail", f"HTTP {funds.status_code}"))
+        else:
+            payload = funds.get_json(silent=True)
+            if isinstance(payload, list) and payload:
+                checks.append(_check("public_api.funds", "pass",
+                                     f"{len(payload)} funds served",
+                                     funds=len(payload)))
+            else:
+                checks.append(_check("public_api.funds", "fail",
+                                     "expected a non-empty JSON list"))
+
+        live = client.get("/api/live-status")
+        live_payload = live.get_json(silent=True) if live.status_code == 200 else None
+        if live.status_code != 200:
+            checks.append(_check("public_api.live_status", "fail", f"HTTP {live.status_code}"))
+        elif not isinstance(live_payload, dict):
+            checks.append(_check("public_api.live_status", "fail", "expected JSON object"))
+        else:
+            public_state = live_payload.get("public_state")
+            data_as_of = live_payload.get("data_as_of")
+            latest_13f = live_payload.get("latest_13f_quarter")
+            if public_state in {"LIVE", "DEMO"} and data_as_of and latest_13f:
+                checks.append(_check("public_api.live_status", "pass",
+                                     f"{public_state} data_as_of={data_as_of} latest_13f={latest_13f}",
+                                     public_state=public_state,
+                                     data_as_of=data_as_of,
+                                     latest_13f_quarter=latest_13f))
+            else:
+                checks.append(_check("public_api.live_status", "fail",
+                                     "missing public_state/data_as_of/latest_13f_quarter",
+                                     payload=live_payload))
+
+        quality = client.get("/api/data-quality")
+        quality_payload = quality.get_json(silent=True) if quality.status_code == 200 else None
+        summary = quality_payload.get("summary") if isinstance(quality_payload, dict) else None
+        if quality.status_code == 200 and isinstance(summary, dict):
+            checks.append(_check("public_api.data_quality", "pass",
+                                 f"status={summary.get('status')}",
+                                 summary=summary))
+        else:
+            checks.append(_check("public_api.data_quality", "fail",
+                                 f"HTTP {quality.status_code} or invalid payload"))
     except Exception as e:  # noqa: BLE001
         checks.append(_check("public_surface.contract", "fail", str(e)))
     return checks
@@ -291,6 +378,7 @@ def run_preflight(
     else:
         checks.append(_check("deploy.sha", "warn", "not checked"))
 
+    checks.extend(_runtime_env_checks(db_path))
     checks.extend(_market_db_checks(db_path))
     checks.extend(_public_surface_checks(db_path))
     if pro_db_path and os.path.exists(pro_db_path):
