@@ -137,6 +137,10 @@ class Store:
                 self.conn.execute(f"ALTER TABLE holdings ADD COLUMN {col} {decl}")
 
     def close(self) -> None:
+        if not self.read_only:
+            self.conn.commit()
+            self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            self.conn.execute("PRAGMA journal_mode=DELETE")
         self.conn.close()
 
     def __enter__(self) -> "Store":

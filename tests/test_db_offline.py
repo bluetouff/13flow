@@ -5,6 +5,7 @@ Covers: save/load round-trip, amendment supersede via latest_filings, consensus
 holdings (SQL), conviction timeline, holders, and consensus BUYS (diff-based).
 """
 
+import sqlite3
 import tempfile
 from pathlib import Path
 
@@ -175,6 +176,25 @@ def test_force_sync_replaces_existing_filing():
         client.value = 3000
         assert tracker.sync_fund(store, fund, force=True, report_date="2099-12-31") == 0
         assert store.load_portfolio("0000000001").total_value == 2000
+
+
+def test_writable_store_closes_as_read_only_snapshot():
+    with tempfile.TemporaryDirectory() as d:
+        path = Path(d) / "snapshot.db"
+        store = Store(str(path))
+        _save(store, "0000000001", "Fund One", "PM1", "A1", "13F-HR",
+              "2024-05-01", "2024-03-31",
+              [("APPLE INC", AAPL, 1000, 100, "")])
+        store.close()
+
+        assert not Path(f"{path}-wal").exists()
+        assert not Path(f"{path}-shm").exists()
+
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            assert conn.execute("SELECT COUNT(*) FROM funds").fetchone()[0] == 1
+        finally:
+            conn.close()
 
 
 if __name__ == "__main__":
