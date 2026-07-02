@@ -15,7 +15,7 @@ from datetime import date
 from .parser import RawHolding
 
 # The SEC switched 13F <value> reporting from thousands to whole dollars with the
-# 2022 amendments, first effective for filings on/after this date.
+# 2022 amendments, first effective for filings submitted on/after this date.
 DOLLARS_EFFECTIVE = date(2023, 1, 3)
 
 
@@ -54,13 +54,23 @@ class Portfolio:
         return sorted(self.positions.values(), key=lambda p: p.value_usd, reverse=True)[:n]
 
 
-def _value_multiplier(report_date: str) -> float:
+def _parse_date(raw: str | None) -> date | None:
     try:
-        d = date.fromisoformat(report_date)
+        return date.fromisoformat(str(raw)[:10])
     except (ValueError, TypeError):
+        return None
+
+
+def _value_multiplier(report_date: str, filing_date: str | None = None) -> float:
+    filing_dt = _parse_date(filing_date)
+    if filing_dt is not None:
+        return 1.0 if filing_dt >= DOLLARS_EFFECTIVE else 1000.0
+
+    report_dt = _parse_date(report_date)
+    if report_dt is None:
         # Unknown period: assume modern (dollars). Better to under- than over-scale.
         return 1.0
-    return 1.0 if d >= DOLLARS_EFFECTIVE else 1000.0
+    return 1.0 if report_dt >= DOLLARS_EFFECTIVE else 1000.0
 
 
 def build_portfolio(
@@ -69,8 +79,9 @@ def build_portfolio(
     report_date: str,
     form: str,
     raw: list[RawHolding],
+    filing_date: str | None = None,
 ) -> Portfolio:
-    mult = _value_multiplier(report_date)
+    mult = _value_multiplier(report_date, filing_date)
     pf = Portfolio(cik=cik, fund_label=fund_label, report_date=report_date, form=form)
 
     for h in raw:

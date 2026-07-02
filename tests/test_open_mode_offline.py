@@ -30,10 +30,16 @@ def test_open_mode_hides_private_surface_and_keeps_public():
         cfg = c.get("/api/config").get_json()
         assert cfg["open"] is True
         assert cfg["features"] == {"auth": False, "alerts": False, "billing": False}
+        ver = c.get("/api/version").get_json()
+        assert ver["app"] == "13flow"
+        assert ver["open"] is True
+        assert ver["git_sha"]
+        assert c.get("/healthz").get_json()["app"] == "13flow"
 
         # public, read-only endpoints are present
         for path in ("/api/funds", "/api/consensus/buys", "/api/compare",
-                     "/api/signals/confluence", "/api/coverage", "/"):
+                     "/api/signals/confluence", "/api/coverage", "/api/version",
+                     "/healthz", "/"):
             assert c.get(path).status_code == 200, path
 
         # the entire private surface is unregistered -> 404 (not 401), incl. mutations
