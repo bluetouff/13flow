@@ -8,6 +8,8 @@ import sys
 from datetime import date
 from pathlib import Path
 
+import requests
+
 from smartmoney.prices import PriceProvider, StooqProvider
 from smartmoney.validation_prices import (
     PRICE_COLUMNS,
@@ -39,6 +41,21 @@ class FakePriceProvider(PriceProvider):
             for d, px in self.DATA.get(ticker, {}).items()
             if start <= d <= end
         }
+
+
+class FakeRateLimitedProvider(PriceProvider):
+    def __init__(self):
+        super().__init__()
+        self.calls = 0
+
+    def daily_closes(self, ticker: str, start: date, end: date) -> dict[date, float]:
+        self.calls += 1
+        if self.calls == 1:
+            response = requests.Response()
+            response.status_code = 429
+            response.headers["Retry-After"] = "7"
+            raise requests.HTTPError("429 Too Many Requests", response=response)
+        return {date(2024, 1, 2): 100.0}
 
 
 def _ticker_file(path: Path) -> None:
@@ -106,6 +123,56 @@ def test_build_validation_price_file_resumes_existing_tickers(tmp_path):
     assert second_provider.calls == ["NOPE"]
 
 
+def test_build_validation_price_file_retries_429_with_retry_after(tmp_path):
+    tickers = tmp_path / "tickers.txt"
+    out = tmp_path / "prices.csv"
+    tickers.write_text("AAPL\n", encoding="utf-8")
+    provider = FakeRateLimitedProvider()
+    sleeps: list[float] = []
+
+    summary = build_validation_price_file(
+        str(tickers),
+        str(out),
+        provider,
+        provider_name="massive",
+        start=date(2024, 1, 1),
+        end=date(2024, 1, 5),
+        retry_attempts=2,
+        retry_base_sleep=30,
+        retry_max_sleep=300,
+        sleep_func=sleeps.append,
+    )
+
+    assert provider.calls == 2
+    assert sleeps == [7.0]
+    assert summary["retry_event_count"] == 1
+    assert summary["retry_events_sample"][0]["status"] == 429
+    assert summary["tickers_fetched"] == 1
+    assert summary["tickers_with_errors"] == 0
+
+
+def test_build_validation_price_file_reports_partial_history(tmp_path):
+    tickers = tmp_path / "tickers.txt"
+    out = tmp_path / "prices.csv"
+    _ticker_file(tickers)
+    provider = FakePriceProvider()
+
+    summary = build_validation_price_file(
+        str(tickers),
+        str(out),
+        provider,
+        provider_name="massive",
+        start=date(2024, 1, 1),
+        end=date(2024, 12, 31),
+    )
+
+    history = summary["history_coverage"]
+    assert history["tickers_complete_history"] == 0
+    assert history["tickers_partial_history"] == 2
+    assert history["tickers_without_rows"] == 1
+    assert history["partial_history_sample"][0]["missing_end"] is True
+
+
 def test_provider_symbol_maps_share_classes():
     assert provider_symbol("BRK/B", "massive") == "BRK.B"
     assert StooqProvider()._symbol("BRK/B") == "brk-b.us"
@@ -121,3 +188,4 @@ def test_run_py_help_exposes_validation_price_export():
     )
     assert "--build-validation-prices" in proc.stdout
     assert "--validation-prices-out" in proc.stdout
+    assert "--validation-price-retry-attempts" in proc.stdout

@@ -13,7 +13,10 @@ import csv
 import os
 import time
 from datetime import date
-from typing import Any
+from email.utils import parsedate_to_datetime
+from typing import Any, Callable
+
+import requests
 
 from .prices import MassiveProvider, PriceProvider, StooqProvider
 
@@ -74,6 +77,113 @@ def _read_existing(path: str) -> tuple[list[dict[str, str]], set[str]]:
     return rows, tickers
 
 
+def _http_status(exc: Exception) -> int | None:
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    return int(status) if status is not None else None
+
+
+def _retry_after_seconds(exc: Exception) -> float | None:
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", {}) or {}
+    raw = headers.get("Retry-After") or headers.get("retry-after")
+    if not raw:
+        return None
+    try:
+        return max(0.0, float(raw))
+    except (TypeError, ValueError):
+        pass
+    try:
+        dt = parsedate_to_datetime(str(raw))
+        return max(0.0, dt.timestamp() - time.time())
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _fetch_with_retries(
+    provider: PriceProvider,
+    symbol: str,
+    start: date,
+    end: date,
+    *,
+    retry_attempts: int,
+    retry_base_sleep: float,
+    retry_max_sleep: float,
+    sleep_func: Callable[[float], None],
+) -> tuple[dict[date, float], list[dict[str, Any]]]:
+    events: list[dict[str, Any]] = []
+    max_attempts = max(1, retry_attempts + 1)
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return provider.daily_closes(symbol, start, end), events
+        except requests.HTTPError as exc:
+            status = _http_status(exc)
+            retryable = status == 429 or (status is not None and 500 <= status <= 599)
+            if not retryable or attempt >= max_attempts:
+                raise
+            retry_after = _retry_after_seconds(exc)
+            delay = retry_after if retry_after is not None else retry_base_sleep * (2 ** (attempt - 1))
+            delay = min(max(0.0, delay), retry_max_sleep)
+            events.append({
+                "attempt": attempt,
+                "status": status,
+                "sleep_sec": round(delay, 3),
+                "source": "retry-after" if retry_after is not None else "exponential_backoff",
+            })
+            if delay > 0:
+                sleep_func(delay)
+
+
+def _history_coverage(rows: list[dict[str, str]],
+                      tickers: list[str],
+                      start: date,
+                      end: date) -> dict[str, Any]:
+    by_ticker: dict[str, list[str]] = {}
+    for row in rows:
+        by_ticker.setdefault(row["ticker"], []).append(row["date"])
+
+    complete = 0
+    partial: list[dict[str, Any]] = []
+    empty: list[str] = []
+    first_dates = []
+    last_dates = []
+    requested_start = start.isoformat()
+    requested_end = end.isoformat()
+
+    for ticker in tickers:
+        dates = sorted(set(by_ticker.get(ticker, [])))
+        if not dates:
+            empty.append(ticker)
+            continue
+        first_dates.append(dates[0])
+        last_dates.append(dates[-1])
+        missing_start = dates[0] > requested_start
+        missing_end = dates[-1] < requested_end
+        if not missing_start and not missing_end:
+            complete += 1
+        else:
+            partial.append({
+                "ticker": ticker,
+                "rows": len(dates),
+                "from": dates[0],
+                "to": dates[-1],
+                "missing_start": missing_start,
+                "missing_end": missing_end,
+            })
+
+    return {
+        "requested_start": requested_start,
+        "requested_end": requested_end,
+        "tickers_complete_history": complete,
+        "tickers_partial_history": len(partial),
+        "tickers_without_rows": len(empty),
+        "earliest_price_date": min(first_dates) if first_dates else None,
+        "latest_price_date": max(last_dates) if last_dates else None,
+        "partial_history_sample": partial[:50],
+        "empty_ticker_sample": empty[:50],
+    }
+
+
 def build_validation_price_file(
     tickers_path: str,
     out_path: str,
@@ -84,12 +194,17 @@ def build_validation_price_file(
     end: date,
     sleep_sec: float = 0.0,
     force: bool = False,
+    retry_attempts: int = 5,
+    retry_base_sleep: float = 30.0,
+    retry_max_sleep: float = 300.0,
+    sleep_func: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
     tickers = read_tickers(tickers_path)
     existing_rows, cached_tickers = ([], set()) if force else _read_existing(out_path)
     new_rows: list[dict[str, str]] = []
     no_data: list[str] = []
     errors: list[dict[str, str]] = []
+    retry_events: list[dict[str, Any]] = []
     fetched = 0
     cached = 0
 
@@ -99,7 +214,18 @@ def build_validation_price_file(
             continue
         symbol = provider_symbol(ticker, provider_name)
         try:
-            closes = provider.daily_closes(symbol, start, end)
+            closes, events = _fetch_with_retries(
+                provider,
+                symbol,
+                start,
+                end,
+                retry_attempts=retry_attempts,
+                retry_base_sleep=retry_base_sleep,
+                retry_max_sleep=retry_max_sleep,
+                sleep_func=sleep_func,
+            )
+            for event in events:
+                retry_events.append({"ticker": ticker, "source_symbol": symbol, **event})
         except Exception as e:  # noqa: BLE001 - report and continue; validation wants coverage stats
             errors.append({"ticker": ticker, "source_symbol": symbol, "error": str(e)[:240]})
             continue
@@ -115,10 +241,13 @@ def build_validation_price_file(
                         "adj_close": f"{float(px):.8g}",
                     })
         if sleep_sec > 0:
-            time.sleep(sleep_sec)
+            sleep_func(sleep_sec)
 
-    all_rows = existing_rows + new_rows
-    all_rows.sort(key=lambda r: (r["ticker"], r["date"]))
+    by_key = {
+        (row["ticker"], row["date"]): row
+        for row in existing_rows + new_rows
+    }
+    all_rows = sorted(by_key.values(), key=lambda r: (r["ticker"], r["date"]))
     os.makedirs(os.path.dirname(os.path.abspath(out_path)) or ".", exist_ok=True)
     with open(out_path, "w", encoding="utf-8", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=PRICE_COLUMNS)
@@ -140,6 +269,16 @@ def build_validation_price_file(
         "rows_existing": len(existing_rows),
         "rows_new": len(new_rows),
         "rows_total": len(all_rows),
+        "rows_deduplicated": len(existing_rows) + len(new_rows) - len(all_rows),
+        "history_coverage": _history_coverage(all_rows, tickers, start, end),
+        "retry_policy": {
+            "retry_attempts": retry_attempts,
+            "retry_base_sleep": retry_base_sleep,
+            "retry_max_sleep": retry_max_sleep,
+            "retry_statuses": [429, "5xx"],
+        },
+        "retry_event_count": len(retry_events),
+        "retry_events_sample": retry_events[:50],
         "no_data_sample": no_data[:50],
         "errors_sample": errors[:20],
         "resume_policy": "existing ticker rows are reused unless --validation-price-force is set",

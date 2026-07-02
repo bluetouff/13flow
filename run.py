@@ -657,6 +657,9 @@ def cmd_build_validation_prices(tickers_path: str | None,
                                 start: str | None,
                                 end: str | None,
                                 sleep_sec: float,
+                                retry_attempts: int,
+                                retry_base_sleep: float,
+                                retry_max_sleep: float,
                                 force: bool,
                                 as_json: bool) -> None:
     import json
@@ -692,6 +695,9 @@ def cmd_build_validation_prices(tickers_path: str | None,
         start=start_date,
         end=end_date,
         sleep_sec=max(0.0, sleep_sec),
+        retry_attempts=max(0, retry_attempts),
+        retry_base_sleep=max(0.0, retry_base_sleep),
+        retry_max_sleep=max(0.0, retry_max_sleep),
         force=force,
     )
     if as_json:
@@ -704,6 +710,13 @@ def cmd_build_validation_prices(tickers_path: str | None,
           f"({summary['tickers_cached']} cached, {summary['tickers_fetched']} fetched)")
     print(f"  rows:     {summary['rows_total']} total, {summary['rows_new']} new")
     print(f"  coverage: {summary['coverage']}")
+    print("  history:  {complete} complete, {partial} partial, {empty} empty".format(
+        complete=summary["history_coverage"]["tickers_complete_history"],
+        partial=summary["history_coverage"]["tickers_partial_history"],
+        empty=summary["history_coverage"]["tickers_without_rows"],
+    ))
+    if summary["retry_event_count"]:
+        print(f"  retries:  {summary['retry_event_count']}")
     if summary["tickers_with_errors"]:
         print(f"  errors:   {summary['tickers_with_errors']} "
               f"(sample in --validation-json)")
@@ -825,6 +838,12 @@ def main() -> None:
                     help="price source for --build-validation-prices (default massive)")
     ap.add_argument("--validation-price-sleep-sec", type=float, default=0.0,
                     help="pause between ticker price requests (default 0)")
+    ap.add_argument("--validation-price-retry-attempts", type=int, default=5,
+                    help="retry attempts for 429/5xx price responses (default 5)")
+    ap.add_argument("--validation-price-retry-base-sec", type=float, default=30.0,
+                    help="base exponential-backoff sleep for price retries (default 30)")
+    ap.add_argument("--validation-price-retry-max-sec", type=float, default=300.0,
+                    help="maximum sleep for one price retry (default 300)")
     ap.add_argument("--validation-price-force", action="store_true",
                     help="ignore existing price CSV cache and refetch all tickers")
     ap.add_argument("--validation-execution-lag-days", type=int, default=1,
@@ -889,8 +908,9 @@ def main() -> None:
         return cmd_build_validation_prices(
             args.validation_tickers, args.validation_prices_out,
             args.validation_price_provider, args.validation_start, args.validation_end,
-            args.validation_price_sleep_sec, args.validation_price_force,
-            args.validation_json)
+            args.validation_price_sleep_sec, args.validation_price_retry_attempts,
+            args.validation_price_retry_base_sec, args.validation_price_retry_max_sec,
+            args.validation_price_force, args.validation_json)
     if args.create_api_key:
         return cmd_create_api_key(args.pro_db, args.create_api_key, args.api_key_scopes,
                                   args.api_key_rate_per_min, args.api_key_rate_per_day,

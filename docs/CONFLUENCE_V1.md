@@ -119,6 +119,10 @@ python run.py \
   --validation-price-provider massive \
   --validation-start 2013-01-01 \
   --validation-end 2026-07-02 \
+  --validation-price-sleep-sec 15 \
+  --validation-price-retry-attempts 8 \
+  --validation-price-retry-base-sec 60 \
+  --validation-price-retry-max-sec 900 \
   --validation-json
 
 python run.py --db /var/lib/13flow/13flow.db \
@@ -131,11 +135,13 @@ python run.py --db /var/lib/13flow/13flow.db \
 python run.py --validation-dataset /path/to/confluence_features.csv --validation-json
 ```
 
-The price exporter writes `ticker,date,adj_close` adjusted closes and resumes from existing
-rows unless `--validation-price-force` is set. Reuse the same `--validation-tickers` file
-when building a priced sample dataset; otherwise unpriced tickers from the full universe will
-remain in the feature table. This is a publication gate, not a claim of validation. The output
-must be archived with the dataset hash, price-source notes, costs,
+The price exporter writes `ticker,date,adj_close` adjusted closes, resumes from existing
+rows unless `--validation-price-force` is set, deduplicates repeated ticker/date rows, retries
+`429`/`5xx` responses with exponential backoff and reports complete/partial history coverage.
+Reuse the same `--validation-tickers` file when building a priced sample dataset; otherwise
+unpriced tickers from the full universe will remain in the feature table. This is a publication
+gate, not a claim of validation. The output must be archived with the dataset hash,
+price-source notes, costs,
 liquidity rules and review notes before any public result is described as validated. The
 first builder release exports
 `feature_scope=13f_only_no_form4`; complete Confluence validation still requires Form 4

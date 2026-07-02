@@ -245,6 +245,10 @@ python run.py \
   --validation-price-provider massive \
   --validation-start 2013-01-01 \
   --validation-end 2026-07-02 \
+  --validation-price-sleep-sec 15 \
+  --validation-price-retry-attempts 8 \
+  --validation-price-retry-base-sec 60 \
+  --validation-price-retry-max-sec 900 \
   --validation-json
 
 python run.py --db /var/lib/13flow/13flow.db \
@@ -260,10 +264,13 @@ python run.py --validation-dataset /path/to/confluence_features.csv --validation
 The price exporter writes a provider-neutral `ticker,date,adj_close` CSV and reuses
 already exported ticker rows unless `--validation-price-force` is set. Massive requires
 `MASSIVE_API_KEY` in the process environment; `stooq` is available as a free fallback for
-operator smoke tests. Passing the same `--validation-tickers` file to the dataset builder
-filters the feature export to that priced universe; omit it only when the price CSV covers
-the full validation universe. The dataset gate returns the feature-table SHA256, split counts,
-schema gaps, version mismatches and rank metrics for the score plus available baselines.
+operator smoke tests. The exporter retries `429` and `5xx` responses with exponential
+backoff, honors `Retry-After`, deduplicates resumed rows and reports complete/partial
+history coverage per ticker. Passing the same `--validation-tickers` file to the dataset
+builder filters the feature export to that priced universe; omit it only when the price CSV
+covers the full validation universe. The dataset gate returns the feature-table SHA256,
+split counts, schema gaps, version mismatches and rank metrics for the score plus available
+baselines.
 The current builder exports
 `feature_scope=13f_only_no_form4`; this is mechanically useful but not a full Confluence
 validation claim until Form 4 insider features are joined and reviewed. Non-priceable/common
