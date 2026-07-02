@@ -277,6 +277,9 @@ def test_confluence_cache_served_when_present(monkeypatch):
         assert j["metadata"]["validation_status"] == "hypothesis_not_live_validated"
         assert "heuristic" in j["metadata"]["weight_policy"]
         assert j["metadata"]["validation_protocol"]["forward_horizons_days"] == [20, 60, 120]
+        assert "SEC-rate-limit control" in j["metadata"]["effective_universe"]["insider"]
+        assert any("Form 4 universe is partial" in item
+                   for item in j["metadata"]["known_limitations"])
         assert j["metadata"]["served_from_cache"] is True
         assert j["metadata"].get("provider") != "unconfigured"
         # window without a cache file -> explicit error, not implicit sample data

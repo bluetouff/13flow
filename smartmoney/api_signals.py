@@ -70,6 +70,17 @@ def default_methodology_metadata() -> dict:
             "reported separately with their train/validation/test split, feature version, "
             "and out-of-sample evidence."
         ),
+        "effective_universe": {
+            "institutional": (
+                "Tracked 13F managers stored in the market database; latest_filings selects "
+                "one complete-enough filing per manager and report date."
+            ),
+            "insider": (
+                "Production Confluence scans Form 4 only for tickers with meaningful "
+                "tracked-fund accumulation, normally SMARTMONEY_CONFLUENCE_SCAN_MIN_FUNDS=3. "
+                "This is an SEC-rate-limit control, not a complete insider-universe crawl."
+            ),
+        },
         "validation_protocol": {
             "train": "2014-01-01 through 2022-12-31",
             "validation": "2023-01-01 through 2024-12-31",
@@ -97,6 +108,10 @@ def default_methodology_metadata() -> dict:
             "The agreement bonus can overlap with information already present in the "
             "institutional and insider pillars.",
             "Fund-count and dollar variables depend on the tracked-fund universe size.",
+            "The effective Form 4 universe is partial in production: insider filings are "
+            "looked up only for tickers that pass the institutional accumulation scan "
+            "threshold, so insider-only, distribution, and divergent categories are not "
+            "exhaustive.",
             "The score currently excludes valuation, liquidity, market cap, sector, market "
             "regime, and base-rate returns.",
             "Quadrants describe direction; the numeric score describes heuristic intensity, "
