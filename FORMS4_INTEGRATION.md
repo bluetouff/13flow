@@ -14,7 +14,7 @@ theme and `esc()`.
 | `smartmoney/api_signals.py` | Read-only Flask blueprint `GET /api/signals/confluence`; `StoreConfluenceProvider` (real) + `SampleConfluenceProvider` (demo). |
 | `smartmoney/sample_confluence.py` | Synthetic data routed through the real pipeline so the UI/endpoint run with no DB or network. |
 | `tests/test_forms4_offline.py` | Offline tests: parsing, recency/sizing features, ranking, and the optimiser. |
-| `dashboard_confluence.html` | Standalone "Confluence" screen with the score-weighting decomposition; live API + embedded fallback. |
+| `dashboard_confluence.html` | Standalone "Confluence" screen with the score-weighting decomposition; live/cache API + explicit demo mode. |
 
 ## How the signal is built
 1. **Institutions** — from your 13F diff layer: funds opening/adding (`funds_accumulating`)
@@ -85,12 +85,13 @@ Then adapt two small methods in `StoreConfluenceProvider` to your `store.py` sch
 screen) and `ticker_cik_map(tickers)` (ticker → issuer CIK; you have CIKs from the 13F side
 and tickers from OpenFIGI enrichment, so this is a join you already have the pieces for).
 
-To preview immediately with no wiring, use `SampleConfluenceProvider()` instead.
+To preview immediately with no wiring, use `SampleConfluenceProvider()` only in explicit
+demo mode.
 
 **2. Add the screen.** Serve `dashboard_confluence.html` (or fold it in as a 5th nav pill
 next to Consensus / Funds / Compare / Alerts). It calls `GET /api/signals/confluence?window=N`
-and falls back to embedded sample data when the API isn't reachable, exactly like your main
-dashboard. All injected text goes through `esc()`.
+and shows an error when live/cache data is unavailable. Embedded samples are used only when
+the browser is opened with `?demo=1`. All injected text goes through `esc()`.
 
 ## Endpoint
 ```

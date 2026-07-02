@@ -377,14 +377,39 @@
 <div id="toast" class="toast"></div>
 
 <script>
-//=================== data layer (API with offline preview fallback) ===================
+//=================== data layer (API, explicit demo only) ===================
 let LIVE=false;
+const DEMO_MODE=new URLSearchParams(location.search).get("demo")==="1";
 async function api(path){
   try{
     const r=await fetch(path,{cache:"no-store",credentials:"same-origin"});
-    if(!r.ok) throw 0;
+    if(!r.ok){
+      let msg="HTTP "+r.status;
+      try{const j=await r.json(); if(j.message||j.error) msg=(j.message||j.error);}catch(e){}
+      throw new Error(msg);
+    }
     LIVE=true; return await r.json();
-  }catch(e){ return sampleFor(path); }
+  }catch(e){
+    if(DEMO_MODE){ LIVE=false; return sampleFor(path); }
+    throw new Error(`API unavailable for ${path}: ${e.message||e}`);
+  }
+}
+function renderFatal(e){
+  const msg=e&&e.message?e.message:String(e||"Unknown API error");
+  const srcText=document.getElementById("srcText");
+  if(srcText) srcText.textContent="DATA ERROR";
+  const srcBadge=document.getElementById("srcBadge");
+  if(srcBadge) srcBadge.classList.remove("live");
+  const srcDetail=document.getElementById("srcDetail");
+  if(srcDetail) srcDetail.textContent="The public API did not return live data. Demo samples are disabled unless ?demo=1 is explicit.";
+  const crawlerState=document.getElementById("crawlerState");
+  if(crawlerState) crawlerState.textContent="Live data status: ERROR. No sample-data fallback was used.";
+  V.innerHTML=`<div class="panel" style="padding:24px;max-width:760px">
+    <div class="panel-h"><h3>Live data unavailable</h3><span class="hint">no silent sample fallback</span></div>
+    <p style="color:var(--muted);line-height:1.65;margin:0 0 14px">13FLOW did not substitute demo data. This protects production users and crawlers from mistaking samples for live EDGAR-derived data.</p>
+    <pre style="white-space:pre-wrap;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:13px;color:var(--faint);font-family:var(--mono);font-size:12px">${esc(msg)}</pre>
+    <p style="color:var(--faint);font-size:12px;line-height:1.6;margin:14px 0 0">For local UI previews only, reopen with <span class="num">?demo=1</span>.</p>
+  </div>`;
 }
 function getCookie(name){
   const m=document.cookie.match(new RegExp("(?:^|; )"+name+"=([^;]*)"));
@@ -407,7 +432,7 @@ async function refreshAuth(){
     const r=await fetch("/api/auth/me",{cache:"no-store",credentials:"same-origin"});
     AUTH_BACKEND=true;
     USER = r.ok ? await r.json() : null;
-  }catch(e){ AUTH_BACKEND=false; USER=null; }   // no backend -> offline preview mode
+  }catch(e){ AUTH_BACKEND=false; USER=null; }   // no auth backend in public/demo mode
   renderAuthbox();
 }
 function qp(path,key){const m=path.match(new RegExp(key+"=([^&]+)"));return m?decodeURIComponent(m[1]):null;}
@@ -446,7 +471,7 @@ let FUNDS=[];
 let OPEN_MODE=false;
 async function boot(){
   // Ask the backend which build this is. Missing endpoint (e.g. file://) -> full build.
-  try{ const cfg=await api("/api/config"); OPEN_MODE=!!(cfg&&cfg.open); }catch(e){ OPEN_MODE=false; }
+  try{ const cfg=await api("/api/config"); OPEN_MODE=!!(cfg&&cfg.open); }catch(e){ if(!DEMO_MODE) throw e; OPEN_MODE=false; }
   let VIEWS=["consensus","funds","compare","alerts","confluence","quality"];
   if(OPEN_MODE){
     VIEWS=["consensus","funds","compare","confluence","quality"];
@@ -457,18 +482,18 @@ async function boot(){
     await refreshAuth();
   }
   FUNDS=await api("/api/funds");
-  document.getElementById("srcText").textContent = LIVE? "LIVE · EDGAR":"OFFLINE PREVIEW";
+  document.getElementById("srcText").textContent = LIVE? "LIVE · EDGAR":"DEMO SAMPLE";
   document.getElementById("srcBadge").classList.toggle("live",LIVE);
   const latest = FUNDS.map(f=>f.latest_quarter).filter(Boolean).sort().pop();
   const aum = FUNDS.reduce((a,f)=>a+(f.aum||0),0);
   const srcDetail=document.getElementById("srcDetail");
   if(srcDetail) srcDetail.textContent = LIVE
     ? `Source: SEC EDGAR · ${FUNDS.length} funds · latest 13F ${latest||"—"}`
-    : "Offline preview fallback · public API unreachable";
+    : "Explicit demo mode · sample data";
   const crawlerState=document.getElementById("crawlerState");
   if(crawlerState) crawlerState.textContent = LIVE
     ? `Live data status: LIVE EDGAR. /api/funds serves ${FUNDS.length} funds; latest 13F quarter ${latest||"—"}.`
-    : "Offline preview fallback. Public API did not respond in this browser session.";
+    : "Demo data status: explicit sample mode (?demo=1). Not production data.";
   document.getElementById("mast-meta").innerHTML =
     `Quarter ending <b>${esc(latest)||"—"}</b><br>${FUNDS.length} funds · ${fmtUSD(aum)} 13F AUM`;
   if(!OPEN_MODE) await handleBillingReturn();
@@ -1013,10 +1038,21 @@ function cflRenderSignals(signals){
 }
 
 async function cflLoad(){
-  const data=await api("/api/signals/confluence?window="+CFL_WIN);
+  let data;
+  try{
+    data=await api("/api/signals/confluence?window="+CFL_WIN);
+  }catch(e){
+    const meth=document.getElementById("cfl-methodology");
+    if(meth) meth.textContent="Confluence live data unavailable; no demo fallback was used.";
+    const k=document.getElementById("cfl-kpis"); if(k) k.innerHTML="";
+    const q=document.getElementById("cfl-quad"); if(q) q.innerHTML="";
+    const s=document.getElementById("cfl-signals");
+    if(s) s.innerHTML=`<div class="panel" style="padding:18px"><div class="panel-h"><h3>Confluence unavailable</h3><span class="hint">no sample fallback</span></div><p style="color:var(--muted);line-height:1.6">${esc(e.message||e)}</p></div>`;
+    return;
+  }
   const meth=document.getElementById("cfl-methodology");
   if(meth&&data.metadata){
-    const universe=data.metadata.effective_universe||"Standalone/offline preview universe.";
+    const universe=data.metadata.effective_universe||"Confluence universe metadata unavailable.";
     meth.innerHTML=`<b>Methodology:</b> ${esc(data.metadata.score_interpretation||"Ordinal exploratory ranking.")}<br>${esc(universe)}`;
   }
   cflRenderKPIs(data.kpis); cflRenderQuad(data.signals); cflRenderSignals(data.signals);
@@ -1059,8 +1095,9 @@ async function vConfluence(){
   await cflLoad();
 }
 
-//=================== offline preview data (renders when no API is reachable) ===================
+//=================== explicit demo data (?demo=1 only) ===================
 function sampleFor(path){
+  if(path.startsWith("/api/config")) return {open:true,features:{auth:false,alerts:false,billing:false,pro_api:false}};
   if(path.startsWith("/api/funds")) return SAMPLE.funds;
   if(path.startsWith("/api/fund/")) return SAMPLE.detail[path.split("/")[3].split("?")[0]]||SAMPLE.detail._default;
   if(path.startsWith("/api/consensus/buys")) return SAMPLE.buys;
@@ -1210,7 +1247,7 @@ const SAMPLE={
  },
 };
 
-boot();
+boot().catch(renderFatal);
 </script>
 </body>
 </html>

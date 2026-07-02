@@ -40,9 +40,14 @@ def test_open_mode_hides_private_surface_and_keeps_public():
 
         # public, read-only endpoints are present
         for path in ("/api/funds", "/api/consensus/buys", "/api/compare",
-                     "/api/signals/confluence", "/api/coverage", "/api/data-quality",
+                     "/api/coverage", "/api/data-quality",
                      "/api/live-status", "/api/version", "/healthz", "/"):
             assert c.get(path).status_code == 200, path
+        # Confluence no longer serves demo data implicitly. It needs a cache, live provider,
+        # or explicit SMARTMONEY_CONFLUENCE_DEMO=1.
+        cf = c.get("/api/signals/confluence")
+        assert cf.status_code == 503
+        assert cf.get_json()["error"] == "confluence_unavailable"
 
         # the entire private surface is unregistered -> 404 (not 401), incl. mutations
         assert c.get("/api/auth/me").status_code == 404
@@ -152,8 +157,8 @@ def test_csp_nonce_and_no_inline_handlers_and_json_errors():
         assert "fonts.gstatic.com" not in font_css.get_data(as_text=True)
 
 
-def test_confluence_cache_served_when_present():
-    import os, json
+def test_confluence_cache_served_when_present(monkeypatch):
+    import json
     from smartmoney.api_signals import confluence_payload
     from smartmoney.sample_confluence import sample_signals
     with tempfile.TemporaryDirectory() as d:
@@ -165,30 +170,40 @@ def test_confluence_cache_served_when_present():
                 "signals": [{"ticker": "CACHED", "issuer_name": "Cache Co",
                              "score": 88.8, "quadrant": "conviction"}]}
         (cache_dir / "confluence-90.json").write_text(json.dumps(fake))
-        os.environ["SMARTMONEY_CACHE_DIR"] = str(cache_dir)
-        try:
-            c = create_app(db, secure_cookies=False, open_mode=True).test_client()
-            # cached window -> served straight from the file
-            j = c.get("/api/signals/confluence?window=90").get_json()
-            assert j["kpis"]["top_ticker"] == "CACHED"
-            assert j["signals"][0]["ticker"] == "CACHED"
-            assert j["metadata"]["validation_status"] == "hypothesis_not_live_validated"
-            assert "heuristic" in j["metadata"]["weight_policy"]
-            assert j["metadata"]["validation_protocol"]["forward_horizons_days"] == [20, 60, 120]
-            # window without a cache file -> falls back to the (sample) provider
-            j2 = c.get("/api/signals/confluence?window=45").get_json()
-            assert j2["signals"] and j2["signals"][0]["ticker"] != "CACHED"
-            assert j2["metadata"]["score_interpretation"].startswith("Ordinal exploratory")
-            assert j2["metadata"]["calibration_status"] == "not_calibrated_on_live_history"
-            assert "Backtest harness available" in j2["metadata"]["backtest_status"]
-        finally:
-            del os.environ["SMARTMONEY_CACHE_DIR"]
+        monkeypatch.setenv("SMARTMONEY_CACHE_DIR", str(cache_dir))
+        c = create_app(db, secure_cookies=False, open_mode=True).test_client()
+        # cached window -> served straight from the file
+        j = c.get("/api/signals/confluence?window=90").get_json()
+        assert j["kpis"]["top_ticker"] == "CACHED"
+        assert j["signals"][0]["ticker"] == "CACHED"
+        assert j["metadata"]["validation_status"] == "hypothesis_not_live_validated"
+        assert "heuristic" in j["metadata"]["weight_policy"]
+        assert j["metadata"]["validation_protocol"]["forward_horizons_days"] == [20, 60, 120]
+        assert j["metadata"]["served_from_cache"] is True
+        assert j["metadata"].get("provider") != "unconfigured"
+        # window without a cache file -> explicit error, not implicit sample data
+        r2 = c.get("/api/signals/confluence?window=45")
+        assert r2.status_code == 503
+        assert r2.get_json()["error"] == "confluence_unavailable"
 
     # the shared payload helper produces the endpoint shape
     p = confluence_payload(sample_signals(90), 90)
     assert set(p) == {"metadata", "kpis", "signals"} and p["kpis"]["window_days"] == 90
     assert p["metadata"]["known_limitations"]
     assert p["metadata"]["quantitative_evidence_boundary"].startswith("Current production score")
+
+
+def test_confluence_demo_is_explicit(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        db = str(Path(d) / "demo-confluence.db")
+        _seed(db)
+        monkeypatch.setenv("SMARTMONEY_CONFLUENCE_DEMO", "1")
+        c = create_app(db, secure_cookies=False, open_mode=True).test_client()
+        j = c.get("/api/signals/confluence?window=90").get_json()
+        assert j["signals"]
+        assert j["metadata"]["provider"] == "sample_confluence"
+        assert j["metadata"]["demo_mode"] is True
+        assert j["metadata"]["sample_data"] is True
 
 
 def test_live_confluence_provider_enriches_institutional_signal(monkeypatch):
@@ -216,6 +231,7 @@ def test_live_confluence_provider_enriches_institutional_signal(monkeypatch):
     assert inst.total_value_usd > 0
     assert inst.avg_weight_pct == 100.0
     assert inst.conviction_funds == 2
+    assert inst.quarters_ago == 0
     assert provider.confluence_metadata()["effective_universe"].startswith(
         "Form 4 scans are limited"
     )

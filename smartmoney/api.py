@@ -81,7 +81,7 @@ def _git_sha() -> str:
 class _StoreConfluence:
     """Live Confluence provider: institutional side from the 13F store, insider side from
     Form 4s via EDGAR. Issuer ticker->CIK comes from SEC's company_tickers.json. Any failure
-    degrades gracefully (logs + returns what it has) so the endpoint never 500s."""
+    raises a structured 503 instead of falling back to sample data."""
 
     def __init__(self, db_path: str, user_agent: str):
         self._db_path = db_path
@@ -137,6 +137,7 @@ class _StoreConfluence:
                     fund_labels=tuple(m.funds),
                     conviction_funds=enrich["conviction_funds"],
                     avg_weight_pct=enrich["avg_weight_pct"],
+                    quarters_ago=0,
                 )
             return out
         finally:
@@ -193,14 +194,17 @@ class _StoreConfluence:
     def confluence(self, window_days: int):
         from .crosssignal import aggregate_insider_activity, build_confluence
         from .forms4 import Form4Client
+        from .api_signals import ConfluenceUnavailable
         try:
             inst = self._institutional()
         except Exception as e:
             __import__("logging").getLogger("smartmoney.api").warning("inst build failed: %s", e)
-            return []
+            raise ConfluenceUnavailable(f"Institutional Confluence build failed: {e}") from e
         if not inst:
-            return []
+            raise ConfluenceUnavailable("No institutional accumulation candidates for Confluence.")
         idx = self._issuer_index()
+        if not idx:
+            raise ConfluenceUnavailable("SEC issuer index is unavailable; cannot map tickers to issuer CIKs.")
         f4 = Form4Client(user_agent=self._ua)
         insiders = {}
         for ticker in inst:
@@ -242,13 +246,15 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     # Confluence (13F × Form 4) signals endpoint. Resolution order at request time:
     #   1) a precomputed cache file in SMARTMONEY_CACHE_DIR (run.py --confluence) — instant, no network
     #   2) live provider if SMARTMONEY_CONFLUENCE_LIVE=1 + SEC_UA (fetches Form 4 from EDGAR per request)
-    #   3) demo provider (live-shaped sample data) so the screen works with no DB/network
-    from .api_signals import make_signals_blueprint, SampleConfluenceProvider
-    if os.environ.get("SMARTMONEY_CONFLUENCE_LIVE", "").lower() in ("1", "true", "yes") \
-            and os.environ.get("SEC_UA"):
+    #   3) explicit demo provider only when SMARTMONEY_CONFLUENCE_DEMO=1
+    # Without cache/live/demo the endpoint returns a 503 JSON error. No silent samples.
+    from .api_signals import make_signals_blueprint, SampleConfluenceProvider, UnconfiguredConfluenceProvider
+    if _truthy(os.environ.get("SMARTMONEY_CONFLUENCE_LIVE")) and os.environ.get("SEC_UA"):
         confluence_provider = _StoreConfluence(db_path, os.environ["SEC_UA"])
-    else:
+    elif _truthy(os.environ.get("SMARTMONEY_CONFLUENCE_DEMO")):
         confluence_provider = SampleConfluenceProvider()
+    else:
+        confluence_provider = UnconfiguredConfluenceProvider()
     _cache_dir = os.environ.get("SMARTMONEY_CACHE_DIR") or "."
     app.register_blueprint(make_signals_blueprint(confluence_provider, cache_dir=_cache_dir))
 

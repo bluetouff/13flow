@@ -54,9 +54,10 @@ institutions, amber = insiders, converging like the Confluence score) with five 
 **Consensus** (who's buying / most owned), **Funds** (holdings, current weights, implied P&L,
 conviction sparklines), **Compare** (overlap matrix across funds), **Alerts** (subscriptions +
 the diff feed), and **Confluence** (13F accumulation × insider buying). A served **FAQ** page
-(`/faq`) explains the product, linked from the sidebar. `dashboard.html` also renders standalone
-with built-in sample data across every screen when no API is reachable, so you can preview the
-whole UI before syncing any data. API endpoints: `/api/live-status`, `/api/funds`, `/api/fund/<cik>`,
+(`/faq`) explains the product, linked from the sidebar. Demo data is available only when
+explicitly requested (`?demo=1` in the browser or `SMARTMONEY_CONFLUENCE_DEMO=1` for the
+Confluence API); production errors are shown instead of silently substituting samples. API endpoints:
+`/api/live-status`, `/api/funds`, `/api/fund/<cik>`,
 `/api/consensus/{buys,holdings}`, `/api/compare`, `/api/alerts/preview/<cik>`,
 `/api/signals/confluence`, `/api/data-quality` (all public, read-only), plus authenticated
 `/api/auth/*` and user-scoped `/api/subscriptions`. `/api/live-status` is the public,
@@ -213,15 +214,17 @@ quarter (default 3). Trim/exits are computed more broadly, but insider-only, dis
 and divergent categories are therefore not exhaustive in this production path. This is
 exposed in `/api/signals/confluence` under `metadata.effective_universe`.
 
-The screen lives as a fifth dashboard tab and runs out-of-the-box on **sample data** (no DB or
-network). The live provider needs EDGAR access for Form 4s:
+The screen lives as a fifth dashboard tab. Production must use either a precomputed
+`confluence-<window>.json` cache or the live provider. The live provider needs EDGAR access
+for Form 4s:
 ```bash
 SEC_UA="you@example.com" SMARTMONEY_CONFLUENCE_LIVE=1 python -m smartmoney.api --db demo.db
 ```
-With the flag off (default), the endpoint serves the same-shaped sample so the UI lights up
-immediately. Evaluate hypotheses or fit research weights with `python -m smartmoney.backtest`
-(synthetic demo only) — see `FORMS4_INTEGRATION.md` and `VALIDATION_PROTOCOL.md` for the
-feature write-up and validation contract.
+With no cache and no live provider, the endpoint returns `503 confluence_unavailable`. Use
+`SMARTMONEY_CONFLUENCE_DEMO=1` only for explicit local demos. Evaluate hypotheses or fit
+research weights with `python -m smartmoney.backtest` (synthetic demo only) — see
+`FORMS4_INTEGRATION.md` and `VALIDATION_PROTOCOL.md` for the feature write-up and validation
+contract.
 
 ## Valuation — current weights & implied P&L
 A 13F reports value at *quarter-end*. To see what the book is worth *now* and the paper

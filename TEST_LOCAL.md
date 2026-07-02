@@ -31,14 +31,14 @@ python -m pytest tests/ -q
 You should see all suites pass (parsing, OpenFIGI, persistence, valuation, alerts,
 resolver, security). This confirms the install is healthy.
 
-## 4. Preview the dashboard with zero setup
+## 4. Preview the dashboard with explicit demo data
 Just open the file in a browser — double-click `dashboard.html`, or:
 ```bash
-open dashboard.html          # macOS   (Linux: xdg-open dashboard.html)
+open 'dashboard.html?demo=1'          # macOS   (Linux: xdg-open 'dashboard.html?demo=1')
 ```
-It can't reach an API this way, so it renders **built-in sample data** — the badge in the
-sidebar reads `SAMPLE DATA`. This is enough to judge the look and the four screens
-(Consensus / Funds / Compare / Alerts).
+Without `?demo=1`, API failures are displayed as errors and no sample data is substituted.
+With `?demo=1`, the browser renders built-in sample data. This is enough to judge the look
+of the UI without confusing demo data for live production data.
 
 ## 5. Run it against a real backend (sample DB, still offline)
 Seed a demo database, then start the API (which also serves the dashboard):
@@ -120,10 +120,9 @@ python run.py --db demo.db --alerts-dispatch      # prints the diff that would b
 ```
 
 ## 9. The Confluence tab (13F × Form 4)
-Open the dashboard (step 5) and click **✦ Confluence** in the sidebar. It works **out of the
-box on sample data** — KPI row, the quadrant map, and ranked cards with a per-pillar score
-breakdown, switchable across 30/90/180-day windows. No DB rows or network needed; the badge
-reads SAMPLE.
+Open the dashboard (step 5) and click **✦ Confluence** in the sidebar. Without a precomputed
+cache or live provider, the tab shows a clear `confluence_unavailable` error. For UI previews
+only, start the server with `SMARTMONEY_CONFLUENCE_DEMO=1` or open the browser with `?demo=1`.
 
 To run it **live** (pulls real Form 4s from EDGAR for the tickers your funds are accumulating):
 ```bash

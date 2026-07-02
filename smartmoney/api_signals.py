@@ -11,8 +11,9 @@ Wire-in (one line in your create_app):
 A reference `StoreConfluenceProvider` is sketched below: it reads institutional
 accumulation from your existing store and pulls Form 4s via forms4.Form4Client.
 
-For demo/preview without a DB or network, `SampleConfluenceProvider` returns the same
-shape the dashboard expects, so the UI lights up immediately.
+For explicit demo/preview mode, `SampleConfluenceProvider` returns the same shape the
+dashboard expects. Production should use a live provider or a precomputed cache file; it
+must not silently fall back to sample data.
 """
 
 from __future__ import annotations
@@ -30,6 +31,26 @@ from .crosssignal import (
 class ConfluenceProvider(Protocol):
     def confluence(self, window_days: int) -> list[ConfluenceSignal]:
         ...
+
+
+class ConfluenceUnavailable(RuntimeError):
+    """Raised when no live/cache Confluence data can be served."""
+
+
+class UnconfiguredConfluenceProvider:
+    def confluence_metadata(self) -> dict:
+        return {
+            "provider": "unconfigured",
+            "demo_mode": False,
+            "sample_data": False,
+        }
+
+    def confluence(self, window_days: int) -> list[ConfluenceSignal]:
+        raise ConfluenceUnavailable(
+            "Confluence live data is not configured and no precomputed cache is available. "
+            "Enable SMARTMONEY_CONFLUENCE_LIVE=1 with SEC_UA, publish confluence-<window>.json "
+            "with run.py --confluence, or set SMARTMONEY_CONFLUENCE_DEMO=1 only for explicit demos."
+        )
 
 
 def default_methodology_metadata() -> dict:
@@ -143,12 +164,22 @@ def make_signals_blueprint(provider: ConfluenceProvider, cache_dir=None) -> Blue
             cpath = os.path.join(cache_dir, f"confluence-{window}.json")
             try:
                 with open(cpath, "r", encoding="utf-8") as fh:
-                    metadata = getattr(provider, "confluence_metadata", lambda: {})()
-                    return jsonify(merge_methodology_metadata(json.load(fh), metadata))
+                    return jsonify(merge_methodology_metadata(
+                        json.load(fh), {"served_from_cache": True}
+                    ))
             except (FileNotFoundError, OSError, ValueError):
                 pass  # no/invalid cache -> fall back to the provider
 
-        signals = provider.confluence(window)
+        try:
+            signals = provider.confluence(window)
+        except ConfluenceUnavailable as e:
+            metadata = getattr(provider, "confluence_metadata", lambda: {})()
+            return jsonify({
+                "error": "confluence_unavailable",
+                "message": str(e),
+                "metadata": merge_methodology_metadata({}, metadata)["metadata"],
+                "parameters": {"window_days": window, "min_score": min_score},
+            }), 503
         metadata = getattr(provider, "confluence_metadata", lambda: {})()
         return jsonify(confluence_payload(signals, window, min_score, metadata=metadata))
 
@@ -207,6 +238,14 @@ class StoreConfluenceProvider:
 # Sample provider — zero network, zero DB. Lets the dashboard render live-shaped data.
 # ---------------------------------------------------------------------------
 class SampleConfluenceProvider:
+    def confluence_metadata(self) -> dict:
+        return {
+            "provider": "sample_confluence",
+            "demo_mode": True,
+            "sample_data": True,
+            "effective_universe": "Explicit demo dataset; not production data.",
+        }
+
     def confluence(self, window_days: int) -> list[ConfluenceSignal]:
         from .sample_confluence import sample_signals
         return sample_signals(window_days)
