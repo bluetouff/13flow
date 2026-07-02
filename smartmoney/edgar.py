@@ -3,7 +3,8 @@ Thin EDGAR client.
 
 SEC rules we MUST respect (or get 403'd / IP-banned):
   - Every request carries a descriptive User-Agent with a contact email.
-  - Hard ceiling of 10 requests/second across ALL your machines. We self-limit to ~8.
+  - Current ceiling is 10 requests/second. We default much lower and let operators tune
+    SMARTMONEY_EDGAR_RATE_PER_SEC for repairs/backfills.
   - No "unclassified bots". A real UA string is the price of admission.
 
 Docs: https://www.sec.gov/search-filings/edgar-application-programming-interfaces
@@ -12,6 +13,7 @@ Docs: https://www.sec.gov/search-filings/edgar-application-programming-interface
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -55,13 +57,15 @@ class Filing:
 
 
 class EdgarClient:
-    def __init__(self, user_agent: str, rate_per_sec: float = 8.0, timeout: int = 30):
+    def __init__(self, user_agent: str, rate_per_sec: float | None = None, timeout: int = 30):
         if not user_agent or "@" not in user_agent:
             raise ValueError(
                 "EDGAR requires a User-Agent containing a contact email, "
                 "e.g. 'SmartMoney/1.0 you@example.com'. Requests without it return 403."
             )
         self._ua = user_agent
+        if rate_per_sec is None:
+            rate_per_sec = float(os.environ.get("SMARTMONEY_EDGAR_RATE_PER_SEC", "2.0"))
         self._limiter = RateLimiter(rate_per_sec)
         self._timeout = timeout
         self._session = requests.Session()

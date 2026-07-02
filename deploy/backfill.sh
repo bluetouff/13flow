@@ -5,7 +5,7 @@
 #
 #   sudo /opt/13flow/deploy/backfill.sh             # full history (slow without an OpenFIGI key)
 #   sudo /opt/13flow/deploy/backfill.sh 8            # only the last 8 quarters (fast first pass)
-#   sudo FORCE=1 /opt/13flow/deploy/backfill.sh 16   # re-fetch/replace stored filings
+#   sudo FORCE=1 REPORT_DATE=2022-12-31 /opt/13flow/deploy/backfill.sh
 #
 # Reads SEC_UA / OPENFIGI_APIKEY / SMARTMONEY_CACHE_DIR from the env file, so put your OpenFIGI
 # key there (OPENFIGI_APIKEY="...") to make enrichment ~250x faster.
@@ -22,6 +22,9 @@ INGEST_USER=${INGEST_USER:-flowingest}
 WEB_USER=${WEB_USER:-flowapp}
 MAXQ=${1:-}                       # optional: cap the number of quarters per fund
 FORCE=${FORCE:-0}                 # FORCE=1 re-fetches accessions already present
+REPORT_DATE=${REPORT_DATE:-}      # YYYY-MM-DD; target one quarter for safer repairs
+SMARTMONEY_EDGAR_RATE_PER_SEC=${SMARTMONEY_EDGAR_RATE_PER_SEC:-1.0}
+SMARTMONEY_SYNC_SLEEP_SEC=${SMARTMONEY_SYNC_SLEEP_SEC:-30}
 
 DATA_DIR=$(dirname "$DB")
 
@@ -36,14 +39,18 @@ quarters_arg=""
 [[ -n "$MAXQ" ]] && quarters_arg="--max-quarters $MAXQ"
 force_arg=""
 [[ "$FORCE" == "1" || "$FORCE" == "true" || "$FORCE" == "yes" ]] && force_arg="--force"
+report_arg=""
+[[ -n "$REPORT_DATE" ]] && report_arg="--report-date $REPORT_DATE"
 
-echo "==> [1/4] Ingesting all funds${MAXQ:+ (last $MAXQ quarters)}${force_arg:+, forced} as $INGEST_USER ..."
+echo "==> [1/4] Ingesting all funds${MAXQ:+ (last $MAXQ quarters)}${REPORT_DATE:+ @ $REPORT_DATE}${force_arg:+, forced} as $INGEST_USER ..."
 # Run from a writable dir so the resolver cache lands in a writable place; load SEC_UA / key.
 sudo -u "$INGEST_USER" bash -c '
   cd "'"$DATA_DIR"'"
   set -a; . "'"$ENV_FILE"'"; set +a
   : "${SMARTMONEY_CACHE_DIR:='"$DATA_DIR"'}"; export SMARTMONEY_CACHE_DIR
-  "'"$VENV_PY"'" "'"$RUN"'" --db "'"$DB"'" --sync-all --enrich '"$quarters_arg"' '"$force_arg"'
+  export SMARTMONEY_EDGAR_RATE_PER_SEC="'"$SMARTMONEY_EDGAR_RATE_PER_SEC"'"
+  export SMARTMONEY_SYNC_SLEEP_SEC="'"$SMARTMONEY_SYNC_SLEEP_SEC"'"
+  "'"$VENV_PY"'" "'"$RUN"'" --db "'"$DB"'" --sync-all --enrich '"$quarters_arg"' '"$force_arg"' '"$report_arg"'
 '
 
 echo "==> [2/4] Publishing DB (checkpoint WAL, switch to rollback journal) ..."

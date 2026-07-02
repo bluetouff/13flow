@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 
 from smartmoney import EdgarClient, Move, Tracker
 from smartmoney.figi import OpenFigiClient, TickerCache
@@ -143,18 +144,22 @@ def _build_resolver(enrich: bool):
                          cache=ResolutionCache())
 
 
-def cmd_sync(client, labels, db_path, enrich, max_quarters, force) -> None:
+def cmd_sync(client, labels, db_path, enrich, max_quarters, force, report_date,
+             sleep_between_funds) -> None:
     tracker = Tracker(client, resolver=_build_resolver(enrich))
     with Store(db_path) as store:
-        for label in labels:
+        for i, label in enumerate(labels):
             fund = by_label(label)
             if fund is None:
                 print(f"  skip unknown fund '{label}'", file=sys.stderr)
                 continue
-            n = tracker.sync_fund(store, fund, max_quarters=max_quarters, force=force)
+            n = tracker.sync_fund(store, fund, max_quarters=max_quarters, force=force,
+                                  report_date=report_date)
             qs = store.quarters(tracker.cik_for(fund))
             action = "processed" if force else "new"
             print(f"  {fund.label:<22} +{n} {action} filing(s); {len(qs)} quarter(s) stored")
+            if sleep_between_funds > 0 and i < len(labels) - 1:
+                time.sleep(sleep_between_funds)
 
 
 def cmd_coverage(db_path, basis) -> None:
@@ -470,6 +475,11 @@ def main() -> None:
     ap.add_argument("--max-quarters", type=int, default=None, help="limit quarters when syncing")
     ap.add_argument("--force", action="store_true",
                     help="re-fetch and replace filings already stored (use after parser/data fixes)")
+    ap.add_argument("--report-date", metavar="YYYY-MM-DD",
+                    help="sync/repair only one report_date quarter")
+    ap.add_argument("--sleep-between-funds", type=float,
+                    default=float(os.environ.get("SMARTMONEY_SYNC_SLEEP_SEC", "0")),
+                    help="pause between funds during sync/backfill (seconds)")
     ap.add_argument("--enrich", action="store_true",
                     help="resolve CUSIP->ticker via OpenFIGI (set OPENFIGI_APIKEY for higher limits)")
     ap.add_argument("--confluence", action="store_true",
@@ -524,7 +534,8 @@ def main() -> None:
     elif args.sync or args.sync_all:
         labels = [f.label for f in SUPERINVESTORS] if args.sync_all else [args.sync]
         print("Syncing into", args.db)
-        cmd_sync(client, labels, args.db, args.enrich, args.max_quarters, args.force)
+        cmd_sync(client, labels, args.db, args.enrich, args.max_quarters, args.force,
+                 args.report_date, args.sleep_between_funds)
     elif args.alerts_run:
         cmd_alerts(client, args.db, dispatch_only=False)
     elif args.resolve_sweep:

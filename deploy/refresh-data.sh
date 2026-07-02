@@ -11,16 +11,23 @@ VENV=${VENV:-$APP_DIR/.venv}
 export SEC_UA=${SEC_UA:-"13FLOW/1.0 you@example.com"}
 # Caches go next to the DB (writable by the ingest user), never in the read-only install dir.
 export SMARTMONEY_CACHE_DIR=${SMARTMONEY_CACHE_DIR:-$(dirname "$DB")}
-export MAXQ=${MAXQ:-8}   # borne l'historique du refresh nocturne (jamais 52 trimestres)
+export MAXQ=${MAXQ:-2}   # daily refresh: newest filings only, keep EDGAR volume low
 export FORCE=${FORCE:-0} # FORCE=1 re-fetches/replaces stored filings after data fixes
+export REPORT_DATE=${REPORT_DATE:-}
+export SMARTMONEY_EDGAR_RATE_PER_SEC=${SMARTMONEY_EDGAR_RATE_PER_SEC:-1.0}
+export SMARTMONEY_SYNC_SLEEP_SEC=${SMARTMONEY_SYNC_SLEEP_SEC:-30}
+export SKIP_CONFLUENCE=${SKIP_CONFLUENCE:-1}
 force_arg=""
 [[ "$FORCE" == "1" || "$FORCE" == "true" || "$FORCE" == "yes" ]] && force_arg="--force"
+report_arg=""
+[[ -n "$REPORT_DATE" ]] && report_arg="--report-date $REPORT_DATE"
 
 cd "$APP_DIR"
 
 # Pull every tracked superinvestor; --enrich resolves CUSIP -> ticker via OpenFIGI.
 # Use --max-quarters to bound history, or --sync "Fund Name" for a single fund.
-"$VENV/bin/python" run.py --db "$DB" --sync-all --enrich ${MAXQ:+--max-quarters $MAXQ} $force_arg
+"$VENV/bin/python" run.py --db "$DB" --sync-all --enrich ${MAXQ:+--max-quarters $MAXQ} \
+  $force_arg $report_arg
 
 # Collapse the WAL into the main file so a read-only (mode=ro) open needs no -wal/-shm.
 "$VENV/bin/python" - "$DB" <<'PY'
@@ -36,9 +43,13 @@ chmod 640 "$DB" 2>/dev/null || true
 
 # Precompute the Confluence screen (13F accumulation x live Form 4) into cache JSON so the
 # public tier serves it instantly and never hits EDGAR per request. Non-fatal on failure.
-if timeout 3600 "$VENV/bin/python" run.py --db "$DB" --confluence; then
-  chmod 640 "$SMARTMONEY_CACHE_DIR"/confluence-*.json 2>/dev/null || true
+if [[ "$SKIP_CONFLUENCE" == "1" || "$SKIP_CONFLUENCE" == "true" || "$SKIP_CONFLUENCE" == "yes" ]]; then
+  echo "  (confluence precompute skipped; set SKIP_CONFLUENCE=0 to refresh it)"
 else
-  echo "  (confluence precompute skipped/failed — screen falls back to live/sample)"
+  if timeout 3600 "$VENV/bin/python" run.py --db "$DB" --confluence; then
+    chmod 640 "$SMARTMONEY_CACHE_DIR"/confluence-*.json 2>/dev/null || true
+  else
+    echo "  (confluence precompute skipped/failed — screen falls back to live/sample)"
+  fi
 fi
 echo "refresh complete: $DB"

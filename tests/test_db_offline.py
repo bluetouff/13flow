@@ -136,7 +136,11 @@ def test_force_sync_replaces_existing_filing():
         assert tracker.sync_fund(store, fund) == 0
         assert store.load_portfolio("0000000001").total_value == 1000
 
-        assert tracker.sync_fund(store, fund, force=True) == 1
+        assert tracker.sync_fund(store, fund, force=True, report_date="2024-03-31") == 1
+        assert store.load_portfolio("0000000001").total_value == 2000
+
+        client.value = 3000
+        assert tracker.sync_fund(store, fund, force=True, report_date="2099-12-31") == 0
         assert store.load_portfolio("0000000001").total_value == 2000
 
 

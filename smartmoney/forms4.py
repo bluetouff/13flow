@@ -12,7 +12,8 @@ This module does two jobs and nothing else:
   2. PARSE the ownership XML into a typed `Form4` with its transactions.
 
 Design notes / conventions (mirrors edgar.py):
-  - Same SEC etiquette: descriptive User-Agent w/ contact email, self-limited to ~8 req/s.
+  - Same SEC etiquette: descriptive User-Agent w/ contact email, self-limited well below
+    the SEC ceiling by default.
   - XML is parsed with defusedxml (billion-laughs / XXE hardening), namespace-agnostic.
   - Built to run standalone (own session + limiter) OR to ride an existing `EdgarClient`:
     pass `client=` and it reuses that client's session, limiter and headers. One-line wire-in.
@@ -25,6 +26,7 @@ from __future__ import annotations
 
 import threading
 import time
+import os
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Iterable, Optional
@@ -71,7 +73,7 @@ GRANT_CODES = frozenset({"A", "M", "C", "G", "F", "D", "I", "X"})  # not open-ma
 class _RateLimiter:
     """Process-wide ceiling on request rate. Identical contract to edgar.RateLimiter."""
 
-    def __init__(self, rate_per_sec: float = 6.0):
+    def __init__(self, rate_per_sec: float = 2.0):
         self._min_interval = 1.0 / rate_per_sec
         self._lock = threading.Lock()
         self._last = 0.0
@@ -288,7 +290,7 @@ class Form4Client:
         user_agent: Optional[str] = None,
         *,
         client=None,
-        rate_per_sec: float = 6.0,
+        rate_per_sec: float = 2.0,
         timeout: int = 30,
     ):
         self._timeout = timeout
@@ -305,7 +307,8 @@ class Form4Client:
             self._session = requests.Session()
             self._session.headers.update({"User-Agent": user_agent,
                                           "Accept-Encoding": "gzip, deflate"})
-            self._limiter = _RateLimiter(rate_per_sec)
+            env_rate = os.environ.get("SMARTMONEY_EDGAR_RATE_PER_SEC")
+            self._limiter = _RateLimiter(float(env_rate) if env_rate else rate_per_sec)
 
     # -- HTTP ------------------------------------------------------------------
     def _get(self, url: str, _max_tries: int = 4) -> requests.Response:

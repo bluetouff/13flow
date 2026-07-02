@@ -101,16 +101,19 @@ class Tracker:
         return diff_portfolios(prev, curr)
 
     def sync_fund(self, store: Store, fund: Fund, max_quarters: int | None = None,
-                  force: bool = False) -> int:
+                  force: bool = False, report_date: str | None = None) -> int:
         """
         Backfill a fund into the store. By default, only filings not already persisted
         are fetched + parsed (and enriched, if a FIGI client is attached), so re-runs
         are cheap and pick up only the newest quarter each time. With force=True,
         persisted filings are re-fetched and replaced, which is useful after parser or
-        normalization fixes. Returns #saved/replaced.
+        normalization fixes. report_date narrows repair jobs to one quarter. Returns
+        #saved/replaced.
         """
         cik = self.cik_for(fund)
         filings = self.client.list_13f_filings(cik, include_amendments=True)
+        if report_date is not None:
+            filings = [f for f in filings if f.report_date == report_date]
         if max_quarters is not None:
             filings = filings[:max_quarters]
         already = store.stored_accessions(cik) if not force else set()
