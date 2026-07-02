@@ -128,15 +128,67 @@ class _StoreConfluence:
                 if not m.ticker:
                     continue
                 t = m.ticker.upper()
+                enrich = self._institutional_enrichment(s, t, tuple(m.funds), rd, tuple(m.moves))
                 out[t] = InstitutionalSignal(
                     ticker=t,
                     funds_accumulating=m.n_funds,
                     funds_trimming=trim_by_ticker.get(t, 0),
+                    total_value_usd=enrich["total_value_usd"],
                     fund_labels=tuple(m.funds),
+                    conviction_funds=enrich["conviction_funds"],
+                    avg_weight_pct=enrich["avg_weight_pct"],
                 )
             return out
         finally:
             s.close()
+
+    def _institutional_enrichment(self, store: Store, ticker: str, fund_labels: tuple[str, ...],
+                                  report_date: str, moves: tuple[str, ...]) -> dict:
+        if not fund_labels:
+            return {"total_value_usd": 0.0, "avg_weight_pct": 0.0, "conviction_funds": 0}
+        placeholders = ",".join("?" for _ in fund_labels)
+        rows = store.conn.execute(
+            f"""SELECT fn.label, h.value_usd, h.weight
+                FROM latest_filings lf
+                JOIN holdings h ON h.accession=lf.accession AND h.put_call=''
+                JOIN funds fn ON fn.cik=lf.cik
+                WHERE lf.report_date=? AND UPPER(h.ticker)=? AND fn.label IN ({placeholders})""",
+            (report_date, ticker.upper(), *fund_labels),
+        ).fetchall()
+        total_value = sum((r["value_usd"] or 0.0) for r in rows)
+        weights = [(r["weight"] or 0.0) for r in rows]
+        avg_weight_pct = (sum(weights) / len(weights) * 100.0) if weights else 0.0
+        move_by_fund = {label: (moves[i] if i < len(moves) else "")
+                        for i, label in enumerate(fund_labels)}
+        conviction = 0
+        for r in rows:
+            move = move_by_fund.get(r["label"], "")
+            if move == Move.NEW.value or (r["weight"] or 0.0) >= 0.05:
+                conviction += 1
+        return {
+            "total_value_usd": float(total_value),
+            "avg_weight_pct": float(avg_weight_pct),
+            "conviction_funds": int(conviction),
+        }
+
+    def confluence_metadata(self) -> dict:
+        import os as _os
+        scan_min = int(_os.environ.get("SMARTMONEY_CONFLUENCE_SCAN_MIN_FUNDS", "3"))
+        return {
+            "provider": "live_store_confluence",
+            "effective_universe": (
+                "Form 4 scans are limited to tickers with at least "
+                f"{scan_min} tracked fund(s) opening or adding in the latest 13F quarter. "
+                "Trim/exits are computed across the broader tracked universe, but insider-only, "
+                "distribution, and divergent categories are not exhaustive in this production path."
+            ),
+            "institutional_enrichment": {
+                "total_value_usd": "sum of latest-quarter reported 13F value across accumulating funds",
+                "avg_weight_pct": "average latest-quarter portfolio weight across accumulating funds",
+                "conviction_funds": "NEW positions plus positions at or above 5% portfolio weight",
+                "quarters_ago": "0 for the latest 13F quarter used by the live provider",
+            },
+        }
 
     def confluence(self, window_days: int):
         from .crosssignal import aggregate_insider_activity, build_confluence

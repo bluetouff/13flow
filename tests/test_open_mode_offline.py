@@ -167,9 +167,42 @@ def test_confluence_cache_served_when_present():
             # window without a cache file -> falls back to the (sample) provider
             j2 = c.get("/api/signals/confluence?window=45").get_json()
             assert j2["signals"] and j2["signals"][0]["ticker"] != "CACHED"
+            assert j2["metadata"]["score_interpretation"].startswith("Ordinal exploratory")
+            assert j2["metadata"]["calibration_status"] == "not_calibrated_on_live_history"
         finally:
             del os.environ["SMARTMONEY_CACHE_DIR"]
 
     # the shared payload helper produces the endpoint shape
     p = confluence_payload(sample_signals(90), 90)
-    assert set(p) == {"kpis", "signals"} and p["kpis"]["window_days"] == 90
+    assert set(p) == {"metadata", "kpis", "signals"} and p["kpis"]["window_days"] == 90
+    assert p["metadata"]["known_limitations"]
+
+
+def test_live_confluence_provider_enriches_institutional_signal(monkeypatch):
+    from smartmoney.api import _StoreConfluence
+
+    with tempfile.TemporaryDirectory() as d:
+        db = str(Path(d) / "live-confluence.db")
+        s = Store(db)
+        for cik, label in (("0000000001", "Fund One"), ("0000000002", "Fund Two")):
+            _save(s, cik, label, "PM", f"{cik}-old", "13F-HR",
+                  "2026-02-14", "2025-12-31",
+                  [("COCA COLA", "191216100", 1000, 100, "")])
+            _save(s, cik, label, "PM", f"{cik}-new", "13F-HR",
+                  "2026-05-15", "2026-03-31",
+                  [("APPLE INC", AAPL, 1000, 100, "")])
+        s.conn.execute("UPDATE holdings SET ticker='AAPL' WHERE cusip=?", (AAPL,))
+        s.conn.commit()
+        s.close()
+
+        monkeypatch.setenv("SMARTMONEY_CONFLUENCE_SCAN_MIN_FUNDS", "2")
+        provider = _StoreConfluence(db, "13flow-tests test@example.com")
+        inst = provider._institutional()["AAPL"]
+
+    assert inst.funds_accumulating == 2
+    assert inst.total_value_usd > 0
+    assert inst.avg_weight_pct == 100.0
+    assert inst.conviction_funds == 2
+    assert provider.confluence_metadata()["effective_universe"].startswith(
+        "Form 4 scans are limited"
+    )

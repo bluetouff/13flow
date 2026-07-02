@@ -1016,6 +1016,11 @@ function cflRenderSignals(signals){
 
 async function cflLoad(){
   const data=await api("/api/signals/confluence?window="+CFL_WIN);
+  const meth=document.getElementById("cfl-methodology");
+  if(meth&&data.metadata){
+    const universe=data.metadata.effective_universe||"Standalone/offline preview universe.";
+    meth.innerHTML=`<b>Methodology:</b> ${esc(data.metadata.score_interpretation||"Ordinal exploratory ranking.")}<br>${esc(universe)}`;
+  }
   cflRenderKPIs(data.kpis); cflRenderQuad(data.signals); cflRenderSignals(data.signals);
 }
 
@@ -1023,6 +1028,7 @@ async function vConfluence(){
   cflHideTip();
   V.innerHTML=`<div class="cfl">
     <p class="view-title">Where 13F superinvestors are accumulating <b>and</b> insiders are buying open-market — ranked by a transparent confluence score.</p>
+    <p class="view-title" id="cfl-methodology">Methodology loading…</p>
     <div class="pillrow" id="cfl-pills">
       <button class="pill" data-w="30">30D</button>
       <button class="pill on" data-w="90">90D</button>

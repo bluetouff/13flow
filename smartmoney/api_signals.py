@@ -32,7 +32,30 @@ class ConfluenceProvider(Protocol):
         ...
 
 
-def confluence_payload(signals, window: int, min_score: float = 0.0) -> dict:
+def default_methodology_metadata() -> dict:
+    return {
+        "score_interpretation": (
+            "Ordinal exploratory ranking from 0 to 100; not a probability, not a calibrated "
+            "historical frequency, and not an expected return estimate."
+        ),
+        "calibration_status": "not_calibrated_on_live_history",
+        "known_limitations": [
+            "Feature half-lives, seniority multipliers, dollar caps, saturation curves, and "
+            "agreement bonus are judgement parameters until sensitivity tables and live "
+            "historical validation are published.",
+            "The agreement bonus can overlap with information already present in the "
+            "institutional and insider pillars.",
+            "Fund-count and dollar variables depend on the tracked-fund universe size.",
+            "The score currently excludes valuation, liquidity, market cap, sector, market "
+            "regime, and base-rate returns.",
+            "Quadrants describe direction; the numeric score describes heuristic intensity, "
+            "so quadrant and rank can diverge.",
+        ],
+    }
+
+
+def confluence_payload(signals, window: int, min_score: float = 0.0,
+                       metadata: dict | None = None) -> dict:
     """Assemble the endpoint's JSON (KPIs + per-signal dicts) from a list of signals.
     Shared by the live endpoint and the precompute CLI so a cached file is identical in
     shape to a live response."""
@@ -50,7 +73,10 @@ def confluence_payload(signals, window: int, min_score: float = 0.0) -> dict:
         "insider_buy_usd": round(sum(s.insider.buy_value_usd for s in signals), 2),
         "window_days": window,
     }
-    return {"kpis": kpis, "signals": payload}
+    meta = default_methodology_metadata()
+    if metadata:
+        meta.update(metadata)
+    return {"metadata": meta, "kpis": kpis, "signals": payload}
 
 
 def make_signals_blueprint(provider: ConfluenceProvider, cache_dir=None) -> Blueprint:
@@ -79,7 +105,8 @@ def make_signals_blueprint(provider: ConfluenceProvider, cache_dir=None) -> Blue
                 pass  # no/invalid cache -> fall back to the provider
 
         signals = provider.confluence(window)
-        return jsonify(confluence_payload(signals, window, min_score))
+        metadata = getattr(provider, "confluence_metadata", lambda: {})()
+        return jsonify(confluence_payload(signals, window, min_score, metadata=metadata))
 
     return bp
 

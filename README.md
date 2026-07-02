@@ -188,14 +188,23 @@ etiquette (UA + rate limit), the `defusedxml` hardening, and the dashboard theme
 GET /api/signals/confluence?window=90&min_score=0
 → { "kpis": {...}, "signals": [ {ticker, score, quadrant, breakdown{...}, institutional{...}, insider{...}}, ... ] }
 ```
-The 0–100 score is split in two layers on purpose: `FeatureParams` controls *what the signal
-measures* (recency half-life, buy-size curve, cluster window, seniority), tuned by judgement;
-`Weights` controls *how the four pillars combine* (institutional breadth, insider conviction,
-recency-weighted dollars, agreement bonus, minus trim/sell penalties), tuned empirically with
-the backtest harness. Each signal exposes its per-pillar `breakdown` so the score is fully
-transparent, and a quadrant label (Conviction / Institutional bid / Insider conviction /
-Distribution / Divergent / Neutral). It's a **screen, not advice** — a ranked view of two
-public, high-quality signals.
+The 0–100 score is an **ordinal exploratory ranking**, not a probability, not a historical
+frequency, and not an expected-return estimate. `FeatureParams` controls *what the signal
+measures* (recency half-life, buy-size curve, cluster window, seniority) and remains a set of
+judgement parameters until sensitivity tables are published. `Weights` controls *how the
+pillars combine* (institutional breadth, insider conviction, recency-weighted dollars,
+agreement bonus, minus trim/sell penalties). The current live build must be treated as
+**not calibrated on live historical outcomes**. Each signal exposes its per-pillar `breakdown`
+and a quadrant label (Conviction / Institutional bid / Insider conviction / Distribution /
+Divergent / Neutral), but the quadrant describes direction while the score describes heuristic
+intensity, so they can diverge.
+
+The production live provider also has an explicit effective universe: to keep the public tier
+off abusive Form 4 fan-out, it scans insider filings only for tickers with at least
+`SMARTMONEY_CONFLUENCE_SCAN_MIN_FUNDS` tracked funds opening or adding in the latest 13F
+quarter (default 3). Trim/exits are computed more broadly, but insider-only, distribution,
+and divergent categories are therefore not exhaustive in this production path. This is
+exposed in `/api/signals/confluence` under `metadata.effective_universe`.
 
 The screen lives as a fifth dashboard tab and runs out-of-the-box on **sample data** (no DB or
 network). The live provider needs EDGAR access for Form 4s:
