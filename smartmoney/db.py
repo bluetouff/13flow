@@ -7,10 +7,10 @@ mechanical (window functions + a view, both supported there too).
 
 Design notes:
   - A stored FILING is a portfolio snapshot, keyed by its accession number.
-  - Amendments (13F-HR/A) share a (cik, report_date) with the original but have a
-    later filing_date. The `latest_filings` VIEW resolves each quarter to its most
-    recent accession, so amendments transparently supersede — every analytics query
-    joins through that view and never double-counts a quarter.
+  - Amendments (13F-HR/A) share a (cik, report_date) with the original. The
+    `latest_filings` VIEW resolves each quarter to the latest complete-enough
+    accession, so true restatements supersede originals while tiny partial
+    amendments do not replace a full portfolio snapshot.
   - CUSIP is the reliable grouping key (that's its job); ticker is carried along as
     a display label via MAX(), so funds enriched at different times don't fragment.
 """
@@ -84,14 +84,29 @@ CREATE TABLE IF NOT EXISTS deliveries (
     PRIMARY KEY (subscription_id, accession)
 );
 
--- One row per (cik, report_date) pointing at the most recent accession.
-CREATE VIEW IF NOT EXISTS latest_filings AS
+-- One row per (cik, report_date) pointing at the latest complete-enough accession.
+-- Some 13F-HR/A filings are partial corrections with only a handful of holdings;
+-- prefer the newest filing whose position count is at least half of the largest
+-- snapshot for that quarter, falling back to the filing itself when it is alone.
+DROP VIEW IF EXISTS latest_filings;
+CREATE VIEW latest_filings AS
 SELECT cik, report_date, accession FROM (
     SELECT cik, report_date, accession,
            ROW_NUMBER() OVER (
-               PARTITION BY cik, report_date ORDER BY filing_date DESC
+               PARTITION BY cik, report_date
+               ORDER BY
+                   CASE WHEN COALESCE(n_positions, 0) >= max_positions * 0.5
+                        THEN 1 ELSE 0 END DESC,
+                   filing_date DESC,
+                   accession DESC
            ) AS rn
-    FROM filings
+    FROM (
+        SELECT f.*,
+               MAX(COALESCE(n_positions, 0)) OVER (
+                   PARTITION BY cik, report_date
+               ) AS max_positions
+        FROM filings f
+    )
 ) WHERE rn = 1;
 """
 

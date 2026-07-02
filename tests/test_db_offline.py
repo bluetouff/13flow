@@ -56,6 +56,39 @@ def test_round_trip_and_amendment_supersede():
         assert store.quarters(cik) == ["2024-03-31"]  # still one quarter, two filings
 
 
+def test_partial_amendment_does_not_replace_full_snapshot():
+    with tempfile.TemporaryDirectory() as d:
+        store = Store(str(Path(d) / "s.db"))
+        cik = "0000000001"
+
+        _save(store, cik, "Fund One", "PM One", "0001-24-000001", "13F-HR",
+              "2024-11-14", "2024-09-30",
+              [("APPLE INC", AAPL, 1000, 100, ""),
+               ("COCA COLA", KO, 500, 50, ""),
+               ("NVIDIA", NVDA, 300, 30, ""),
+               ("MICROSOFT", MSFT, 200, 20, "")])
+
+        _save(store, cik, "Fund One", "PM One", "0001-25-000001", "13F-HR/A",
+              "2025-02-14", "2024-09-30",
+              [("APPLE INC", AAPL, 1000, 100, "")])
+
+        pf = store.load_portfolio(cik, "2024-09-30")
+        assert len(pf.positions) == 4
+        assert pf.form == "13F-HR"
+
+        _save(store, cik, "Fund One", "PM One", "0001-25-000002", "13F-HR/A",
+              "2025-03-01", "2024-09-30",
+              [("APPLE INC", AAPL, 1200, 120, ""),
+               ("COCA COLA", KO, 600, 60, ""),
+               ("NVIDIA", NVDA, 450, 45, ""),
+               ("MICROSOFT", MSFT, 300, 30, "")])
+
+        pf2 = store.load_portfolio(cik, "2024-09-30")
+        assert len(pf2.positions) == 4
+        assert pf2.form == "13F-HR/A"
+        assert pf2.positions[(AAPL, "")].shares == 120
+
+
 def test_consensus_and_analytics():
     with tempfile.TemporaryDirectory() as d:
         store = Store(str(Path(d) / "s.db"))
