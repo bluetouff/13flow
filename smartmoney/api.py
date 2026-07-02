@@ -7,6 +7,7 @@ Endpoints (all under /api):
   GET /consensus/holdings?date=&min_funds=
   GET /consensus/buys?date=&min_funds=
   GET /compare?ciks=a,b&date=
+  GET /data-quality?threshold=&limit=
   GET /subscriptions
   GET /alerts/preview/<cik>
 GET /  -> dashboard.html
@@ -37,6 +38,7 @@ from .tracker import Tier, EntitlementError
 from .db import Store
 from .diff import Move, diff_portfolios
 from .portfolio import Portfolio
+from .quality import data_quality_report
 from .valuation import value_portfolio
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -206,6 +208,16 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         except (TypeError, ValueError):
             from werkzeug.exceptions import BadRequest
             raise BadRequest("invalid integer parameter")
+        return max(lo, min(hi, v))
+
+    def clean_float(raw, default: float, lo: float, hi: float) -> float:
+        if raw is None:
+            return default
+        try:
+            v = float(raw)
+        except (TypeError, ValueError):
+            from werkzeug.exceptions import BadRequest
+            raise BadRequest("invalid float parameter")
         return max(lo, min(hi, v))
 
     @app.after_request
@@ -491,6 +503,16 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         try:
             return jsonify({"coverage": s.coverage(date),
                             "tail": s.unresolved_holdings(date)[:25]})
+        finally:
+            s.close()
+
+    @app.get("/api/data-quality")
+    def data_quality_ep():
+        threshold = clean_float(request.args.get("threshold"), 100.0, 2.0, 10000.0)
+        limit = clean_int(request.args.get("limit"), 100, 1, 500)
+        s = store()
+        try:
+            return jsonify(data_quality_report(s, aum_jump_threshold=threshold, limit=limit))
         finally:
             s.close()
 

@@ -58,8 +58,8 @@ the diff feed), and **Confluence** (13F accumulation × insider buying). A serve
 with built-in sample data across every screen when no API is reachable, so you can preview the
 whole UI before syncing any data. API endpoints: `/api/funds`, `/api/fund/<cik>`,
 `/api/consensus/{buys,holdings}`, `/api/compare`, `/api/alerts/preview/<cik>`,
-`/api/signals/confluence` (all public, read-only), plus authenticated `/api/auth/*` and
-user-scoped `/api/subscriptions`.
+`/api/signals/confluence`, `/api/data-quality` (all public, read-only), plus authenticated
+`/api/auth/*` and user-scoped `/api/subscriptions`.
 
 ## Accounts & auth
 Read-only market data is public (it's public-domain). The **paid** feature — filing-alert
@@ -174,6 +174,7 @@ python run.py --sync "Berkshire Hathaway" --enrich      # backfill one fund
 python run.py --sync-all --max-quarters 12 --enrich     # backfill everything
 python run.py --buys 2024-12-31 --min-funds 3           # who's BUYING (diff-based)
 python run.py --consensus 2024-12-31 --min-funds 3      # who's HOLDING (pure SQL)
+python run.py --quality --db smartmoney.db              # DB-only data-quality warnings
 python run.py --timeline "Berkshire Hathaway" --cusip 037833100   # conviction over time
 ```
 `--sync` only fetches filings not already stored, so re-runs are cheap and pick up just

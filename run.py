@@ -38,6 +38,7 @@ from smartmoney.channels import ConsoleChannel, WebhookChannel, EmailChannel
 from smartmoney.tracker import Tier
 from smartmoney.accounts import AccountStore, EmailTaken, PasswordPolicyError
 from smartmoney.hibp import default_breach_checker
+from smartmoney.quality import data_quality_report
 from smartmoney.registry import SUPERINVESTORS, by_label
 
 
@@ -178,6 +179,31 @@ def cmd_coverage(db_path, basis) -> None:
         for t in tail[:12]:
             print(f"    {t['cusip']}  {_fmt_usd(t['value']):>10}  "
                   f"{(t['issuer'] or '')[:40]} ({t['n_funds']} funds)")
+
+
+def cmd_quality(db_path, threshold, top) -> None:
+    with Store(db_path) as store:
+        report = data_quality_report(store, aum_jump_threshold=threshold, limit=top)
+    s = report["summary"]
+    print("\nData quality report:")
+    print(f"  status: {s['status']}")
+    print(f"  funds scanned: {s['funds_scanned']}")
+    print(f"  series points: {s['series_points']}")
+    print(f"  AUM jump warnings: {s['aum_jump_warnings']}")
+    print(f"  unit-scale candidates: {s['unit_scale_candidates']}")
+    if report["warnings"]:
+        print(f"\nTop AUM jumps (threshold {threshold:g}x):")
+        for w in report["warnings"][:top]:
+            frm, to = w["from"], w["to"]
+            print(f"  {w['fund']['label']:<22} {frm['report_date']} {_fmt_usd(frm['total_value'])}"
+                  f" -> {to['report_date']} {_fmt_usd(to['total_value'])}"
+                  f"  ratio={w['ratio']:.1f}x  {w['severity']}")
+    if report["unit_scale_candidates"]:
+        print("\nStrict unit-scale candidates:")
+        for c in report["unit_scale_candidates"][:top]:
+            cur = c["current"]
+            print(f"  {c['action']:<13} {c['fund']['label']:<22} {cur['report_date']}"
+                  f" {cur['accession']} ratio={c['ratio_to_neighbor_geomean']:.6f}")
 
 
 def cmd_resolve_sweep(client, db_path) -> None:
@@ -444,6 +470,9 @@ def main() -> None:
     ap.add_argument("--cusip", help="CUSIP for --timeline")
     ap.add_argument("--value", metavar="FUND", help="revalue a stored portfolio at current prices (DB + prices)")
     ap.add_argument("--coverage", action="store_true", help="ticker-resolution coverage report (DB only)")
+    ap.add_argument("--quality", action="store_true", help="data-quality warnings report (DB only)")
+    ap.add_argument("--quality-threshold", type=float, default=100.0,
+                    help="AUM jump threshold for --quality (default 100x)")
     ap.add_argument("--resolve-sweep", action="store_true",
                     help="re-run the resolver chain over the unresolved tail and back-fill")
     ap.add_argument("--create-user", metavar="EMAIL", help="create an account (password prompted)")
@@ -512,6 +541,8 @@ def main() -> None:
         return cmd_alerts(None, args.db, dispatch_only=True)
     if args.coverage:
         return cmd_coverage(args.db, args.basis)
+    if args.quality:
+        return cmd_quality(args.db, args.quality_threshold, args.top)
     if args.create_user:
         return cmd_create_user(args.db, args.create_user, args.tier)
     if args.verify_user:

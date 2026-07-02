@@ -38,8 +38,8 @@ def test_open_mode_hides_private_surface_and_keeps_public():
 
         # public, read-only endpoints are present
         for path in ("/api/funds", "/api/consensus/buys", "/api/compare",
-                     "/api/signals/confluence", "/api/coverage", "/api/version",
-                     "/healthz", "/"):
+                     "/api/signals/confluence", "/api/coverage", "/api/data-quality",
+                     "/api/version", "/healthz", "/"):
             assert c.get(path).status_code == 200, path
 
         # the entire private surface is unregistered -> 404 (not 401), incl. mutations
