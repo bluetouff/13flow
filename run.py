@@ -513,8 +513,10 @@ def cmd_confluence(db_path: str, ua: str, windows) -> None:
     import json
     from smartmoney.api import _StoreConfluence
     from smartmoney.api_signals import confluence_payload
+    from smartmoney.research import HISTORY_FILENAME, append_signal_history, current_git_sha
     outdir = os.environ.get("SMARTMONEY_CACHE_DIR") or os.path.dirname(os.path.abspath(db_path)) or "."
     prov = _StoreConfluence(db_path, ua)
+    history_payloads = []
     for w in windows:
         signals = prov.confluence(w)
         metadata = getattr(prov, "confluence_metadata", lambda: {})()
@@ -522,9 +524,39 @@ def cmd_confluence(db_path: str, ua: str, windows) -> None:
         path = os.path.join(outdir, f"confluence-{w}.json")
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(payload, fh)
+        history_payloads.append((w, path, payload))
         k = payload["kpis"]
         print(f"  confluence[{w}d]: {k['n_signals']} signals, {k['n_conviction']} conviction "
               f"-> {path}")
+    report = append_signal_history(
+        history_payloads,
+        os.path.join(outdir, HISTORY_FILENAME),
+        code_commit=current_git_sha(),
+    )
+    print(f"  signal history: +{report['signals_appended']} revisions -> {report['history_path']}")
+
+
+def cmd_freeze_confluence_v1(path: str) -> None:
+    import json
+    from smartmoney.research import confluence_v1_spec, current_git_sha
+    spec = confluence_v1_spec(current_git_sha())
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(spec, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+    print(f"confluence v1 spec -> {path}")
+
+
+def cmd_append_signal_history(cache_dir: str, windows, history_file: str | None) -> None:
+    import json
+    from smartmoney.research import HISTORY_FILENAME, append_signal_history, current_git_sha
+    payloads = []
+    for w in windows:
+        path = os.path.join(cache_dir, f"confluence-{w}.json")
+        with open(path, "r", encoding="utf-8") as fh:
+            payloads.append((w, path, json.load(fh)))
+    out = history_file or os.path.join(cache_dir, HISTORY_FILENAME)
+    report = append_signal_history(payloads, out, code_commit=current_git_sha())
+    print(f"signal history: +{report['signals_appended']} revisions -> {report['history_path']}")
 
 
 def main() -> None:
@@ -610,6 +642,14 @@ def main() -> None:
                     help="precompute the Confluence screen (13F x live Form 4) into cache JSON")
     ap.add_argument("--confluence-windows", default="30,90,180",
                     help="comma-separated day windows to precompute (default 30,90,180)")
+    ap.add_argument("--freeze-confluence-v1", metavar="PATH",
+                    help="write the frozen machine-readable Confluence v1 spec to PATH")
+    ap.add_argument("--append-signal-history", action="store_true",
+                    help="append existing confluence cache JSON files to append-only JSONL history")
+    ap.add_argument("--signal-history-file", default=None,
+                    help="output path for --append-signal-history (default cache_dir/confluence-history.jsonl)")
+    ap.add_argument("--cache-dir", default=os.environ.get("SMARTMONEY_CACHE_DIR"),
+                    help="cache directory for --append-signal-history")
     args = ap.parse_args()
 
     # DB-only commands: no EDGAR, no SEC_UA required.
@@ -642,6 +682,12 @@ def main() -> None:
         return cmd_preflight(args.db, args.pro_db, args.require_pro, args.expected_sha,
                              args.audit_recent_hours, args.preflight_token_env,
                              args.preflight_json)
+    if args.freeze_confluence_v1:
+        return cmd_freeze_confluence_v1(args.freeze_confluence_v1)
+    if args.append_signal_history:
+        windows = [int(w) for w in args.confluence_windows.split(",") if w.strip()]
+        cache_dir = args.cache_dir or os.path.dirname(os.path.abspath(args.db)) or "."
+        return cmd_append_signal_history(cache_dir, windows, args.signal_history_file)
     if args.create_api_key:
         return cmd_create_api_key(args.pro_db, args.create_api_key, args.api_key_scopes,
                                   args.api_key_rate_per_min, args.api_key_rate_per_day,

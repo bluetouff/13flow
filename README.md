@@ -188,6 +188,10 @@ etiquette (UA + rate limit), the `defusedxml` hardening, and the dashboard theme
 ```
 GET /api/signals/confluence?window=90&min_score=0
 → { "kpis": {...}, "signals": [ {ticker, score, quadrant, breakdown{...}, institutional{...}, insider{...}}, ... ] }
+GET /api/methodology/confluence-v1
+→ frozen score version, parameters, universe, split, parameter_hash
+GET /api/signals/confluence/history?ticker=TSM&window=90
+→ append-only signal revisions from confluence-history.jsonl
 ```
 The 0–100 score is an **ordinal exploratory ranking**, not a probability, not a historical
 frequency, and not an expected-return estimate. `FeatureParams` controls *what the signal
@@ -207,6 +211,11 @@ confidence intervals, permutation tests, and version log before any score can be
 validated. Until then, the correct wording is: **backtest harness available; default weights
 are heuristic**.
 
+Confluence v1 is frozen as a machine-readable research contract in
+`docs/confluence_v1.json` and documented in `docs/CONFLUENCE_V1.md`. The append-only signal
+history is written to `confluence-history.jsonl` in `SMARTMONEY_CACHE_DIR`; corrections are
+new revisions, not in-place edits.
+
 The production live provider also has an explicit effective universe: to keep the public tier
 off abusive Form 4 fan-out, it scans insider filings only for tickers with at least
 `SMARTMONEY_CONFLUENCE_SCAN_MIN_FUNDS` tracked funds opening or adding in the latest 13F
@@ -225,6 +234,12 @@ With no cache and no live provider, the endpoint returns `503 confluence_unavail
 research weights with `python -m smartmoney.backtest` (synthetic demo only) — see
 `FORMS4_INTEGRATION.md` and `VALIDATION_PROTOCOL.md` for the feature write-up and validation
 contract.
+
+Offline research/admin helpers:
+```bash
+python run.py --freeze-confluence-v1 docs/confluence_v1.json
+python run.py --append-signal-history --cache-dir /var/lib/13flow --confluence-windows 30,90,180
+```
 
 ## Valuation — current weights & implied P&L
 A 13F reports value at *quarter-end*. To see what the book is worth *now* and the paper

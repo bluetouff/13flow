@@ -1,0 +1,106 @@
+{
+  "code_commit": "1a15f2ed4a2b8b2cf777eb7773a0e7c2edddfc53",
+  "effective_universe": {
+    "coverage_fields_required": [
+      "funds_scanned",
+      "latest_13f_quarter",
+      "accessions",
+      "ticker_resolution_coverage"
+    ],
+    "insider": "Form 4 open-market P/S issuer filings when live/precomputed Confluence is enabled; no silent sample fallback in production.",
+    "institutional": "Tracked 13F managers stored in the SQLite market database; latest_filings selects one complete-enough filing per manager and report date."
+  },
+  "feature_schema_version": "confluence_features_v1",
+  "parameter_hash": "c5bf5faef27cd75b36f16aaded40fd860024f71317373f0ccadd209acfb6084c",
+  "parameters": {
+    "bounds": {
+      "agreement_bonus": [
+        0.0,
+        35.0
+      ],
+      "dollar_conviction": [
+        0.0,
+        35.0
+      ],
+      "insider_cluster": [
+        10.0,
+        50.0
+      ],
+      "insider_sell_penalty": [
+        0.0,
+        30.0
+      ],
+      "institutional_breadth": [
+        10.0,
+        50.0
+      ],
+      "institutional_trim_penalty": [
+        0.0,
+        30.0
+      ]
+    },
+    "combination_weights": {
+      "agreement_bonus": 18.0,
+      "breadth_half": 1.5,
+      "cluster_half": 1.2,
+      "dollar_ceiling": 25000000.0,
+      "dollar_conviction": 18.0,
+      "insider_cluster": 36.0,
+      "insider_sell_penalty": 14.0,
+      "institutional_breadth": 36.0,
+      "institutional_trim_penalty": 14.0
+    },
+    "feature_extraction": {
+      "recency_halflife_days": 30.0,
+      "recent_window_days": 14,
+      "seniority_csuite": 1.6,
+      "seniority_director": 1.0,
+      "seniority_officer": 1.2,
+      "seniority_owner": 1.1,
+      "sizing_ceiling": 1.6,
+      "sizing_floor": 0.7,
+      "sizing_midpoint_pct": 0.1
+    },
+    "tunable_weights": [
+      "institutional_breadth",
+      "insider_cluster",
+      "dollar_conviction",
+      "agreement_bonus",
+      "institutional_trim_penalty",
+      "insider_sell_penalty"
+    ]
+  },
+  "required_public_evidence": [
+    "point_in_time_feature_dataset_or_hash_manifest",
+    "baselines",
+    "walk_forward",
+    "out_of_sample_test",
+    "transaction_costs",
+    "confidence_intervals",
+    "revision_history"
+  ],
+  "score_interpretation": {
+    "is_calibrated_frequency": false,
+    "is_expected_return": false,
+    "is_probability": false,
+    "scale": "0_to_100_ordinal_ranking"
+  },
+  "splits": {
+    "test": {
+      "from": "2025-01-01",
+      "frozen": true,
+      "to": "2026-12-31"
+    },
+    "train": {
+      "from": "2014-01-01",
+      "to": "2022-12-31"
+    },
+    "validation": {
+      "from": "2023-01-01",
+      "to": "2024-12-31"
+    }
+  },
+  "status": "frozen_hypothesis_not_validated",
+  "version": "confluence_v1",
+  "weight_version": "heuristic_default_v1"
+}

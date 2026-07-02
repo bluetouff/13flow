@@ -1073,6 +1073,37 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "public_state": "DEMO" if demo_mode else "LIVE",
         })
 
+    @app.get("/api/methodology/confluence-v1")
+    def confluence_v1_methodology_ep():
+        from .research import confluence_v1_spec
+        return jsonify(confluence_v1_spec(_git_sha()))
+
+    @app.get("/api/signals/confluence/history")
+    def confluence_history_ep():
+        from .research import HISTORY_FILENAME, read_signal_history
+        limit = clean_int(request.args.get("limit"), 100, 1, 1000)
+        ticker = (request.args.get("ticker") or "").strip().upper() or None
+        window = request.args.get("window")
+        window_days = clean_int(window, 0, 7, 365) if window else None
+        history_path = os.path.join(_cache_dir, HISTORY_FILENAME)
+        rows = read_signal_history(
+            history_path,
+            limit=limit,
+            ticker=ticker,
+            window_days=window_days,
+        )
+        return jsonify({
+            "metadata": {
+                "append_only": True,
+                "source": "confluence-history.jsonl",
+                "score_version": "confluence_v1",
+                "history_path_configured": bool(_cache_dir),
+                "public_state": "DEMO" if demo_mode else "LIVE",
+            },
+            "count": len(rows),
+            "history": rows,
+        })
+
     def live_status_payload() -> dict:
         generated_at = _now_iso()
         s = store()

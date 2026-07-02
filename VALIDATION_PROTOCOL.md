@@ -7,8 +7,13 @@ called calibrated, validated, or backtested on live history.
 
 - **Feature engine:** implemented and transparent.
 - **Backtest harness:** available in `smartmoney/backtest.py`.
-- **Default weights:** heuristic judgement parameters.
+- **Frozen score contract:** `confluence_v1`, published in `docs/confluence_v1.json`
+  and `GET /api/methodology/confluence-v1`.
+- **Default weights:** heuristic judgement parameters, frozen as
+  `heuristic_default_v1`.
 - **Published live-history validation:** not yet available.
+- **Signal revision history:** append-only JSONL contract available via
+  `confluence-history.jsonl` and `GET /api/signals/confluence/history`.
 - **Product wording allowed today:** "backtest harness available; default weights are
   heuristic".
 - **Product wording reserved for later:** "validated", "calibrated", "backtested
@@ -44,6 +49,10 @@ feature table when licensing allows. It must include:
 The builder must reconstruct signals only from data available at the as-of date. Later
 filings, later amendments, later mappings, survivorship-only universes, and future prices
 must not leak into historical features.
+
+The point-in-time row schema is defined in `docs/CONFLUENCE_V1.md`. The minimum identity
+columns are `as_of`, `ticker`, `score_version`, `feature_schema_version`,
+`weight_version`, `parameter_hash`, source accession hashes, and code commit.
 
 ## Frozen split
 
@@ -121,3 +130,18 @@ Each released score must record:
 
 The term "validated" is reserved for a frozen version that passes this protocol on the
 declared out-of-sample test.
+
+## Publication surfaces
+
+The public and Pro surfaces must make the validation boundary machine-readable:
+
+- `GET /api/methodology/confluence-v1` exposes the frozen parameters, universe,
+  train/validation/test split and parameter hash.
+- `GET /api/signals/confluence` exposes current signal payloads and methodology metadata.
+- `GET /api/signals/confluence/history` exposes append-only revisions generated from
+  cached/live Confluence snapshots.
+- `docs/CONFLUENCE_V1.md` describes the point-in-time row schema, baselines, metrics and
+  operator commands.
+
+If any of these surfaces is absent or stale, the product must not claim that Confluence is
+validated or calibrated.
