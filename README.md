@@ -241,20 +241,22 @@ audit rows, and, when a token is provided via environment, validates the Pro API
 in-process without putting the token in shell history.
 
 ```bash
+SHA=<deployed-git-sha>
+
 printf "API token: "
 read -r -s SMARTMONEY_PRO_TOKEN
 printf "\n"
 export SMARTMONEY_PRO_TOKEN
 
-python run.py --preflight \
+sudo -E /opt/13flow/.venv/bin/python /opt/13flow/run.py --preflight \
   --db /var/lib/13flow/13flow.db \
   --pro-db /var/lib/13flow-pro/13flow-pro.db \
   --require-pro \
-  --expected-sha "$SMARTMONEY_GIT_SHA"
+  --expected-sha "$SHA"
 
 unset SMARTMONEY_PRO_TOKEN
 
-python run.py --preflight --preflight-json ...   # machine-readable output
+sudo -E /opt/13flow/.venv/bin/python /opt/13flow/run.py --preflight --preflight-json ...
 ```
 
 ## Open build (public, read-only — no auth, no Stripe, no alerts)
