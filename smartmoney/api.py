@@ -40,9 +40,30 @@ from .portfolio import Portfolio
 from .valuation import value_portfolio
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DASHBOARD = os.path.join(os.path.dirname(HERE), "dashboard.html")
+APP_ROOT = os.path.dirname(HERE)
+DASHBOARD = os.path.join(APP_ROOT, "dashboard.html")
 
 MAX_SUBSCRIPTIONS_PER_USER = 50
+
+
+def _git_sha() -> str:
+    env_sha = os.environ.get("SMARTMONEY_GIT_SHA", "").strip()
+    if env_sha:
+        return env_sha
+
+    git_dir = os.path.join(APP_ROOT, ".git")
+    head_path = os.path.join(git_dir, "HEAD")
+    try:
+        with open(head_path, "r", encoding="utf-8") as fh:
+            head = fh.read().strip()
+        if head.startswith("ref:"):
+            ref = head.split(":", 1)[1].strip()
+            ref_path = os.path.join(git_dir, *ref.split("/"))
+            with open(ref_path, "r", encoding="utf-8") as fh:
+                return fh.read().strip()
+        return head
+    except OSError:
+        return "unknown"
 
 
 class _StoreConfluence:
@@ -480,6 +501,11 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                         "features": {"auth": not open_mode,
                                      "alerts": not open_mode,
                                      "billing": not open_mode}})
+
+    @app.get("/api/version")
+    @app.get("/healthz")
+    def version_ep():
+        return jsonify({"app": "13flow", "git_sha": _git_sha(), "open": open_mode})
 
     # ---- dashboard ------------------------------------------------------
     def _serve_html(path):

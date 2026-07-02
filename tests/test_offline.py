@@ -56,6 +56,20 @@ def test_value_units_legacy_vs_modern():
     assert modern.positions[("191216100", "")].value_usd == 1_000       # dollars
 
 
+def test_value_units_use_filing_date_when_available():
+    xml = _table([("KO", "191216100", 1000, 10, "")])
+    filed_after_switch = build_portfolio(
+        "0", "T", "2022-12-31", "13F-HR", parse_info_table(xml),
+        filing_date="2023-02-14",
+    )
+    filed_before_switch = build_portfolio(
+        "0", "T", "2022-09-30", "13F-HR", parse_info_table(xml),
+        filing_date="2022-11-14",
+    )
+    assert filed_after_switch.positions[("191216100", "")].value_usd == 1_000
+    assert filed_before_switch.positions[("191216100", "")].value_usd == 1_000_000
+
+
 def test_diff_moves():
     prev = build_portfolio("0", "T", "2023-12-31", "13F-HR", parse_info_table(_table([
         ("APPLE INC", "037833100", 1000, 1000, ""),   # will TRIM

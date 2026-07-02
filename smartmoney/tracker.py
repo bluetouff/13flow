@@ -77,6 +77,7 @@ class Tracker:
             report_date=filing.report_date,
             form=filing.form,
             raw=raw,
+            filing_date=filing.filing_date,
         )
         if self.resolver is not None:
             resolve_portfolio(pf, self.resolver)
