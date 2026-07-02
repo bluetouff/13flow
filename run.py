@@ -39,6 +39,7 @@ from smartmoney.tracker import Tier
 from smartmoney.accounts import AccountStore, EmailTaken, PasswordPolicyError
 from smartmoney.hibp import default_breach_checker
 from smartmoney.pro import ProAPIStore
+from smartmoney.preflight import run_preflight
 from smartmoney.quality import data_quality_report
 from smartmoney.registry import SUPERINVESTORS, by_label
 
@@ -244,6 +245,33 @@ def cmd_revoke_api_key(pro_db, key_id) -> None:
     with ProAPIStore(pro_db) as pro:
         ok = pro.revoke_key(key_id)
     print("revoked" if ok else "not found or already revoked")
+
+
+def cmd_preflight(db_path, pro_db, require_pro, expected_sha, audit_recent_hours,
+                  token_env, as_json) -> None:
+    from smartmoney.api import _git_sha
+    report = run_preflight(
+        db_path,
+        pro_db_path=pro_db,
+        require_pro=require_pro,
+        expected_sha=expected_sha,
+        current_sha=_git_sha(),
+        audit_recent_hours=audit_recent_hours,
+        api_token=os.environ.get(token_env, ""),
+    )
+    if as_json:
+        import json
+        print(json.dumps(report, indent=2, sort_keys=True))
+    else:
+        print("\n13FLOW production preflight:\n")
+        for c in report["checks"]:
+            badge = {"pass": "PASS", "warn": "WARN", "fail": "FAIL"}[c["status"]]
+            print(f"  [{badge}] {c['name']:<26} {c['detail']}")
+        counts = report["counts"]
+        print(f"\nSummary: {report['status'].upper()} "
+              f"({counts['pass']} pass, {counts['warn']} warn, {counts['fail']} fail)")
+    if report["status"] == "fail":
+        sys.exit(1)
 
 
 def cmd_resolve_sweep(client, db_path) -> None:
@@ -513,6 +541,18 @@ def main() -> None:
     ap.add_argument("--quality", action="store_true", help="data-quality warnings report (DB only)")
     ap.add_argument("--quality-threshold", type=float, default=100.0,
                     help="AUM jump threshold for --quality (default 100x)")
+    ap.add_argument("--preflight", action="store_true",
+                    help="offline production preflight: SHA, market DB, Pro DB, audit, quality")
+    ap.add_argument("--preflight-json", action="store_true",
+                    help="print --preflight as JSON")
+    ap.add_argument("--expected-sha", default=os.environ.get("SMARTMONEY_GIT_SHA"),
+                    help="expected deployed SHA for --preflight")
+    ap.add_argument("--require-pro", action="store_true",
+                    help="make Pro DB/API-key/audit checks mandatory in --preflight")
+    ap.add_argument("--audit-recent-hours", type=int, default=24,
+                    help="audit freshness window for --preflight (default 24h)")
+    ap.add_argument("--preflight-token-env", default="SMARTMONEY_PRO_TOKEN",
+                    help="env var containing a Pro token for --preflight API-contract checks")
     ap.add_argument("--create-api-key", metavar="LABEL", help="create a Pro API key")
     ap.add_argument("--list-api-keys", action="store_true", help="list Pro API keys")
     ap.add_argument("--revoke-api-key", metavar="KEY_ID", help="revoke a Pro API key")
@@ -596,6 +636,10 @@ def main() -> None:
         return cmd_coverage(args.db, args.basis)
     if args.quality:
         return cmd_quality(args.db, args.quality_threshold, args.top)
+    if args.preflight:
+        return cmd_preflight(args.db, args.pro_db, args.require_pro, args.expected_sha,
+                             args.audit_recent_hours, args.preflight_token_env,
+                             args.preflight_json)
     if args.create_api_key:
         return cmd_create_api_key(args.pro_db, args.create_api_key, args.api_key_scopes,
                                   args.api_key_rate_per_min, args.api_key_rate_per_day,

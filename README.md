@@ -226,11 +226,36 @@ python run.py --sync-all --max-quarters 12 --enrich     # backfill everything
 python run.py --buys 2024-12-31 --min-funds 3           # who's BUYING (diff-based)
 python run.py --consensus 2024-12-31 --min-funds 3      # who's HOLDING (pure SQL)
 python run.py --quality --db smartmoney.db              # DB-only data-quality warnings
+python run.py --preflight --db smartmoney.db            # DB-only production readiness checks
 python run.py --timeline "Berkshire Hathaway" --cusip 037833100   # conviction over time
 ```
 `--sync` only fetches filings not already stored, so re-runs are cheap and pick up just
 the newest quarter. The `--buys`/`--consensus`/`--timeline` screens are pure DB reads —
 no SEC_UA needed once data is synced.
+
+## Operator preflight
+`run.py --preflight` is an offline release gate. It never calls EDGAR. It checks deploy SHA
+traceability, opens the market DB read-only, verifies the `latest_filings` view has content,
+summarizes data quality, verifies the Pro DB is writable, checks active Pro keys and recent
+audit rows, and, when a token is provided via environment, validates the Pro API contract
+in-process without putting the token in shell history.
+
+```bash
+printf "API token: "
+read -r -s SMARTMONEY_PRO_TOKEN
+printf "\n"
+export SMARTMONEY_PRO_TOKEN
+
+python run.py --preflight \
+  --db /var/lib/13flow/13flow.db \
+  --pro-db /var/lib/13flow-pro/13flow-pro.db \
+  --require-pro \
+  --expected-sha "$SMARTMONEY_GIT_SHA"
+
+unset SMARTMONEY_PRO_TOKEN
+
+python run.py --preflight --preflight-json ...   # machine-readable output
+```
 
 ## Open build (public, read-only — no auth, no Stripe, no alerts)
 There is a first-class **open mode** for a public deployment that exposes only the read-only
