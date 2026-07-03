@@ -226,6 +226,7 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         assert "/api/pro/v1/workspace/watchlists/{watchlist_id}/signals/snapshot" in doc["paths"]
         assert "/api/pro/v1/workspace/watchlists/{watchlist_id}/signals/history" in doc["paths"]
         assert "/api/pro/v1/admin/health" in doc["paths"]
+        assert "/api/pro/v1/admin/ops" in doc["paths"]
 
 
 def test_pro_watchlist_feed_uses_ticker_flow(monkeypatch):
@@ -729,6 +730,12 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
                       "127.0.0.1", "pytest")
             pro.audit(workspace_key.key_id, "GET", "/api/pro/v1/funds", 500,
                       "127.0.0.1", "pytest")
+            pro.create_watchlist(
+                workspace_key.key_id,
+                "Scheduled ops monitor",
+                ["AAPL"],
+                alert_policy={"enabled": True, "frequency": "daily"},
+            )
         monkeypatch.setenv("SMARTMONEY_PRO_API", "1")
         monkeypatch.setenv("SMARTMONEY_PRO_DB", pro_db)
         c = create_app(data_db, secure_cookies=False, open_mode=True).test_client()
@@ -738,6 +745,11 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
             headers={"Authorization": "Bearer " + workspace_token},
         )
         assert forbidden.status_code == 403
+        forbidden_ops = c.get(
+            "/api/pro/v1/admin/ops",
+            headers={"Authorization": "Bearer " + workspace_token},
+        )
+        assert forbidden_ops.status_code == 403
 
         ok = c.get(
             "/api/pro/v1/admin/health",
@@ -763,6 +775,40 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
         assert "key_hash" not in body
         assert "127.0.0.1" not in body
         assert "pytest" not in body
+
+        ops_response = c.get(
+            "/api/pro/v1/admin/ops",
+            headers={"Authorization": "Bearer " + admin_token},
+        )
+        assert ops_response.status_code == 200
+        ops_payload = ops_response.get_json()
+        assert ops_payload["meta"]["admin_key_id"] == admin_key.key_id
+        assert ops_payload["meta"]["scope"] == "admin:read"
+        assert ops_payload["meta"]["read_only"] is True
+        ops = ops_payload["ops"]
+        assert ops["status"] in {"ok", "warn", "critical"}
+        assert ops["verdict"]["status"] == ops["status"]
+        assert ops["public_data"]["public_state"] == "LIVE"
+        assert "trusted_funds" in ops["public_data"]["quality_summary"]
+        assert "no trusted funds available for signals" in ops["verdict"]["critical"]
+        assert ops["pro_control_plane"]["keys"]["active"] == 2
+        assert ops["workspace_automation"]["scheduled_watchlists"] == 1
+        assert ops["workspace_automation"]["due_count"] == 1
+        assert ops["workspace_automation"]["due_sample"][0]["key_id"] == workspace_key.key_id
+        assert ops["service_contracts"]["read_only_web_worker_shell_checks"] is False
+        assert ops["backup"]["restore_verify_by_web_process"] is False
+        assert ops["privacy"] == {
+            "tokens_exposed": False,
+            "key_hashes_exposed": False,
+            "audit_ips_exposed": False,
+            "audit_user_agents_exposed": False,
+            "payloads_logged": False,
+        }
+        ops_body = ops_response.get_data(as_text=True)
+        assert admin_token not in ops_body
+        assert '"key_hash":' not in ops_body
+        assert "127.0.0.1" not in ops_body
+        assert "pytest" not in ops_body
 
 
 def test_pro_api_audit_uses_trusted_proxy_xff(monkeypatch):

@@ -992,6 +992,14 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                       "403": {"description": "Insufficient scope"}},
                     },
                 },
+                "/api/pro/v1/admin/ops": {
+                    "get": {
+                        "security": security,
+                        "summary": "Admin-only read-only commercial ops readiness monitor",
+                        "responses": {"200": {"description": "Pro ops readiness report"},
+                                      "403": {"description": "Insufficient scope"}},
+                    },
+                },
                 "/api/pro/v1/openapi.json": {
                     "get": {"summary": "OpenAPI document for the Pro API",
                             "responses": {"200": {"description": "OpenAPI JSON"}}}
@@ -2580,6 +2588,104 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         finally:
             ps.close()
 
+    def _pro_admin_ops_payload(live: dict, health: dict, automation: dict) -> dict:
+        quality = live.get("quality_summary") or {}
+        counts = live.get("counts") or {}
+        keys = health.get("keys") or {}
+        audit = health.get("audit") or {}
+        critical: list[str] = []
+        warnings: list[str] = []
+        actions: list[str] = []
+
+        if live.get("public_state") != "LIVE":
+            critical.append("public_state is not LIVE")
+        if live.get("uses_synthetic_data"):
+            critical.append("synthetic data is enabled")
+        if int(counts.get("funds") or 0) <= 0:
+            critical.append("no public fund coverage")
+        if int(quality.get("trusted_funds") or 0) <= 0:
+            critical.append("no trusted funds available for signals")
+        if int(keys.get("active") or 0) <= 0:
+            critical.append("no active Pro API key")
+
+        if quality.get("quality_gate_status") not in {None, "ok"}:
+            warnings.append(f"quality gate status is {quality.get('quality_gate_status')}")
+        if int(quality.get("quarantined_funds") or 0) > 0:
+            warnings.append("one or more funds are quarantined by the quality gate")
+        if int(audit.get("server_errors") or 0) > 0:
+            warnings.append("Pro API audit contains server errors")
+        if int(audit.get("rate_limited") or 0) > 0:
+            warnings.append("Pro API audit contains rate-limited requests")
+        if int(keys.get("rotation_due") or 0) > 0:
+            warnings.append("one or more active Pro keys are due for rotation")
+        if int(automation.get("invalid_policy") or 0) > 0:
+            warnings.append("one or more scheduled watchlists have invalid alert policy")
+
+        if critical:
+            status = "critical"
+        elif warnings or (health.get("status") == "warn"):
+            status = "warn"
+        else:
+            status = "ok"
+
+        if status == "critical":
+            actions.append("Hold commercial onboarding until critical ops checks are cleared.")
+        if warnings:
+            actions.append("Review warning reasons before promising production onboarding windows.")
+        if int(keys.get("rotation_due") or 0) > 0:
+            actions.append("Rotate due Pro API keys and confirm replacement tokens with customers.")
+        if int(audit.get("server_errors") or 0) > 0:
+            actions.append("Inspect recent Pro 5xx routes before expanding customer traffic.")
+        if quality.get("quality_gate_status") not in {None, "ok"}:
+            actions.append("Check /api/data-quality and keep quality disclosures visible.")
+        actions.extend([
+            "Run deploy/smoke-public.sh after each public deploy.",
+            "Run deploy/smoke-pro-workspace.sh with a workspace-capable Pro key after each Pro deploy.",
+            "Verify systemd timers and encrypted Pro DB backup restore outside the web worker.",
+        ])
+
+        return {
+            "status": status,
+            "generated_at": _now_iso(),
+            "verdict": {
+                "status": status,
+                "critical": critical,
+                "warnings": warnings,
+                "operator_actions": actions,
+            },
+            "public_data": {
+                "public_state": live.get("public_state"),
+                "uses_synthetic_data": live.get("uses_synthetic_data"),
+                "latest_13f_quarter": live.get("latest_13f_quarter"),
+                "data_as_of": live.get("data_as_of"),
+                "counts": counts,
+                "quality_summary": quality,
+            },
+            "pro_control_plane": health,
+            "workspace_automation": automation,
+            "service_contracts": {
+                "git_sha": _git_sha(),
+                "expected_public_state": "LIVE",
+                "read_only_web_worker_shell_checks": False,
+                "admin_scope": "admin:read",
+                "public_smoke": "deploy/smoke-public.sh",
+                "pro_workspace_smoke": "deploy/smoke-pro-workspace.sh",
+            },
+            "backup": {
+                "encrypted_backup_expected": True,
+                "restore_verify_by_web_process": False,
+                "operator_verify_command": "deploy/verify-pro-db-backup.sh",
+                "reason": "backup files, private keys and systemd timer state stay outside the Flask worker",
+            },
+            "privacy": {
+                "tokens_exposed": False,
+                "key_hashes_exposed": False,
+                "audit_ips_exposed": False,
+                "audit_user_agents_exposed": False,
+                "payloads_logged": False,
+            },
+        }
+
     def _mcp_call_tool(name: str, args: dict) -> dict:
         if name == "product.status":
             return product_status_payload()
@@ -3461,6 +3567,27 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "scope": "admin:read",
                 },
                 "health": health,
+            })
+
+        @app.get("/api/pro/v1/admin/ops")
+        @pro_required("admin:read")
+        def pro_admin_ops_ep():
+            key = request.pro_api_key
+            live = live_status_payload()
+            with ProAPIStore(pro_db_path) as ps:
+                health = ps.admin_health()
+                automation = ps.workspace_automation_summary(max_due=25)
+            ops = _pro_admin_ops_payload(live, health, automation)
+            return jsonify({
+                "meta": {
+                    "api": "13flow-pro",
+                    "version": "v1",
+                    "git_sha": _git_sha(),
+                    "admin_key_id": key.key_id,
+                    "scope": "admin:read",
+                    "read_only": True,
+                },
+                "ops": ops,
             })
 
         @app.get("/api/pro/v1/openapi.json")
@@ -6120,8 +6247,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 @media(max-width:640px){.admin-kpis{grid-template-columns:1fr}}
 </style>
 <section class="doc-hero"><div class="doc-copy"><div class="kicker">Pro admin</div>
-<h1>Admin Health</h1>
-<p class="doc-lede">Control-plane health for Pro API keys, usage, audit rows and saved workspaces.</p></div>
+<h1>Admin Health & Ops</h1>
+<p class="doc-lede">Read-only control-plane and commercial ops readiness for Pro API keys, data freshness, usage, backups and saved workspaces.</p></div>
 <aside class="doc-panel"><h3>Security boundary</h3><p>Requires a Pro key with admin:read. Tokens stay in tab session storage and are sent only as Authorization headers.</p></aside></section>
 <main class="admin-app" data-pro-admin-app>
   <section class="admin-bar" aria-label="Pro admin access">
@@ -6137,6 +6264,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     <div class="admin-kpi"><b>-</b><span>Server errors</span></div>
   </section>
   <section class="admin-grid">
+    <section class="admin-panel"><h2>Ops Verdict</h2><div id="adminOps" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
     <section class="admin-panel"><h2>Keys & Usage</h2><div id="adminKeys" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
     <section class="admin-panel"><h2>Audit</h2><div id="adminAudit" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
     <section class="admin-panel"><h2>Workspace</h2><div id="adminWorkspace" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
@@ -6150,6 +6278,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
   const $ = (id) => document.getElementById(id);
   const app = document.querySelector("[data-pro-admin-app]");
   if (!app) return;
+  const HEALTH_PATH = "/admin/health";
   const state = {token: sessionStorage.getItem(TOKEN_KEY) || ""};
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const number = (v) => Number.isFinite(Number(v)) ? String(Number(v)) : "-";
@@ -6164,6 +6293,22 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || data.detail || ("HTTP " + res.status));
     return data;
+  }
+  function renderOps(payload={}) {
+    const ops = payload.ops || {};
+    const verdict = ops.verdict || {};
+    const data = ops.public_data || {};
+    const quality = data.quality_summary || {};
+    const automation = ops.workspace_automation || {};
+    const actions = verdict.operator_actions || [];
+    $("adminOps").innerHTML = `<article class="admin-row">
+      <div class="admin-row-top"><h3>${esc((verdict.status || ops.status || "unknown").toUpperCase())}</h3><span class="admin-mini">${esc(ops.generated_at || "-")}</span></div>
+      <p><span class="pill">state:${esc(data.public_state || "-")}</span><span class="pill">latest_13f:${esc(data.latest_13f_quarter || "-")}</span><span class="pill">trusted:${esc(number(quality.trusted_funds))}</span><span class="pill">due:${esc(number(automation.due_count))}</span></p>
+      <p class="admin-mini">backup_verify=${esc((ops.backup || {}).operator_verify_command || "-")} · shell_checks=${esc(String((ops.service_contracts || {}).read_only_web_worker_shell_checks))}</p>
+    </article>` +
+      ((verdict.critical || []).map((x) => `<article class="admin-row"><h3>Critical</h3><p>${esc(x)}</p></article>`).join("")) +
+      ((verdict.warnings || []).map((x) => `<article class="admin-row"><h3>Warning</h3><p>${esc(x)}</p></article>`).join("")) +
+      (actions.length ? actions.slice(0, 8).map((x) => `<article class="admin-row"><h3>Action</h3><p>${esc(x)}</p></article>`).join("") : '<p class="admin-empty">No operator action.</p>');
   }
   function renderHealth(payload={}) {
     const health = payload.health || {};
@@ -6189,8 +6334,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     setStatus(`Connected: admin key ${payload.meta?.admin_key_id || "-"} · ${health.status || "unknown"} · generated ${health.generated_at || "-"}`);
   }
   async function refresh() {
-    setStatus("Loading admin health...");
-    renderHealth(await adminApi("/admin/health"));
+    setStatus("Loading admin ops...");
+    const payload = await adminApi("/admin/ops");
+    renderOps(payload);
+    renderHealth({meta: payload.meta || {}, health: (payload.ops || {}).pro_control_plane || {}});
   }
   $("adminToken").value = state.token;
   $("adminConnect").addEventListener("click", async () => {

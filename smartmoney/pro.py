@@ -721,6 +721,87 @@ class ProAPIStore:
                 break
         return out
 
+    def workspace_automation_summary(
+        self,
+        max_due: int = 25,
+        now: Optional[datetime] = None,
+    ) -> dict:
+        """Summarize scheduled workspace snapshot demand without tokens."""
+        now = now or _now()
+        now_iso = _iso(now)
+        safe_limit = max(1, min(100, int(max_due or 25)))
+        rows = self.conn.execute(
+            """SELECT wl.*,
+                      k.label AS key_label,
+                      MAX(ss.created_at) AS latest_snapshot_at
+               FROM saved_watchlists wl
+               JOIN api_keys k ON k.key_id = wl.key_id
+               LEFT JOIN saved_watchlist_signal_snapshots ss
+                      ON ss.key_id = wl.key_id AND ss.watchlist_id = wl.id
+               WHERE k.revoked_at IS NULL
+                 AND (k.expires_at IS NULL OR k.expires_at > ?)
+               GROUP BY wl.id
+               ORDER BY latest_snapshot_at DESC, wl.updated_at DESC""",
+            (now_iso,),
+        ).fetchall()
+        scheduled = 0
+        daily = 0
+        weekly = 0
+        invalid_policy = 0
+        due_count = 0
+        due: list[dict] = []
+        latest_snapshot_at = None
+        for row in rows:
+            item = self._watchlist_row(row)
+            policy = item.get("alert_policy") or {}
+            if not policy.get("enabled"):
+                continue
+            scheduled += 1
+            frequency = str(policy.get("frequency") or "manual").lower()
+            if frequency == "daily":
+                daily += 1
+            elif frequency == "weekly":
+                weekly += 1
+            else:
+                invalid_policy += 1
+                continue
+            latest_raw = row["latest_snapshot_at"]
+            if latest_raw and (latest_snapshot_at is None or latest_raw > latest_snapshot_at):
+                latest_snapshot_at = latest_raw
+            is_due = latest_raw is None
+            if latest_raw:
+                try:
+                    latest = datetime.fromisoformat(str(latest_raw))
+                    if latest.tzinfo is None:
+                        latest = latest.replace(tzinfo=timezone.utc)
+                except ValueError:
+                    latest = now - timedelta(days=365)
+                cadence = timedelta(days=7 if frequency == "weekly" else 1)
+                is_due = latest <= now - cadence
+            if is_due:
+                due_count += 1
+                if len(due) < safe_limit:
+                    due.append({
+                        "watchlist_id": row["id"],
+                        "name": row["name"],
+                        "key_id": row["key_id"],
+                        "key_label": row["key_label"],
+                        "frequency": frequency,
+                        "latest_snapshot_at": latest_raw,
+                        "tickers_count": len(item.get("tickers") or []),
+                        "updated_at": row["updated_at"],
+                    })
+        return {
+            "scheduled_watchlists": scheduled,
+            "daily": daily,
+            "weekly": weekly,
+            "invalid_policy": invalid_policy,
+            "due_count": due_count,
+            "due_sample": due,
+            "latest_snapshot_at": latest_snapshot_at,
+            "max_due_returned": safe_limit,
+        }
+
     def watchlist_count(self, key_id: str) -> int:
         row = self.conn.execute(
             "SELECT COUNT(*) AS c FROM saved_watchlists WHERE key_id=?",
