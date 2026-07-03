@@ -45,7 +45,9 @@ sudo systemctl enable --now 13flow-pro
 ## Apache
 
 Add `deploy/apache-13flow-pro.conf` inside the TLS virtual host before the catch-all
-`ProxyPass /` rule:
+`ProxyPass /` rule. The Pro route must allow the versioned Pro API methods
+`GET HEAD OPTIONS POST PUT PATCH DELETE`; authentication, scopes, rate limits and
+audit are enforced by the dedicated Pro app.
 
 ```apache
 ProxyPass        /api/pro/ http://127.0.0.1:8001/api/pro/ retry=0 timeout=30
@@ -86,10 +88,21 @@ Run the public smoke test after every deploy:
 EXPECTED_SHA=<deployed-git-sha> /opt/13flow/deploy/smoke-public.sh
 ```
 
+Run the private Pro workspace smoke only with a scoped QA key that includes
+`funds:read workspace:write`. It creates and deletes a temporary watchlist and
+must not be run from a shell that logs secrets verbosely:
+
+```bash
+EXPECTED_SHA=<deployed-git-sha> \
+PRO_TOKEN=<13flow_live_...> \
+/opt/13flow/deploy/smoke-pro-workspace.sh
+```
+
 ## Encrypted backup
 
-The Pro DB contains API-key hashes, rate counters and audit metadata. Back it up encrypted;
-never copy it to a world-readable archive.
+The Pro DB contains API-key hashes, rate counters, audit metadata, saved
+watchlists, signal snapshots, alert inbox rows and workspace activity. Back it up
+encrypted; never copy it to a world-readable archive.
 
 Prepare a GPG public backup key, then:
 
@@ -117,8 +130,9 @@ sudo systemctl enable --now 13flow-pro-backup.timer
 sudo systemctl list-timers | grep 13flow-pro-backup
 ```
 
-The backup script uses SQLite `.backup`, writes a manifest with integrity/counts/SHA-256,
-encrypts with GPG, and deletes old encrypted archives after `BACKUP_RETENTION_DAYS`.
+The backup script uses SQLite `.backup`, writes a manifest with integrity,
+Pro/workspace table counts and SHA-256, encrypts with GPG, and deletes old
+encrypted archives after `BACKUP_RETENTION_DAYS`.
 The systemd unit runs as `flowpro` and keeps `/var/lib/13flow-pro` in `ReadWritePaths`
 because SQLite WAL sidecar access may be required even though the script opens the DB in
 `mode=ro`.

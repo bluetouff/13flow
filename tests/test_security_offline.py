@@ -95,6 +95,16 @@ def test_api_validation_and_headers():
         assert r.headers.get("X-Frame-Options") == "DENY"
 
 
+def test_apache_method_policy_separates_public_and_pro_api():
+    root = Path(__file__).resolve().parents[1]
+    public_conf = (root / "deploy" / "apache-13flow.conf").read_text(encoding="utf-8")
+    pro_conf = (root / "deploy" / "apache-13flow-pro.conf").read_text(encoding="utf-8")
+
+    assert "<LimitExcept GET HEAD OPTIONS>" in public_conf
+    assert "<LimitExcept GET HEAD OPTIONS POST PUT PATCH DELETE>" in pro_conf
+    assert "ProxyPass        /api/pro/ http://127.0.0.1:8001/api/pro/" in pro_conf
+
+
 # ---- helpers -------------------------------------------------------------
 class _FakeAlert:
     target = ""

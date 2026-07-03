@@ -46,13 +46,22 @@ out="$BACKUP_DIR/13flow-pro-$ts.tar.gz.gpg"
 sqlite3 "file:$PRO_DB?mode=ro" ".backup '$snapshot'"
 chmod 600 "$snapshot"
 
+table_count() {
+  local table=$1
+  sqlite3 "$snapshot" "SELECT CASE WHEN EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='$table') THEN (SELECT COUNT(*) FROM $table) ELSE 0 END;"
+}
+
 {
   echo "created_at_utc=$ts"
   echo "source_db=$PRO_DB"
   echo "sqlite_integrity=$(sqlite3 "$snapshot" 'PRAGMA integrity_check;')"
-  echo "api_keys_total=$(sqlite3 "$snapshot" 'SELECT COUNT(*) FROM api_keys;')"
+  echo "api_keys_total=$(table_count api_keys)"
   echo "api_keys_active=$(sqlite3 "$snapshot" 'SELECT COUNT(*) FROM api_keys WHERE revoked_at IS NULL;')"
-  echo "audit_rows=$(sqlite3 "$snapshot" 'SELECT COUNT(*) FROM api_audit;')"
+  echo "audit_rows=$(table_count api_audit)"
+  echo "saved_watchlists=$(table_count saved_watchlists)"
+  echo "signal_snapshots=$(table_count saved_watchlist_signal_snapshots)"
+  echo "workspace_alerts=$(table_count saved_workspace_alerts)"
+  echo "workspace_activity=$(table_count saved_workspace_activity)"
   echo "snapshot_sha256=$(sha256sum "$snapshot" | awk '{print $1}')"
 } > "$manifest"
 
