@@ -5206,6 +5206,124 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         )
         return _html_response("Pro API terms", body)
 
+    @app.get("/pro/onboarding")
+    def static_pro_onboarding():
+        body = """
+<style>
+.onboarding-app{display:grid;gap:14px}
+.onboarding-bar{display:grid;grid-template-columns:minmax(220px,1fr) auto auto;gap:8px;align-items:end;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px}
+.onboarding-bar label{display:grid;gap:5px;color:var(--faint);font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+.onboarding-bar input{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--panel-2);color:var(--text);font:inherit;padding:10px 11px;letter-spacing:0}
+.onboarding-button{border:1px solid var(--line);border-radius:8px;background:var(--panel-2);color:var(--text);font-weight:800;padding:10px 12px;min-height:42px;cursor:pointer}
+.onboarding-button.primary{background:var(--accent);border-color:var(--accent);color:#06140f}
+.onboarding-status{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);color:var(--muted);padding:10px 12px;font-family:var(--mono);font-size:12px;overflow-wrap:anywhere}
+.onboarding-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.onboarding-kpi{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);padding:10px;min-width:0}
+.onboarding-kpi b{display:block;font-family:var(--mono);font-size:18px;line-height:1.1}
+.onboarding-kpi span{display:block;color:var(--faint);font-size:11px;margin-top:4px}
+.onboarding-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
+.onboarding-panel{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px;min-width:0}
+.onboarding-panel h2,.onboarding-panel h3{font-size:18px;margin:0 0 10px}
+.onboarding-list{display:grid;gap:8px}
+.onboarding-row{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);padding:10px;display:grid;gap:7px}
+.onboarding-row h3{font-size:15px;margin:0;overflow-wrap:anywhere}
+.onboarding-row p{margin:0;color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+.onboarding-mini{font-family:var(--mono);font-size:11px;color:var(--faint)}
+.onboarding-empty{color:var(--faint);font-size:13px;margin:0}
+@media(max-width:900px){.onboarding-bar,.onboarding-grid{grid-template-columns:1fr}.onboarding-kpis{grid-template-columns:1fr 1fr}}
+@media(max-width:640px){.onboarding-kpis{grid-template-columns:1fr}}
+</style>
+<section class="doc-hero"><div class="doc-copy"><div class="kicker">Pro onboarding</div>
+<h1>Integration Diagnostic</h1>
+<p class="doc-lede">Validate a scoped Pro API key, inspect available capabilities and copy safe first-call checks before wiring a client workflow.</p></div>
+<aside class="doc-panel"><h3>Credential boundary</h3><p>The token stays in tab session storage and is sent only as an Authorization header. It is never echoed by the diagnostic API.</p>
+<p class="meta">Required base scope: funds:read</p></aside></section>
+<main class="onboarding-app" data-pro-onboarding-app>
+  <section class="onboarding-bar" aria-label="Pro onboarding access">
+    <label>Pro API key <input id="onboardingToken" type="password" autocomplete="off" spellcheck="false" placeholder="13flow_live_..."></label>
+    <button id="onboardingConnect" class="onboarding-button primary" type="button">Connect</button>
+    <button id="onboardingForget" class="onboarding-button" type="button">Forget</button>
+  </section>
+  <div id="onboardingStatus" class="onboarding-status">Disconnected</div>
+  <section class="onboarding-kpis" id="onboardingKpis">
+    <div class="onboarding-kpi"><b>-</b><span>Key</span></div>
+    <div class="onboarding-kpi"><b>-</b><span>Scopes</span></div>
+    <div class="onboarding-kpi"><b>-</b><span>Per minute</span></div>
+    <div class="onboarding-kpi"><b>-</b><span>Workspace</span></div>
+  </section>
+  <section class="onboarding-grid">
+    <section class="onboarding-panel"><h2>Endpoint Checks</h2><div id="onboardingChecks" class="onboarding-list"><p class="onboarding-empty">No diagnostic loaded.</p></div></section>
+    <section class="onboarding-panel"><h2>Next Actions</h2><div id="onboardingActions" class="onboarding-list"><p class="onboarding-empty">No diagnostic loaded.</p></div></section>
+    <section class="onboarding-panel"><h2>Quick Checks</h2><div id="onboardingQuick" class="onboarding-list"><p class="onboarding-empty">No diagnostic loaded.</p></div></section>
+    <section class="onboarding-panel"><h2>Security Boundary</h2><div id="onboardingSecurity" class="onboarding-list"><p class="onboarding-empty">No diagnostic loaded.</p></div></section>
+  </section>
+</main>
+"""
+        script = r"""
+(() => {
+  const TOKEN_KEY = "13flow.pro.onboarding.token";
+  const $ = (id) => document.getElementById(id);
+  const app = document.querySelector("[data-pro-onboarding-app]");
+  if (!app) return;
+  const state = {token: sessionStorage.getItem(TOKEN_KEY) || ""};
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const number = (v) => Number.isFinite(Number(v)) ? String(Number(v)) : "-";
+  const setStatus = (msg, bad=false) => {
+    const node = $("onboardingStatus");
+    node.textContent = msg;
+    node.style.borderColor = bad ? "rgba(239,106,82,.55)" : "var(--line-soft)";
+  };
+  async function onboardingApi() {
+    if (!state.token) throw new Error("Pro API key required");
+    const res = await fetch("/api/pro/v1/onboarding", {headers: {"Authorization": "Bearer " + state.token}});
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || data.detail || ("HTTP " + res.status));
+    return data;
+  }
+  function renderDiagnostic(payload={}) {
+    const key = payload.key || {};
+    const diag = payload.diagnostic || {};
+    const endpoints = payload.endpoints || {};
+    const checks = endpoints.checks || [];
+    const security = payload.security || {};
+    const truth = payload.truth_boundary || {};
+    $("onboardingKpis").innerHTML = [
+      ["Key", key.id || "-"],
+      ["Scopes", (key.scopes || []).length],
+      ["Per minute", key.rate_per_min],
+      ["Workspace", diag.workspace_enabled ? "enabled" : "off"],
+    ].map(([label, value]) => `<div class="onboarding-kpi"><b>${esc(number(value) === "-" ? value : number(value))}</b><span>${esc(label)}</span></div>`).join("");
+    $("onboardingChecks").innerHTML = checks.length ? checks.map((item) => `<article class="onboarding-row">
+      <h3>${esc(item.id)}</h3><p><span class="pill">${esc(item.method)}</span><span class="pill">${esc(item.available ? "available" : "missing scope")}</span><span class="pill">${esc(item.required_scope)}</span></p><p class="onboarding-mini">${esc(item.path)}</p>
+    </article>`).join("") : '<p class="onboarding-empty">No endpoint checks.</p>';
+    $("onboardingActions").innerHTML = (payload.next_actions || []).length ? (payload.next_actions || []).map((item) => `<article class="onboarding-row"><p>${esc(item)}</p></article>`).join("") : '<p class="onboarding-empty">No next action.</p>';
+    $("onboardingQuick").innerHTML = (payload.quick_checks || []).length ? (payload.quick_checks || []).map((item) => `<article class="onboarding-row"><p><code>${esc(item)}</code></p></article>`).join("") : '<p class="onboarding-empty">No quick check.</p>';
+    $("onboardingSecurity").innerHTML = `<article class="onboarding-row"><h3>Credential policy</h3><p><span class="pill">token_echoed:${esc(String(diag.token_echoed))}</span><span class="pill">url_token:${esc(String(security.token_in_url_allowed))}</span></p><p>${esc(security.browser_storage || "")}</p></article>
+      <article class="onboarding-row"><h3>Truth boundary</h3><p>${(truth.not_claimed || []).map((x) => `<span class="pill">${esc(x)}</span>`).join("")}</p><p>${esc(security.audit || "")}</p></article>`;
+    setStatus(`Connected: key ${key.id || "-"} · scopes ${(key.scopes || []).join(", ")} · generated ${(payload.meta || {}).generated_at || "-"}`);
+  }
+  async function refresh() {
+    setStatus("Loading onboarding diagnostic...");
+    renderDiagnostic(await onboardingApi());
+  }
+  $("onboardingToken").value = state.token;
+  $("onboardingConnect").addEventListener("click", async () => {
+    state.token = $("onboardingToken").value.trim();
+    sessionStorage.setItem(TOKEN_KEY, state.token);
+    try { await refresh(); } catch (e) { setStatus(e.message, true); }
+  });
+  $("onboardingForget").addEventListener("click", () => {
+    state.token = "";
+    sessionStorage.removeItem(TOKEN_KEY);
+    $("onboardingToken").value = "";
+    renderDiagnostic({});
+    setStatus("Disconnected");
+  });
+  if (state.token) refresh().catch(() => setStatus("Stored tab key could not authenticate.", true));
+})();
+"""
+        return _html_response("Pro Onboarding", body, script=script)
+
     @app.get("/pro/workspace")
     def static_pro_workspace():
         body = """
@@ -5978,6 +6096,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<a href=\"/validation\">/validation</a> · "
             "<a href=\"/status\">/status</a> · "
             "<a href=\"/api/pro/v1/openapi.json\">Pro OpenAPI</a> · "
+            "<a href=\"/pro/onboarding\">Onboarding diagnostic</a> · "
             "<a href=\"/pro/workspace\">Workspace cockpit</a></p></div>"
             "</div>"
             "<h2>Plans</h2><div class=\"grid\">" + plans + "</div>"

@@ -287,6 +287,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             ("/status", "Evidence status"),
             ("/readiness", "Readiness Checklist"),
             ("/pro", "13FLOW Pro API"),
+            ("/pro/onboarding", "Integration Diagnostic"),
             ("/developers", "MCP tools/list"),
             ("/methodology", "Application methodology"),
             ("/methodology/app", "13F filings are delayed regulatory disclosures"),
@@ -399,6 +400,8 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Quiver Quantitative" in pro_page
         assert "Evidence pack" in pro_page
         assert 'href="/validation"' in pro_page
+        assert 'href="/pro/onboarding"' in pro_page
+        assert "Onboarding diagnostic" in pro_page
         assert 'href="/pro/workspace"' in pro_page
         assert "Workspace cockpit" in pro_page
         assert "Public filings research. Not investment advice." in pro_page
@@ -463,6 +466,19 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "localStorage" not in pro_workspace_page
         assert "?token=" not in pro_workspace_page
         assert "checkout" not in pro_workspace_page.lower()
+
+        pro_onboarding_page = c.get("/pro/onboarding").get_data(as_text=True)
+        assert "Integration Diagnostic" in pro_onboarding_page
+        assert "data-pro-onboarding-app" in pro_onboarding_page
+        assert "13flow.pro.onboarding.token" in pro_onboarding_page
+        assert "/api/pro/v1/onboarding" in pro_onboarding_page
+        assert "sessionStorage" in pro_onboarding_page
+        assert "Authorization" in pro_onboarding_page
+        assert "token_echoed" in pro_onboarding_page
+        assert "token_in_url_allowed" in pro_onboarding_page
+        assert "localStorage" not in pro_onboarding_page
+        assert "?token=" not in pro_onboarding_page
+        assert "checkout" not in pro_onboarding_page.lower()
 
         pro_admin_page = c.get("/pro/admin").get_data(as_text=True)
         assert "Admin Health" in pro_admin_page

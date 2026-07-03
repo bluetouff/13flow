@@ -205,11 +205,30 @@ if fetch "/pro" "$pro_page"; then
     && grep -q "Technical pilot review" "$pro_page" \
     && grep -q "Operator lead kit" "$pro_page" \
     && grep -q "not publicly quoted" "$pro_page" \
+    && grep -q "/pro/onboarding" "$pro_page" \
     && ! grep -q "490 EUR / month" "$pro_page" \
     && ok "/pro offer page" \
     || bad "/pro offer page" "missing Pro API packaging copy"
 else
   bad "/pro offer page" "curl failed"
+fi
+
+pro_onboarding_page="$tmpdir/pro-onboarding.html"
+if fetch "/pro/onboarding" "$pro_onboarding_page"; then
+  grep -q "Integration Diagnostic" "$pro_onboarding_page" \
+    && grep -q "data-pro-onboarding-app" "$pro_onboarding_page" \
+    && grep -q "13flow.pro.onboarding.token" "$pro_onboarding_page" \
+    && grep -q "/api/pro/v1/onboarding" "$pro_onboarding_page" \
+    && grep -q "sessionStorage" "$pro_onboarding_page" \
+    && grep -q "Authorization" "$pro_onboarding_page" \
+    && grep -q "token_echoed" "$pro_onboarding_page" \
+    && grep -q "token_in_url_allowed" "$pro_onboarding_page" \
+    && ! grep -qi "localStorage" "$pro_onboarding_page" \
+    && ! grep -qi "checkout" "$pro_onboarding_page" \
+    && ok "/pro/onboarding diagnostic page" \
+    || bad "/pro/onboarding diagnostic page" "missing onboarding diagnostic contract"
+else
+  bad "/pro/onboarding diagnostic page" "curl failed"
 fi
 
 pro_workspace_page="$tmpdir/pro-workspace.html"
