@@ -4599,7 +4599,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 .workspace-row-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .workspace-row h3{font-size:15px;margin:0;overflow-wrap:anywhere}
 .workspace-row p{margin:0;color:var(--muted);font-size:13px}
-.workspace-actions{display:flex;gap:6px;flex-wrap:wrap}
+.workspace-actions,.workspace-toolbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.workspace-toolbar{justify-content:space-between;margin-bottom:10px}
+.workspace-toolbar select{border:1px solid var(--line);border-radius:8px;background:var(--panel-2);color:var(--text);font:inherit;padding:10px 11px}
 .workspace-mini{font-family:var(--mono);font-size:11px;color:var(--faint)}
 .workspace-table{display:block;overflow:auto;border-radius:8px}
 .workspace-table table{min-width:760px}
@@ -4664,7 +4666,11 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         <div id="workspaceSignals" class="workspace-table"><p class="workspace-empty">Select a watchlist.</p></div>
       </section>
       <section class="workspace-panel">
-        <h2>Alerts</h2>
+        <div class="workspace-toolbar"><h2>Alerts</h2><div class="workspace-actions">
+          <select id="workspaceAlertStatus"><option value="open">Open</option><option value="acknowledged">Ack</option><option value="dismissed">Dismissed</option><option value="all">All</option></select>
+          <button id="workspaceAckAll" class="workspace-button" type="button">Ack visible</button>
+          <button id="workspaceDismissAll" class="workspace-button warn" type="button">Dismiss visible</button>
+        </div></div>
         <div id="workspaceAlerts" class="workspace-table"><p class="workspace-empty">No alerts loaded.</p></div>
       </section>
       <section class="workspace-panel">
@@ -4685,7 +4691,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
   const $ = (id) => document.getElementById(id);
   const app = document.querySelector("[data-pro-workspace-app]");
   if (!app) return;
-  const state = {token: sessionStorage.getItem(TOKEN_KEY) || "", selectedId: "", editingId: "", watchlists: []};
+  const state = {token: sessionStorage.getItem(TOKEN_KEY) || "", selectedId: "", editingId: "", watchlists: [], alerts: [], alertStatus: "open"};
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const setStatus = (msg, bad=false) => {
     const node = $("workspaceStatus");
@@ -4762,14 +4768,21 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
       return `<tr><td><a href="/stocks/${esc(item.ticker)}">${esc(item.ticker)}</a></td><td><span class="pill">${esc(item.action)}</span></td><td class="num">${esc(score)}</td><td>${esc(moves)}</td><td>${esc(triggers)}</td></tr>`;
     }).join("")}</tbody></table><p class="workspace-mini">returned=${esc(meta.returned_count || items.length)} filtered=${esc(meta.filtered_count || items.length)}</p>`;
   }
-  function renderAlerts(items=[]) {
+  function renderAlerts(items=[], summary={}) {
+    state.alerts = items;
+    const byStatus = summary.by_status || {};
     if (!items.length) {
-      $("workspaceAlerts").innerHTML = '<p class="workspace-empty">No alert.</p>';
+      $("workspaceAlerts").innerHTML = `<p class="workspace-empty">No ${esc(state.alertStatus)} alert.</p>`;
       return;
     }
-    $("workspaceAlerts").innerHTML = `<table><thead><tr><th>Ticker</th><th>Status</th><th>Action</th><th>Seen</th><th></th></tr></thead><tbody>${items.map((a) => `<tr>
-      <td><a href="/stocks/${esc(a.ticker)}">${esc(a.ticker)}</a></td><td><span class="pill">${esc(a.status)}</span></td><td>${esc(a.action)}</td><td class="workspace-mini">${esc(a.last_seen_at)}</td>
-      <td><button class="workspace-button" type="button" data-alert="${esc(a.id)}" data-status="${a.status === "acknowledged" ? "open" : "acknowledged"}">${a.status === "acknowledged" ? "Reopen" : "Ack"}</button></td>
+    $("workspaceAlerts").innerHTML = `<p class="workspace-mini">open=${esc(number(byStatus.open))} ack=${esc(number(byStatus.acknowledged))} dismissed=${esc(number(byStatus.dismissed))}</p>
+      <table><thead><tr><th>Ticker</th><th>Priority</th><th>Status</th><th>Action</th><th>Seen</th><th></th></tr></thead><tbody>${items.map((a) => `<tr>
+      <td><a href="/stocks/${esc(a.ticker)}">${esc(a.ticker)}</a></td><td class="num">${esc(a.severity)}</td><td><span class="pill">${esc(a.status)}</span></td><td>${esc(a.action)}</td><td class="workspace-mini">${esc(a.last_seen_at)}</td>
+      <td><div class="workspace-actions">
+        <button class="workspace-button" type="button" data-alert="${esc(a.id)}" data-status="acknowledged">Ack</button>
+        <button class="workspace-button warn" type="button" data-alert="${esc(a.id)}" data-status="dismissed">Dismiss</button>
+        <button class="workspace-button" type="button" data-alert="${esc(a.id)}" data-status="open">Reopen</button>
+      </div></td>
     </tr>`).join("")}</tbody></table>`;
   }
   function renderActivity(items=[]) {
@@ -4803,10 +4816,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     setStatus("Loading workspace...");
     const status = await api("/status");
     const overview = await api("/workspace/overview");
-    const alerts = await api("/workspace/alerts?status=all&limit=50");
+    const alerts = await api(`/workspace/alerts?status=${encodeURIComponent(state.alertStatus)}&limit=50`);
     renderKpis(overview.summary || {});
     renderWatchlists(overview.watchlists || []);
-    renderAlerts(alerts.alerts || []);
+    renderAlerts(alerts.alerts || [], alerts.summary || {});
     renderActivity(overview.recent_activity || []);
     await loadSelected();
     const limits = status.workspace_limits || {};
@@ -4911,6 +4924,21 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
   $("workspaceRefresh").addEventListener("click", () => refreshAll().catch((e) => setStatus(e.message, true)));
   $("workspaceSnapshot").addEventListener("click", () => snapshot().catch((e) => setStatus(e.message, true)));
   $("workspaceCancelEdit").addEventListener("click", resetForm);
+  $("workspaceAlertStatus").addEventListener("change", (event) => {
+    state.alertStatus = event.target.value;
+    refreshAll().catch((e) => setStatus(e.message, true));
+  });
+  async function updateVisibleAlerts(status) {
+    const ids = state.alerts.map((a) => a.id).filter(Boolean).slice(0, 50);
+    if (!ids.length) return;
+    setStatus(`Updating ${ids.length} alert(s)...`);
+    for (const id of ids) {
+      await api(`/workspace/alerts/${id}`, {method: "PATCH", body: JSON.stringify({status})});
+    }
+    await refreshAll();
+  }
+  $("workspaceAckAll").addEventListener("click", () => updateVisibleAlerts("acknowledged").catch((e) => setStatus(e.message, true)));
+  $("workspaceDismissAll").addEventListener("click", () => updateVisibleAlerts("dismissed").catch((e) => setStatus(e.message, true)));
   $("workspaceCreate").addEventListener("submit", async (event) => {
     event.preventDefault();
     try {

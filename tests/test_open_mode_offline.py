@@ -398,9 +398,17 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Bearer " in pro_workspace_page
         assert "/api/pro/v1\" + path" in pro_workspace_page
         assert "api(\"/workspace/overview\")" in pro_workspace_page
-        assert "api(\"/workspace/alerts?status=all&limit=50\")" in pro_workspace_page
+        assert "workspaceAlertStatus" in pro_workspace_page
+        assert "Ack visible" in pro_workspace_page
+        assert "Dismiss visible" in pro_workspace_page
+        assert "workspaceAckAll" in pro_workspace_page
+        assert "workspaceDismissAll" in pro_workspace_page
+        assert "status=${encodeURIComponent(state.alertStatus)}&limit=50" in pro_workspace_page
+        assert "updateVisibleAlerts(\"acknowledged\")" in pro_workspace_page
+        assert "updateVisibleAlerts(\"dismissed\")" in pro_workspace_page
         assert "api(\"/workspace/watchlists\"" in pro_workspace_page
         assert "method: \"PUT\"" in pro_workspace_page
+        assert "method: \"PATCH\"" in pro_workspace_page
         assert "alert_policy: {enabled: alertEnabled" in pro_workspace_page
         assert "/signals/snapshot" in pro_workspace_page
         assert "/delete" in pro_workspace_page
