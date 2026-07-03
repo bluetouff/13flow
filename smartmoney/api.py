@@ -2498,6 +2498,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             for name, desc in tools
         )
         curl_status = (
+            "curl -fsS https://13flow.eu/status\n"
             "curl -fsS https://13flow.eu/api/live-status\n"
             "curl -fsS https://13flow.eu/api/product-status\n"
             "curl -fsS https://13flow.eu/api/pro-offer"
@@ -2513,6 +2514,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<p class=\"lede\">Public read-only API and MCP entry points for source-linked SEC 13F context. "
             "Pro access is operator-issued and must fail closed without a valid credential or paid settlement.</p>"
             "<div class=\"grid\">"
+            "<div class=\"card\"><h3>Status</h3><p><a href=\"/status\">/status</a></p>"
+            "<p class=\"meta\">Human-readable deployed SHA, live state and validation boundary.</p></div>"
             "<div class=\"card\"><h3>Public API</h3><p><a href=\"/api/openapi.json\">/api/openapi.json</a></p>"
             "<p class=\"meta\">No browser account, no cookies, no checkout required for open endpoints.</p></div>"
             "<div class=\"card\"><h3>Pro API</h3><p><a href=\"/api/pro/v1/openapi.json\">/api/pro/v1/openapi.json</a></p>"
@@ -2647,6 +2650,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<div class=\"card\"><h3>Verification</h3>"
             "<p><a href=\"/api/pro-offer\">/api/pro-offer</a> · "
             "<a href=\"/api/product-status\">/api/product-status</a> · "
+            "<a href=\"/status\">/status</a> · "
             "<a href=\"/api/pro/v1/openapi.json\">Pro OpenAPI</a></p></div>"
             "</div>"
             "<h2>Plans</h2><div class=\"grid\">" + plans + "</div>"

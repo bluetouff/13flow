@@ -313,6 +313,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Public filings research. Not investment advice." in pro_page
         assert 'href="/developers"' in pro_page
         assert 'href="/api/live-status"' in pro_page
+        assert 'href="/status"' in pro_page
 
         status_page = c.get("/status").get_data(as_text=True)
         assert "Use this page to distinguish deployed production state" in status_page
@@ -325,6 +326,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Public filings research. Not investment advice." in status_page
 
         developers = c.get("/developers").get_data(as_text=True)
+        assert "/status" in developers
         assert "/api/openapi.json" in developers
         assert "/api/pro/v1/openapi.json" in developers
         assert "Pro tools are intentionally visible" in developers
