@@ -177,8 +177,10 @@ def test_pro_watchlist_feed_uses_ticker_flow(monkeypatch):
         assert payload["watchlist"]["metadata"]["version"] == "watchlist_discovery_v1"
         assert payload["watchlist"]["metadata"]["human_review_required_for_routine_publication"] is False
         assert payload["watchlist"]["metadata"]["quality_gate"]["trusted_funds"] == 2
+        assert "quality_gate_detail" in payload["watchlist"]["metadata"]
         discovered = {item["ticker"] for item in payload["watchlist"]["items"]}
         assert {"AAPL", "MSFT"} <= discovered
+        assert all("excluded_funds" not in item["quality_gate"] for item in payload["watchlist"]["items"])
 
 
 def test_pro_api_rate_limit_is_persistent(monkeypatch):

@@ -1580,6 +1580,13 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "candidate_scan_limit": candidate_limit,
                     "returned_count": 0,
                     "quality_gate": gate.get("summary", {}),
+                    "quality_gate_detail": {
+                        "policy": gate.get("policy", {}),
+                        "excluded_funds": [
+                            d for d in gate.get("funds", [])
+                            if not d.get("signal_eligible")
+                        ][:25],
+                    },
                 },
                 "summary": {"alerts": 0, "watch": 0, "monitor": 0, "blocked": 0},
                 "items": [],
@@ -1644,6 +1651,13 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             previous_by_key[(row["cik"], row["ticker"])] = row
 
         excluded_funds = [d for d in gate.get("funds", []) if not d.get("signal_eligible")]
+        gate_summary = gate.get("summary", {})
+        item_gate = {
+            "status": gate_summary.get("status"),
+            "trusted_funds": gate_summary.get("trusted_funds"),
+            "signal_eligible_funds": gate_summary.get("signal_eligible_funds"),
+            "excluded_funds_count": len(excluded_funds),
+        }
         items = []
         for ticker, candidate in candidate_by_ticker.items():
             holders = current_by_ticker.get(ticker, [])
@@ -1716,11 +1730,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "confidence": confidence,
                 "latest_13f_quarter": latest,
                 "movement_summary": summary,
-                "quality_gate": {
-                    "summary": gate.get("summary", {}),
-                    "policy": gate.get("policy", {}),
-                    "excluded_funds": excluded_funds[:25],
-                },
+                "quality_gate": item_gate,
                 "top_movements": movements[:8],
                 "links": {
                     "api": f"/api/stocks/{ticker}",
@@ -1747,7 +1757,11 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "candidate_count": len(candidates),
                 "candidate_scan_limit": candidate_limit,
                 "returned_count": len(items),
-                "quality_gate": gate.get("summary", {}),
+                "quality_gate": gate_summary,
+                "quality_gate_detail": {
+                    "policy": gate.get("policy", {}),
+                    "excluded_funds": excluded_funds[:25],
+                },
             },
             "summary": {
                 "alerts": len([i for i in items if i["action"] == "alert"]),

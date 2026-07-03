@@ -556,9 +556,11 @@ def test_ticker_flow_payload_explains_quarter_moves_and_confidence():
         assert discovery["metadata"]["source"] == "trusted_ticker_flow"
         assert discovery["metadata"]["returned_count"] <= 5
         assert discovery["metadata"]["quality_gate"]["trusted_funds"] == 3
+        assert "quality_gate_detail" in discovery["metadata"]
         discovered = {item["ticker"] for item in discovery["items"]}
         assert {"AAPL", "MSFT"} <= discovered
         assert all("discovery" in item for item in discovery["items"])
+        assert all("excluded_funds" not in item["quality_gate"] for item in discovery["items"])
 
 
 def test_ticker_flow_uses_trusted_universe_and_exposes_automatic_exclusions():
