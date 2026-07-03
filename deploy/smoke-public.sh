@@ -198,6 +198,21 @@ else
   bad "/pro offer page" "curl failed"
 fi
 
+pro_workspace_page="$tmpdir/pro-workspace.html"
+if fetch "/pro/workspace" "$pro_workspace_page"; then
+  grep -q "Workspace Cockpit" "$pro_workspace_page" \
+    && grep -q "data-pro-workspace-app" "$pro_workspace_page" \
+    && grep -q "sessionStorage" "$pro_workspace_page" \
+    && grep -q "workspace/overview" "$pro_workspace_page" \
+    && grep -q "workspace/alerts?status=all&limit=50" "$pro_workspace_page" \
+    && ! grep -qi "localStorage" "$pro_workspace_page" \
+    && ! grep -qi "checkout" "$pro_workspace_page" \
+    && ok "/pro/workspace cockpit page" \
+    || bad "/pro/workspace cockpit page" "missing workspace cockpit contract"
+else
+  bad "/pro/workspace cockpit page" "curl failed"
+fi
+
 version="$tmpdir/version.json"
 if fetch "/api/version" "$version"; then
   json_check "/api/version contract" "$version" "

@@ -3948,7 +3948,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         )
         return resp
 
-    def _html_response(title: str, body: str) -> Response:
+    def _html_response(title: str, body: str, script: str = "") -> Response:
         nonce = secrets.token_urlsafe(16)
         nav = (
             '<nav class="topnav"><a class="brand" href="/">13<span>FL</span><b>OW</b></a>'
@@ -3972,6 +3972,11 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             '</div><div class="fine"><span>Public filings research. Not investment advice.</span>'
             '<span>Built by <a href="https://l0g.fr/" rel="noopener">l0g</a> · Source: SEC EDGAR · LIVE state exposed at /api/live-status</span></div></footer>'
         )
+        script_tag = (
+            f'<script nonce="{nonce}">{script}</script>'
+            if script
+            else f'<script nonce="{nonce}"></script>'
+        )
         html = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html_escape(title)} · 13FLOW</title><link href="/assets/fonts/13flow-fonts.css" rel="stylesheet">
@@ -3980,7 +3985,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 *{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.55;letter-spacing:0;background-image:linear-gradient(180deg,rgba(255,255,255,.025),transparent 420px)}}a{{color:var(--accent);text-decoration:none}}
 .wrap{{max-width:1180px;margin:0 auto;padding:22px 24px 0}}.topnav{{position:sticky;top:0;z-index:10;display:flex;gap:18px;align-items:center;margin:0 -24px 34px;padding:14px 24px;border-bottom:1px solid var(--line);background:rgba(12,22,17,.92);backdrop-filter:blur(14px)}}.navlinks{{display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-left:auto}}.navlinks a{{color:var(--muted);font-weight:650;font-size:13px;padding:7px 10px;border-radius:8px}}.navlinks a:hover{{color:var(--text);background:var(--panel-2)}}.navlinks a.primary{{color:#06140f;background:var(--accent)}}.brand{{font-family:var(--display);font-size:24px;font-weight:800;color:var(--text);margin-right:auto;letter-spacing:0}}.brand span{{color:var(--accent)}}.brand b{{color:var(--amber)}}h1{{font-family:var(--display);font-size:44px;line-height:1.02;margin:0 0 10px;letter-spacing:0}}h2,h3{{font-family:var(--display);letter-spacing:0}}.lede{{color:var(--muted);max-width:780px;margin:0 0 24px;font-size:16px}}.hero{{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr);gap:18px;align-items:stretch;margin-bottom:18px}}.hero .panel{{min-height:100%}}.kicker{{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}}.actions{{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}}.grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}}.card,.panel{{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px}}.card{{display:block;color:var(--text)}}.card:hover{{border-color:var(--accent);background:var(--panel-2)}}.card h2,.card h3{{margin:0 0 6px}}.card p,.panel p,.panel li{{color:var(--muted)}}.card a,.panel a,code{{overflow-wrap:anywhere}}.panel,.meta{{overflow-wrap:anywhere;word-break:break-word}}.meta,.num{{font-family:var(--mono)}}.meta{{font-size:12px;color:var(--faint)}}.num{{font-size:13px}}pre{{white-space:pre-wrap;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:14px;overflow:auto}}code{{font-family:var(--mono)}}table{{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}}th,td{{padding:11px 13px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}}th:first-child,td:first-child{{text-align:left}}th{{font-family:var(--mono);font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em}}td{{font-size:14px}}.pill{{display:inline-block;max-width:100%;border:1px solid var(--line);border-radius:8px;padding:5px 9px;font-family:var(--mono);font-size:11px;color:var(--muted);margin:2px 5px 2px 0;overflow-wrap:anywhere;word-break:break-word;white-space:normal}}a.pill,.pill.cta{{color:#06140f;background:var(--accent);border-color:var(--accent);font-weight:700}}.sec{{font-family:var(--mono);font-size:11px}}.status-strip{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:18px}}.status-strip div{{border:1px solid var(--line);border-radius:8px;background:var(--panel-2);padding:12px}}.home-hero{{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);gap:26px;align-items:center;margin:8px 0 20px;min-height:520px}}.home-copy{{padding:20px 0 28px}}.home-eyebrow{{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}}.home-eyebrow span{{font-family:var(--mono);font-size:11px;color:var(--muted);border:1px solid var(--line);background:var(--panel-2);border-radius:8px;padding:6px 9px}}.home-copy h1,.home-title{{font-family:var(--display);font-size:72px;line-height:.92;margin:0 0 18px;letter-spacing:0;max-width:760px;overflow-wrap:anywhere}}.home-title .mark{{color:var(--accent)}}.home-lede{{font-size:20px;line-height:1.48;color:var(--muted);max-width:660px;margin:0}}.home-proof{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:26px;max-width:720px}}.proof-item{{border-top:1px solid var(--line);padding-top:11px}}.proof-item b{{display:block;font-family:var(--mono);font-size:22px;line-height:1.1;color:var(--text)}}.proof-item span{{display:block;font-size:12px;color:var(--faint);margin-top:4px}}.home-actions{{display:flex;flex-wrap:wrap;gap:10px;margin-top:28px}}.home-actions .button{{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:8px;padding:10px 14px;font-weight:800;color:#06140f;background:var(--accent);border:1px solid var(--accent)}}.home-actions .button.secondary{{background:transparent;color:var(--text);border-color:var(--line)}}.home-actions .button.secondary:hover{{border-color:var(--accent);color:var(--accent)}}.cockpit-shot{{border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,var(--panel),var(--panel-3));box-shadow:0 28px 70px -34px rgba(0,0,0,.85);overflow:hidden}}.shot-top{{display:flex;justify-content:space-between;gap:12px;align-items:center;border-bottom:1px solid var(--line);padding:14px 16px}}.shot-title{{font-family:var(--display);font-weight:800;font-size:17px}}.shot-live{{font-family:var(--mono);font-size:10px;color:var(--accent);border:1px solid rgba(25,193,135,.32);border-radius:8px;padding:5px 8px;background:rgba(25,193,135,.08)}}.shot-grid{{display:grid;grid-template-columns:1.1fr .9fr;gap:1px;background:var(--line)}}.quadrant{{background:var(--panel);padding:18px;min-height:284px;position:relative}}.axis{{position:absolute;font-family:var(--mono);font-size:10px;color:var(--faint)}}.axis.x{{bottom:12px;left:18px;right:18px;display:flex;justify-content:space-between}}.axis.y{{top:18px;right:16px}}.bubble{{position:absolute;width:54px;height:54px;border-radius:50%;display:grid;place-items:center;font-family:var(--mono);font-size:11px;font-weight:800;color:#06140f;background:var(--accent);box-shadow:0 0 0 8px rgba(25,193,135,.08)}}.bubble.b2{{width:42px;height:42px;left:54%;top:24%;background:var(--amber)}}.bubble.b1{{left:66%;top:44%}}.bubble.b3{{width:36px;height:36px;left:31%;top:54%;background:#7fb89d;color:#081310}}.watchlist{{background:var(--panel);padding:16px}}.watch-row{{display:grid;grid-template-columns:52px 1fr auto;gap:10px;align-items:center;border-bottom:1px solid var(--line-soft);padding:10px 0}}.watch-row:last-child{{border-bottom:0}}.watch-row b{{font-family:var(--mono);font-size:12px;color:var(--accent)}}.watch-row span{{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.watch-row i{{font-family:var(--mono);font-style:normal;font-size:11px;color:var(--faint)}}.trust-band{{display:grid;grid-template-columns:1.1fr repeat(3,.8fr);gap:10px;margin:18px 0 26px}}.trust-band div{{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px}}.trust-band b{{display:block;font-family:var(--mono);font-size:13px;color:var(--text)}}.trust-band span{{display:block;color:var(--muted);font-size:12px;margin-top:5px}}.section-head{{display:flex;justify-content:space-between;gap:18px;align-items:end;margin:34px 0 14px}}.section-head h2{{font-size:28px;line-height:1.05;margin:0}}.section-head p{{margin:0;color:var(--muted);max-width:520px}}.journey{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}}.journey .step{{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:18px;display:block;color:var(--text)}}.journey .step:hover{{border-color:var(--accent);background:var(--panel-2)}}.step .n{{font-family:var(--mono);font-size:11px;color:var(--accent);margin-bottom:10px}}.step h3{{font-size:19px;margin:0 0 8px}}.step p{{margin:0;color:var(--muted)}}.boundary{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}}.boundary .panel h3{{margin-top:0}}.boundary ul{{padding-left:18px;margin:0}}.doc-hero{{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(300px,.9fr);gap:18px;align-items:stretch;margin:8px 0 18px}}.doc-hero>*,.doc-copy,.doc-panel,.doc-section,.doc-card,.runstep{{min-width:0}}.doc-copy{{padding:18px 0}}.doc-copy h1{{font-size:58px;line-height:.96;margin-bottom:14px;overflow-wrap:anywhere}}.doc-lede{{font-size:19px;line-height:1.5;color:var(--muted);max-width:720px;margin:0}}.doc-panel{{border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,var(--panel),var(--panel-3));padding:18px;box-shadow:0 24px 58px -36px rgba(0,0,0,.75);overflow-wrap:anywhere}}.doc-panel h3{{margin:0 0 12px;font-size:18px}}.doc-metrics{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:18px 0 24px}}.doc-metric{{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px;min-width:0}}.doc-metric b{{display:block;font-family:var(--mono);font-size:21px;color:var(--text);line-height:1.1;overflow-wrap:anywhere}}.doc-metric span{{display:block;color:var(--faint);font-size:12px;margin-top:6px}}.doc-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}}.doc-card{{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:18px;display:block;color:var(--text)}}.doc-card:hover{{border-color:var(--accent);background:var(--panel-2)}}.doc-card h3{{margin:0 0 8px;font-size:19px}}.doc-card p{{margin:0;color:var(--muted)}}.doc-section{{margin-top:18px;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:20px;overflow-wrap:anywhere}}.doc-section h2{{font-size:24px;margin:0 0 10px}}.doc-section p{{color:var(--muted)}}.doc-section ul{{margin:10px 0 0;padding-left:19px}}.doc-section li{{margin:7px 0}}.runbook{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}}.runstep{{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);padding:14px}}.runstep b{{display:block;font-family:var(--mono);font-size:11px;color:var(--accent);margin-bottom:8px}}.runstep span{{display:block;color:var(--muted);font-size:13px}}.callout{{border-left:3px solid var(--accent);background:var(--panel-2);border-radius:8px;padding:14px 16px;color:var(--muted)}}.callout strong{{color:var(--text)}}.split{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}}.mini-list{{display:grid;gap:8px;margin-top:12px}}.mini-list div{{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);padding:11px 12px;color:var(--muted)}}.mini-list b{{color:var(--text)}}.site-footer{{margin-top:46px;border-top:1px solid var(--line);padding:28px 0 34px;color:var(--muted)}}.foot-grid{{display:grid;grid-template-columns:1.4fr repeat(3,1fr);gap:26px}}.site-footer h4{{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin:0 0 10px}}.site-footer p{{margin:0;color:var(--muted);font-size:13px;line-height:1.55;max-width:38ch}}.site-footer a{{display:block;color:var(--text);font-weight:600;font-size:13px;margin:7px 0}}.site-footer a:hover{{color:var(--accent)}}.fine{{border-top:1px solid var(--line-soft);margin-top:24px;padding-top:16px;display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--faint)}}@media(max-width:980px){{.home-hero,.doc-hero{{grid-template-columns:minmax(0,1fr);min-height:0}}.trust-band,.doc-metrics{{grid-template-columns:1fr 1fr}}.journey,.doc-grid{{grid-template-columns:1fr}}.boundary,.split{{grid-template-columns:1fr}}.runbook{{grid-template-columns:1fr 1fr}}}}@media(max-width:860px){{.hero{{grid-template-columns:1fr}}.status-strip{{grid-template-columns:1fr}}.home-proof{{grid-template-columns:1fr 1fr}}.shot-grid{{grid-template-columns:1fr}}.quadrant{{min-height:240px}}}}@media(max-width:760px){{.wrap{{padding:0 16px}}.topnav{{position:relative;display:block;margin:0 -16px 22px;padding:12px 16px}}.brand{{display:block;margin:0 0 10px}}.navlinks{{margin-left:0;display:flex;flex-wrap:nowrap;overflow-x:auto;gap:6px;padding-bottom:4px}}.navlinks a{{white-space:nowrap;flex:0 0 auto}}.foot-grid{{grid-template-columns:1fr}}h1{{font-size:34px}}.home-copy{{padding:4px 0 20px}}.home-copy h1,.home-title,.doc-copy h1{{font-size:48px}}.home-lede,.doc-lede{{font-size:17px;line-height:1.42}}.home-proof{{grid-template-columns:1fr 1fr;margin-top:20px}}.trust-band,.doc-metrics{{grid-template-columns:1fr}}.home-actions{{margin-top:20px}}.home-actions .button{{flex:1 1 155px}}.cockpit-shot{{margin-top:4px}}.runbook{{grid-template-columns:1fr}}table{{display:block;overflow-x:auto}}}}
 .fine a{{display:inline;margin:0;font-size:inherit;color:var(--muted)}}
-</style></head><body><div class="wrap">{nav}{body}{footer}</div><script nonce="{nonce}"></script></body></html>"""
+</style></head><body><div class="wrap">{nav}{body}{footer}</div>{script_tag}</body></html>"""
         resp = Response(html, mimetype="text/html; charset=utf-8")
         resp.headers["Content-Security-Policy"] = (
             "default-src 'none'; "
@@ -4566,6 +4571,308 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         )
         return _html_response("Pro API terms", body)
 
+    @app.get("/pro/workspace")
+    def static_pro_workspace():
+        body = """
+<style>
+.workspace-app{display:grid;gap:14px}
+.workspace-bar{display:grid;grid-template-columns:minmax(220px,1fr) auto auto;gap:8px;align-items:end;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px}
+.workspace-bar label,.workspace-form label{display:grid;gap:5px;color:var(--faint);font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+.workspace-bar input,.workspace-form input,.workspace-form select,.workspace-form textarea{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--panel-2);color:var(--text);font:inherit;padding:10px 11px;letter-spacing:0}
+.workspace-form textarea{min-height:72px;resize:vertical}
+.workspace-button{border:1px solid var(--line);border-radius:8px;background:var(--panel-2);color:var(--text);font-weight:800;padding:10px 12px;min-height:42px;cursor:pointer}
+.workspace-button.primary{background:var(--accent);border-color:var(--accent);color:#06140f}
+.workspace-button.warn{border-color:rgba(239,106,82,.45);color:#ffd4cc}
+.workspace-button:disabled{opacity:.55;cursor:not-allowed}
+.workspace-status{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);color:var(--muted);padding:10px 12px;font-family:var(--mono);font-size:12px;overflow-wrap:anywhere}
+.workspace-grid{display:grid;grid-template-columns:minmax(260px,.82fr) minmax(0,1.18fr);gap:12px;align-items:start}
+.workspace-stack{display:grid;gap:12px}
+.workspace-panel{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px;min-width:0}
+.workspace-panel h2,.workspace-panel h3{font-size:18px;margin:0 0 10px}
+.workspace-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.workspace-kpi{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);padding:10px;min-width:0}
+.workspace-kpi b{display:block;font-family:var(--mono);font-size:18px;line-height:1.1}
+.workspace-kpi span{display:block;color:var(--faint);font-size:11px;margin-top:4px}
+.workspace-list{display:grid;gap:8px}
+.workspace-row{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);padding:10px;display:grid;gap:7px}
+.workspace-row.active{border-color:var(--accent)}
+.workspace-row-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.workspace-row h3{font-size:15px;margin:0;overflow-wrap:anywhere}
+.workspace-row p{margin:0;color:var(--muted);font-size:13px}
+.workspace-actions{display:flex;gap:6px;flex-wrap:wrap}
+.workspace-mini{font-family:var(--mono);font-size:11px;color:var(--faint)}
+.workspace-table{display:block;overflow:auto;border-radius:8px}
+.workspace-table table{min-width:760px}
+.workspace-empty{color:var(--faint);font-size:13px;margin:0}
+.workspace-form{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.workspace-form .wide{grid-column:1/-1}
+.workspace-form .actions{grid-column:1/-1;margin:0}
+@media(max-width:980px){.workspace-grid,.workspace-bar{grid-template-columns:1fr}.workspace-kpis{grid-template-columns:1fr 1fr}.workspace-form{grid-template-columns:1fr}}
+@media(max-width:700px){.workspace-kpis{grid-template-columns:1fr}}
+</style>
+<section class="doc-hero"><div class="doc-copy"><div class="kicker">Pro workspace</div>
+<h1>Workspace Cockpit</h1>
+<p class="doc-lede">Saved watchlists, ticker-flow alerts, signal snapshots and recent activity for a scoped Pro API key.</p></div>
+<aside class="doc-panel"><h3>Access boundary</h3><p>Browser data loads only after a valid Pro key is entered. The key is kept in tab session storage and is never sent in the URL.</p>
+<p class="meta">Required scopes: funds:read workspace:write</p></aside></section>
+<main class="workspace-app" data-pro-workspace-app>
+  <section class="workspace-bar" aria-label="Pro workspace access">
+    <label>API key <input id="workspaceToken" type="password" autocomplete="off" spellcheck="false" placeholder="13flow_live_..."></label>
+    <button id="workspaceConnect" class="workspace-button primary" type="button">Connect</button>
+    <button id="workspaceForget" class="workspace-button" type="button">Forget</button>
+  </section>
+  <div id="workspaceStatus" class="workspace-status">Disconnected</div>
+  <section class="workspace-kpis" id="workspaceKpis">
+    <div class="workspace-kpi"><b>-</b><span>Watchlists</span></div>
+    <div class="workspace-kpi"><b>-</b><span>Open alerts</span></div>
+    <div class="workspace-kpi"><b>-</b><span>Snapshots</span></div>
+    <div class="workspace-kpi"><b>-</b><span>Activity events</span></div>
+  </section>
+  <section class="workspace-grid">
+    <div class="workspace-stack">
+      <section class="workspace-panel">
+        <h2>Watchlists</h2>
+        <div id="workspaceWatchlists" class="workspace-list"><p class="workspace-empty">No data loaded.</p></div>
+      </section>
+      <section class="workspace-panel">
+        <h2>Create Watchlist</h2>
+        <form id="workspaceCreate" class="workspace-form">
+          <label>Name <input name="name" maxlength="80" required placeholder="Core tech monitor"></label>
+          <label>Tickers <input name="tickers" required placeholder="AAPL, MSFT, NVDA"></label>
+          <label>Action <select name="action"><option value="">Any</option><option value="alert">Alert</option><option value="watch">Watch</option><option value="monitor">Monitor</option></select></label>
+          <label>Min score <input name="min_score" inputmode="decimal" placeholder="30"></label>
+          <label class="wide">Move filters <input name="move" placeholder="NEW, ADD"></label>
+          <label class="wide">Notes <textarea name="notes" maxlength="1000"></textarea></label>
+          <div class="actions"><button class="workspace-button primary" type="submit">Create</button></div>
+        </form>
+      </section>
+    </div>
+    <div class="workspace-stack">
+      <section class="workspace-panel">
+        <div class="workspace-row-top"><h2 id="workspaceSelectedTitle">Signals</h2><div class="workspace-actions">
+          <button id="workspaceSnapshot" class="workspace-button primary" type="button" disabled>Snapshot</button>
+          <button id="workspaceRefresh" class="workspace-button" type="button">Refresh</button>
+        </div></div>
+        <div id="workspaceSignals" class="workspace-table"><p class="workspace-empty">Select a watchlist.</p></div>
+      </section>
+      <section class="workspace-panel">
+        <h2>Alerts</h2>
+        <div id="workspaceAlerts" class="workspace-table"><p class="workspace-empty">No alerts loaded.</p></div>
+      </section>
+      <section class="workspace-panel">
+        <h2>History</h2>
+        <div id="workspaceHistory" class="workspace-table"><p class="workspace-empty">No history loaded.</p></div>
+      </section>
+      <section class="workspace-panel">
+        <h2>Activity</h2>
+        <div id="workspaceActivity" class="workspace-list"><p class="workspace-empty">No activity loaded.</p></div>
+      </section>
+    </div>
+  </section>
+</main>
+"""
+        script = r"""
+(() => {
+  const TOKEN_KEY = "13flow.pro.workspace.token";
+  const $ = (id) => document.getElementById(id);
+  const app = document.querySelector("[data-pro-workspace-app]");
+  if (!app) return;
+  const state = {token: sessionStorage.getItem(TOKEN_KEY) || "", selectedId: "", watchlists: []};
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const setStatus = (msg, bad=false) => {
+    const node = $("workspaceStatus");
+    node.textContent = msg;
+    node.style.borderColor = bad ? "rgba(239,106,82,.55)" : "var(--line-soft)";
+  };
+  const number = (v) => Number.isFinite(Number(v)) ? String(Number(v)) : "-";
+  async function api(path, options={}) {
+    if (!state.token) throw new Error("API key required");
+    const headers = Object.assign({"Authorization": "Bearer " + state.token}, options.headers || {});
+    if (options.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+    const res = await fetch("/api/pro/v1" + path, Object.assign({}, options, {headers}));
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || data.detail || ("HTTP " + res.status));
+    return data;
+  }
+  function renderKpis(summary={}) {
+    const alerts = (summary.alerts || {}).by_status || {};
+    $("workspaceKpis").innerHTML = [
+      ["Watchlists", summary.watchlists],
+      ["Open alerts", alerts.open],
+      ["Snapshots", summary.signal_snapshots],
+      ["Activity events", summary.activity_events],
+    ].map(([label, value]) => `<div class="workspace-kpi"><b>${esc(number(value))}</b><span>${esc(label)}</span></div>`).join("");
+  }
+  function renderWatchlists(items=[]) {
+    state.watchlists = items;
+    if (!state.selectedId && items[0]) state.selectedId = items[0].id;
+    if (!items.length) {
+      $("workspaceWatchlists").innerHTML = '<p class="workspace-empty">No saved watchlist.</p>';
+      $("workspaceSnapshot").disabled = true;
+      return;
+    }
+    $("workspaceSnapshot").disabled = !state.selectedId;
+    $("workspaceWatchlists").innerHTML = items.map((w) => {
+      const active = w.id === state.selectedId ? " active" : "";
+      const filters = w.filters || {};
+      const chips = []
+        .concat((filters.action || []).map((x) => "action:" + x))
+        .concat((filters.move || []).map((x) => "move:" + x));
+      if (filters.min_score !== null && filters.min_score !== undefined) chips.push("score>=" + filters.min_score);
+      return `<article class="workspace-row${active}" data-watchlist-id="${esc(w.id)}">
+        <div class="workspace-row-top"><h3>${esc(w.name)}</h3><span class="workspace-mini">${esc(w.tickers.length)} tickers</span></div>
+        <p>${esc(w.tickers.join(", "))}</p>
+        <p>${chips.length ? chips.map((x) => `<span class="pill">${esc(x)}</span>`).join("") : '<span class="pill">no filters</span>'}</p>
+        <div class="workspace-actions">
+          <button class="workspace-button" type="button" data-action="select" data-id="${esc(w.id)}">Open</button>
+          <button class="workspace-button primary" type="button" data-action="snapshot" data-id="${esc(w.id)}">Snapshot</button>
+          <button class="workspace-button warn" type="button" data-action="delete" data-id="${esc(w.id)}">Delete</button>
+        </div>
+      </article>`;
+    }).join("");
+  }
+  function renderSignals(payload) {
+    const signals = payload || {};
+    const items = signals.items || [];
+    const meta = signals.metadata || {};
+    const selected = state.watchlists.find((w) => w.id === state.selectedId);
+    $("workspaceSelectedTitle").textContent = selected ? "Signals · " + selected.name : "Signals";
+    if (!items.length) {
+      $("workspaceSignals").innerHTML = '<p class="workspace-empty">No matching signal.</p>';
+      return;
+    }
+    $("workspaceSignals").innerHTML = `<table><thead><tr><th>Ticker</th><th>Action</th><th>Score</th><th>Move</th><th>Triggers</th></tr></thead><tbody>${items.map((item) => {
+      const triggers = (item.triggers || []).slice(0, 3).map((t) => t.code || t.detail).join(", ");
+      const moves = (item.movement_codes || []).join(", ");
+      const score = ((item.score || {}).score ?? "-");
+      return `<tr><td><a href="/stocks/${esc(item.ticker)}">${esc(item.ticker)}</a></td><td><span class="pill">${esc(item.action)}</span></td><td class="num">${esc(score)}</td><td>${esc(moves)}</td><td>${esc(triggers)}</td></tr>`;
+    }).join("")}</tbody></table><p class="workspace-mini">returned=${esc(meta.returned_count || items.length)} filtered=${esc(meta.filtered_count || items.length)}</p>`;
+  }
+  function renderAlerts(items=[]) {
+    if (!items.length) {
+      $("workspaceAlerts").innerHTML = '<p class="workspace-empty">No alert.</p>';
+      return;
+    }
+    $("workspaceAlerts").innerHTML = `<table><thead><tr><th>Ticker</th><th>Status</th><th>Action</th><th>Seen</th><th></th></tr></thead><tbody>${items.map((a) => `<tr>
+      <td><a href="/stocks/${esc(a.ticker)}">${esc(a.ticker)}</a></td><td><span class="pill">${esc(a.status)}</span></td><td>${esc(a.action)}</td><td class="workspace-mini">${esc(a.last_seen_at)}</td>
+      <td><button class="workspace-button" type="button" data-alert="${esc(a.id)}" data-status="${a.status === "acknowledged" ? "open" : "acknowledged"}">${a.status === "acknowledged" ? "Reopen" : "Ack"}</button></td>
+    </tr>`).join("")}</tbody></table>`;
+  }
+  function renderActivity(items=[]) {
+    $("workspaceActivity").innerHTML = items.length ? items.map((e) => `<article class="workspace-row">
+      <div class="workspace-row-top"><h3>${esc(e.title)}</h3><span class="workspace-mini">${esc(e.created_at)}</span></div>
+      <p><span class="pill">${esc(e.event_type)}</span> ${esc(e.entity_type)} ${esc(e.entity_id)}</p>
+    </article>`).join("") : '<p class="workspace-empty">No recent activity.</p>';
+  }
+  function renderHistory(items=[]) {
+    if (!items.length) {
+      $("workspaceHistory").innerHTML = '<p class="workspace-empty">No snapshot history.</p>';
+      return;
+    }
+    $("workspaceHistory").innerHTML = `<table><thead><tr><th>Created</th><th>Tickers</th><th>Alerts</th><th>Watch</th></tr></thead><tbody>${items.map((s) => {
+      const summary = s.summary || {};
+      return `<tr><td class="workspace-mini">${esc(s.created_at)}</td><td>${esc((s.tickers || []).join(", "))}</td><td class="num">${esc(number(summary.alerts))}</td><td class="num">${esc(number(summary.watch))}</td></tr>`;
+    }).join("")}</tbody></table>`;
+  }
+  async function loadSelected() {
+    if (!state.selectedId) return;
+    const signals = await api(`/workspace/watchlists/${state.selectedId}/signals`);
+    renderSignals(signals.signals);
+    const history = await api(`/workspace/watchlists/${state.selectedId}/signals/history?limit=10`);
+    renderHistory(history.history || []);
+  }
+  async function refreshAll() {
+    setStatus("Loading workspace...");
+    const status = await api("/status");
+    const overview = await api("/workspace/overview");
+    const alerts = await api("/workspace/alerts?status=all&limit=50");
+    renderKpis(overview.summary || {});
+    renderWatchlists(overview.watchlists || []);
+    renderAlerts(alerts.alerts || []);
+    renderActivity(overview.recent_activity || []);
+    await loadSelected();
+    const limits = status.workspace_limits || {};
+    setStatus(`Connected: key ${status.key.id} · ${status.key.tier} · watchlists ${overview.summary.watchlists || 0}/${limits.max_watchlists_per_key || "-"}`);
+  }
+  async function snapshot(id) {
+    state.selectedId = id || state.selectedId;
+    if (!state.selectedId) return;
+    setStatus("Creating snapshot...");
+    await api(`/workspace/watchlists/${state.selectedId}/signals/snapshot`, {method: "POST"});
+    await refreshAll();
+  }
+  async function deleteWatchlist(id) {
+    await api(`/workspace/watchlists/${id}/delete`, {method: "POST"});
+    if (state.selectedId === id) state.selectedId = "";
+    await refreshAll();
+  }
+  $("workspaceToken").value = state.token;
+  $("workspaceConnect").addEventListener("click", async () => {
+    state.token = $("workspaceToken").value.trim();
+    sessionStorage.setItem(TOKEN_KEY, state.token);
+    try { await refreshAll(); } catch (e) { setStatus(e.message, true); }
+  });
+  $("workspaceForget").addEventListener("click", () => {
+    state.token = "";
+    state.selectedId = "";
+    sessionStorage.removeItem(TOKEN_KEY);
+    $("workspaceToken").value = "";
+    renderKpis({});
+    renderWatchlists([]);
+    renderSignals({items: []});
+    renderAlerts([]);
+    renderActivity([]);
+    renderHistory([]);
+    setStatus("Disconnected");
+  });
+  $("workspaceRefresh").addEventListener("click", () => refreshAll().catch((e) => setStatus(e.message, true)));
+  $("workspaceSnapshot").addEventListener("click", () => snapshot().catch((e) => setStatus(e.message, true)));
+  $("workspaceCreate").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const filters = {};
+    const action = String(form.get("action") || "").trim();
+    const minScore = String(form.get("min_score") || "").trim();
+    const move = String(form.get("move") || "").trim();
+    if (action) filters.action = [action];
+    if (minScore) filters.min_score = Number(minScore);
+    if (move) filters.move = move.split(/[\s,;]+/).filter(Boolean);
+    const payload = {
+      name: String(form.get("name") || "").trim(),
+      tickers: String(form.get("tickers") || "").split(/[,\s;]+/).filter(Boolean),
+      filters,
+      alert_policy: {enabled: false, frequency: "manual"},
+      notes: String(form.get("notes") || "").trim(),
+    };
+    try {
+      const created = await api("/workspace/watchlists", {method: "POST", body: JSON.stringify(payload)});
+      state.selectedId = created.watchlist.id;
+      event.currentTarget.reset();
+      await refreshAll();
+    } catch (e) { setStatus(e.message, true); }
+  });
+  app.addEventListener("click", async (event) => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    try {
+      if (button.dataset.action === "select") {
+        state.selectedId = button.dataset.id;
+        renderWatchlists(state.watchlists);
+        await loadSelected();
+      }
+      if (button.dataset.action === "snapshot") await snapshot(button.dataset.id);
+      if (button.dataset.action === "delete") await deleteWatchlist(button.dataset.id);
+      if (button.dataset.alert) {
+        await api(`/workspace/alerts/${button.dataset.alert}`, {method: "PATCH", body: JSON.stringify({status: button.dataset.status})});
+        await refreshAll();
+      }
+    } catch (e) { setStatus(e.message, true); }
+  });
+  if (state.token) refreshAll().catch(() => setStatus("Stored tab key could not authenticate.", true));
+})();
+"""
+        return _html_response("Pro Workspace", body, script=script)
+
     @app.get("/pro")
     def static_pro_offer():
         offer = pro_offer_payload()
@@ -4669,7 +4976,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<a href=\"/api/product-status\">/api/product-status</a> · "
             "<a href=\"/validation\">/validation</a> · "
             "<a href=\"/status\">/status</a> · "
-            "<a href=\"/api/pro/v1/openapi.json\">Pro OpenAPI</a></p></div>"
+            "<a href=\"/api/pro/v1/openapi.json\">Pro OpenAPI</a> · "
+            "<a href=\"/pro/workspace\">Workspace cockpit</a></p></div>"
             "</div>"
             "<h2>Plans</h2><div class=\"grid\">" + plans + "</div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Access request checklist</h2>"

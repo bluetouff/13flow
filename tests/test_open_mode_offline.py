@@ -372,10 +372,31 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Quiver Quantitative" in pro_page
         assert "Evidence pack" in pro_page
         assert 'href="/validation"' in pro_page
+        assert 'href="/pro/workspace"' in pro_page
+        assert "Workspace cockpit" in pro_page
         assert "Public filings research. Not investment advice." in pro_page
         assert 'href="/developers"' in pro_page
         assert 'href="/api/live-status"' in pro_page
         assert 'href="/status"' in pro_page
+
+        pro_workspace_page = c.get("/pro/workspace").get_data(as_text=True)
+        assert "Workspace Cockpit" in pro_workspace_page
+        assert "Saved watchlists, ticker-flow alerts" in pro_workspace_page
+        assert "data-pro-workspace-app" in pro_workspace_page
+        assert 'type="password"' in pro_workspace_page
+        assert "sessionStorage" in pro_workspace_page
+        assert "13flow.pro.workspace.token" in pro_workspace_page
+        assert "Authorization" in pro_workspace_page
+        assert "Bearer " in pro_workspace_page
+        assert "/api/pro/v1\" + path" in pro_workspace_page
+        assert "api(\"/workspace/overview\")" in pro_workspace_page
+        assert "api(\"/workspace/alerts?status=all&limit=50\")" in pro_workspace_page
+        assert "api(\"/workspace/watchlists\"" in pro_workspace_page
+        assert "/signals/snapshot" in pro_workspace_page
+        assert "/delete" in pro_workspace_page
+        assert "localStorage" not in pro_workspace_page
+        assert "?token=" not in pro_workspace_page
+        assert "checkout" not in pro_workspace_page.lower()
 
         validation_page = c.get("/validation").get_data(as_text=True)
         assert "Current Confluence evidence pack" in validation_page
