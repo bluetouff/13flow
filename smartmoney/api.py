@@ -2320,7 +2320,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             '<div class="navlinks"><a class="primary" href="/app">Cockpit</a><a href="/confluence">Confluence</a>'
             '<a href="/funds">Funds</a><a href="/stocks">Stocks</a><a href="/signals">Signals</a>'
             '<a href="/status">Status</a><a href="/validation">Validation</a><a href="/methodology">Methodology</a>'
-            '<a href="/developers">API</a><a href="/pro">Pro</a></div></nav>'
+            '<a href="/developers">API</a><a href="/pro">Pro</a><a href="/about">About</a></div></nav>'
         )
         footer = (
             '<footer class="site-footer"><div class="foot-grid">'
@@ -2331,11 +2331,11 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             '<div><h4>Method</h4><a href="/methodology">Overview</a>'
             '<a href="/methodology/app">Application</a><a href="/methodology/mcp">MCP</a>'
             '<a href="/api/methodology/confluence-v1">Confluence v1</a></div>'
-            '<div><h4>Trust</h4><a href="/status">Status</a><a href="/developers">Developers</a>'
+            '<div><h4>Trust</h4><a href="/status">Status</a><a href="/about">About</a><a href="/developers">Developers</a>'
             '<a href="/api/openapi.json">OpenAPI</a><a href="/api/live-status">Live status</a>'
             '<a href="/legal">Legal</a></div>'
             '</div><div class="fine"><span>Public filings research. Not investment advice.</span>'
-            '<span>Source: SEC EDGAR · LIVE state exposed at /api/live-status</span></div></footer>'
+            '<span>Built by <a href="https://l0g.fr/" rel="noopener">l0g</a> · Source: SEC EDGAR · LIVE state exposed at /api/live-status</span></div></footer>'
         )
         html = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -2344,6 +2344,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 :root{{--bg:#0c1611;--panel:#13241c;--panel-2:#16291f;--panel-3:#101f18;--line:#1f3329;--line-soft:#182a20;--text:#eaf5ef;--muted:#a9c4b7;--faint:#6f897d;--accent:#19c187;--amber:#e0a534;--danger:#ef6a52;--sans:'Hanken Grotesk',system-ui,sans-serif;--display:'Bricolage Grotesque',system-ui,sans-serif;--mono:'Geist Mono',ui-monospace,monospace}}
 *{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.55;letter-spacing:0;background-image:linear-gradient(180deg,rgba(255,255,255,.025),transparent 420px)}}a{{color:var(--accent);text-decoration:none}}
 .wrap{{max-width:1180px;margin:0 auto;padding:22px 24px 0}}.topnav{{position:sticky;top:0;z-index:10;display:flex;gap:18px;align-items:center;margin:0 -24px 34px;padding:14px 24px;border-bottom:1px solid var(--line);background:rgba(12,22,17,.92);backdrop-filter:blur(14px)}}.navlinks{{display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-left:auto}}.navlinks a{{color:var(--muted);font-weight:650;font-size:13px;padding:7px 10px;border-radius:8px}}.navlinks a:hover{{color:var(--text);background:var(--panel-2)}}.navlinks a.primary{{color:#06140f;background:var(--accent)}}.brand{{font-family:var(--display);font-size:24px;font-weight:800;color:var(--text);margin-right:auto;letter-spacing:0}}.brand span{{color:var(--accent)}}.brand b{{color:var(--amber)}}h1{{font-family:var(--display);font-size:44px;line-height:1.02;margin:0 0 10px;letter-spacing:0}}h2,h3{{font-family:var(--display);letter-spacing:0}}.lede{{color:var(--muted);max-width:780px;margin:0 0 24px;font-size:16px}}.hero{{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr);gap:18px;align-items:stretch;margin-bottom:18px}}.hero .panel{{min-height:100%}}.kicker{{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}}.actions{{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}}.grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}}.card,.panel{{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px}}.card{{display:block;color:var(--text)}}.card:hover{{border-color:var(--accent);background:var(--panel-2)}}.card h2,.card h3{{margin:0 0 6px}}.card p,.panel p,.panel li{{color:var(--muted)}}.card a,.panel a,code{{overflow-wrap:anywhere}}.panel,.meta{{overflow-wrap:anywhere;word-break:break-word}}.meta,.num{{font-family:var(--mono)}}.meta{{font-size:12px;color:var(--faint)}}.num{{font-size:13px}}pre{{white-space:pre-wrap;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:14px;overflow:auto}}code{{font-family:var(--mono)}}table{{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}}th,td{{padding:11px 13px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}}th:first-child,td:first-child{{text-align:left}}th{{font-family:var(--mono);font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em}}td{{font-size:14px}}.pill{{display:inline-block;max-width:100%;border:1px solid var(--line);border-radius:8px;padding:5px 9px;font-family:var(--mono);font-size:11px;color:var(--muted);margin:2px 5px 2px 0;overflow-wrap:anywhere;word-break:break-word;white-space:normal}}a.pill,.pill.cta{{color:#06140f;background:var(--accent);border-color:var(--accent);font-weight:700}}.sec{{font-family:var(--mono);font-size:11px}}.status-strip{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:18px}}.status-strip div{{border:1px solid var(--line);border-radius:8px;background:var(--panel-2);padding:12px}}.home-hero{{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);gap:26px;align-items:center;margin:8px 0 20px;min-height:520px}}.home-copy{{padding:20px 0 28px}}.home-eyebrow{{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}}.home-eyebrow span{{font-family:var(--mono);font-size:11px;color:var(--muted);border:1px solid var(--line);background:var(--panel-2);border-radius:8px;padding:6px 9px}}.home-copy h1,.home-title{{font-family:var(--display);font-size:72px;line-height:.92;margin:0 0 18px;letter-spacing:0;max-width:760px;overflow-wrap:anywhere}}.home-title .mark{{color:var(--accent)}}.home-lede{{font-size:20px;line-height:1.48;color:var(--muted);max-width:660px;margin:0}}.home-proof{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:26px;max-width:720px}}.proof-item{{border-top:1px solid var(--line);padding-top:11px}}.proof-item b{{display:block;font-family:var(--mono);font-size:22px;line-height:1.1;color:var(--text)}}.proof-item span{{display:block;font-size:12px;color:var(--faint);margin-top:4px}}.home-actions{{display:flex;flex-wrap:wrap;gap:10px;margin-top:28px}}.home-actions .button{{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:8px;padding:10px 14px;font-weight:800;color:#06140f;background:var(--accent);border:1px solid var(--accent)}}.home-actions .button.secondary{{background:transparent;color:var(--text);border-color:var(--line)}}.home-actions .button.secondary:hover{{border-color:var(--accent);color:var(--accent)}}.cockpit-shot{{border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,var(--panel),var(--panel-3));box-shadow:0 28px 70px -34px rgba(0,0,0,.85);overflow:hidden}}.shot-top{{display:flex;justify-content:space-between;gap:12px;align-items:center;border-bottom:1px solid var(--line);padding:14px 16px}}.shot-title{{font-family:var(--display);font-weight:800;font-size:17px}}.shot-live{{font-family:var(--mono);font-size:10px;color:var(--accent);border:1px solid rgba(25,193,135,.32);border-radius:8px;padding:5px 8px;background:rgba(25,193,135,.08)}}.shot-grid{{display:grid;grid-template-columns:1.1fr .9fr;gap:1px;background:var(--line)}}.quadrant{{background:var(--panel);padding:18px;min-height:284px;position:relative}}.axis{{position:absolute;font-family:var(--mono);font-size:10px;color:var(--faint)}}.axis.x{{bottom:12px;left:18px;right:18px;display:flex;justify-content:space-between}}.axis.y{{top:18px;right:16px}}.bubble{{position:absolute;width:54px;height:54px;border-radius:50%;display:grid;place-items:center;font-family:var(--mono);font-size:11px;font-weight:800;color:#06140f;background:var(--accent);box-shadow:0 0 0 8px rgba(25,193,135,.08)}}.bubble.b2{{width:42px;height:42px;left:54%;top:24%;background:var(--amber)}}.bubble.b1{{left:66%;top:44%}}.bubble.b3{{width:36px;height:36px;left:31%;top:54%;background:#7fb89d;color:#081310}}.watchlist{{background:var(--panel);padding:16px}}.watch-row{{display:grid;grid-template-columns:52px 1fr auto;gap:10px;align-items:center;border-bottom:1px solid var(--line-soft);padding:10px 0}}.watch-row:last-child{{border-bottom:0}}.watch-row b{{font-family:var(--mono);font-size:12px;color:var(--accent)}}.watch-row span{{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.watch-row i{{font-family:var(--mono);font-style:normal;font-size:11px;color:var(--faint)}}.trust-band{{display:grid;grid-template-columns:1.1fr repeat(3,.8fr);gap:10px;margin:18px 0 26px}}.trust-band div{{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px}}.trust-band b{{display:block;font-family:var(--mono);font-size:13px;color:var(--text)}}.trust-band span{{display:block;color:var(--muted);font-size:12px;margin-top:5px}}.section-head{{display:flex;justify-content:space-between;gap:18px;align-items:end;margin:34px 0 14px}}.section-head h2{{font-size:28px;line-height:1.05;margin:0}}.section-head p{{margin:0;color:var(--muted);max-width:520px}}.journey{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}}.journey .step{{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:18px;display:block;color:var(--text)}}.journey .step:hover{{border-color:var(--accent);background:var(--panel-2)}}.step .n{{font-family:var(--mono);font-size:11px;color:var(--accent);margin-bottom:10px}}.step h3{{font-size:19px;margin:0 0 8px}}.step p{{margin:0;color:var(--muted)}}.boundary{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}}.boundary .panel h3{{margin-top:0}}.boundary ul{{padding-left:18px;margin:0}}.doc-hero{{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(300px,.9fr);gap:18px;align-items:stretch;margin:8px 0 18px}}.doc-hero>*,.doc-copy,.doc-panel,.doc-section,.doc-card,.runstep{{min-width:0}}.doc-copy{{padding:18px 0}}.doc-copy h1{{font-size:58px;line-height:.96;margin-bottom:14px;overflow-wrap:anywhere}}.doc-lede{{font-size:19px;line-height:1.5;color:var(--muted);max-width:720px;margin:0}}.doc-panel{{border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,var(--panel),var(--panel-3));padding:18px;box-shadow:0 24px 58px -36px rgba(0,0,0,.75);overflow-wrap:anywhere}}.doc-panel h3{{margin:0 0 12px;font-size:18px}}.doc-metrics{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:18px 0 24px}}.doc-metric{{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px;min-width:0}}.doc-metric b{{display:block;font-family:var(--mono);font-size:21px;color:var(--text);line-height:1.1;overflow-wrap:anywhere}}.doc-metric span{{display:block;color:var(--faint);font-size:12px;margin-top:6px}}.doc-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}}.doc-card{{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:18px;display:block;color:var(--text)}}.doc-card:hover{{border-color:var(--accent);background:var(--panel-2)}}.doc-card h3{{margin:0 0 8px;font-size:19px}}.doc-card p{{margin:0;color:var(--muted)}}.doc-section{{margin-top:18px;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:20px;overflow-wrap:anywhere}}.doc-section h2{{font-size:24px;margin:0 0 10px}}.doc-section p{{color:var(--muted)}}.doc-section ul{{margin:10px 0 0;padding-left:19px}}.doc-section li{{margin:7px 0}}.runbook{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}}.runstep{{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);padding:14px}}.runstep b{{display:block;font-family:var(--mono);font-size:11px;color:var(--accent);margin-bottom:8px}}.runstep span{{display:block;color:var(--muted);font-size:13px}}.callout{{border-left:3px solid var(--accent);background:var(--panel-2);border-radius:8px;padding:14px 16px;color:var(--muted)}}.callout strong{{color:var(--text)}}.split{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}}.mini-list{{display:grid;gap:8px;margin-top:12px}}.mini-list div{{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);padding:11px 12px;color:var(--muted)}}.mini-list b{{color:var(--text)}}.site-footer{{margin-top:46px;border-top:1px solid var(--line);padding:28px 0 34px;color:var(--muted)}}.foot-grid{{display:grid;grid-template-columns:1.4fr repeat(3,1fr);gap:26px}}.site-footer h4{{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin:0 0 10px}}.site-footer p{{margin:0;color:var(--muted);font-size:13px;line-height:1.55;max-width:38ch}}.site-footer a{{display:block;color:var(--text);font-weight:600;font-size:13px;margin:7px 0}}.site-footer a:hover{{color:var(--accent)}}.fine{{border-top:1px solid var(--line-soft);margin-top:24px;padding-top:16px;display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--faint)}}@media(max-width:980px){{.home-hero,.doc-hero{{grid-template-columns:minmax(0,1fr);min-height:0}}.trust-band,.doc-metrics{{grid-template-columns:1fr 1fr}}.journey,.doc-grid{{grid-template-columns:1fr}}.boundary,.split{{grid-template-columns:1fr}}.runbook{{grid-template-columns:1fr 1fr}}}}@media(max-width:860px){{.hero{{grid-template-columns:1fr}}.status-strip{{grid-template-columns:1fr}}.home-proof{{grid-template-columns:1fr 1fr}}.shot-grid{{grid-template-columns:1fr}}.quadrant{{min-height:240px}}}}@media(max-width:760px){{.wrap{{padding:0 16px}}.topnav{{position:relative;display:block;margin:0 -16px 22px;padding:12px 16px}}.brand{{display:block;margin:0 0 10px}}.navlinks{{margin-left:0;display:flex;flex-wrap:nowrap;overflow-x:auto;gap:6px;padding-bottom:4px}}.navlinks a{{white-space:nowrap;flex:0 0 auto}}.foot-grid{{grid-template-columns:1fr}}h1{{font-size:34px}}.home-copy{{padding:4px 0 20px}}.home-copy h1,.home-title,.doc-copy h1{{font-size:48px}}.home-lede,.doc-lede{{font-size:17px;line-height:1.42}}.home-proof{{grid-template-columns:1fr 1fr;margin-top:20px}}.trust-band,.doc-metrics{{grid-template-columns:1fr}}.home-actions{{margin-top:20px}}.home-actions .button{{flex:1 1 155px}}.cockpit-shot{{margin-top:4px}}.runbook{{grid-template-columns:1fr}}table{{display:block;overflow-x:auto}}}}
+.fine a{{display:inline;margin:0;font-size:inherit;color:var(--muted)}}
 </style></head><body><div class="wrap">{nav}{body}{footer}</div><script nonce="{nonce}"></script></body></html>"""
         resp = Response(html, mimetype="text/html; charset=utf-8")
         resp.headers["Content-Security-Policy"] = (
@@ -3150,11 +3151,134 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     def faq_legacy_alias():
         return redirect("/faq", code=301)
 
-    _LEGAL = os.path.join(os.path.dirname(dash), "mentions-legales.html")
+    @app.get("/about")
+    def about_page():
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\">"
+            "<div class=\"kicker\">About 13FLOW</div>"
+            "<h1>Filing intelligence, built in the l0g lab</h1>"
+            "<p class=\"doc-lede\">13FLOW is operated by l0g: an independent research and data lab "
+            "focused on macro risk, markets, public data and machine-readable financial intelligence.</p>"
+            "<div class=\"actions\"><a class=\"pill cta\" href=\"https://l0g.fr/\" rel=\"noopener\">Visit l0g.fr</a> "
+            "<a class=\"pill\" href=\"/methodology\">Methodology</a> "
+            "<a class=\"pill\" href=\"/validation\">Validation</a> "
+            "<a class=\"pill\" href=\"/developers\">API</a></div></div>"
+            "<aside class=\"doc-panel\"><h3>What 13FLOW does</h3>"
+            "<div class=\"mini-list\">"
+            "<div><b>13F pressure.</b> Institutional holdings are structured from SEC EDGAR filings, with source accessions and quality flags.</div>"
+            "<div><b>Form 4 context.</b> Insider activity is joined where it can help a human analyst triage a research queue.</div>"
+            "<div><b>API and MCP surfaces.</b> Public read-only endpoints expose the same boundaries to dashboards, notebooks and agent workflows.</div>"
+            "</div></aside></section>"
+            "<section class=\"doc-metrics\">"
+            "<div class=\"doc-metric\"><b>SEC EDGAR</b><span>Primary public source for filings</span></div>"
+            "<div class=\"doc-metric\"><b>Read-only</b><span>Open public build, no browser account</span></div>"
+            "<div class=\"doc-metric\"><b>Auditable</b><span>Status, methodology and API contracts</span></div>"
+            "<div class=\"doc-metric\"><b>l0g</b><span>Research lab behind the product</span></div>"
+            "</section>"
+            "<section class=\"doc-section\"><h2>What is l0g?</h2>"
+            "<p><a href=\"https://l0g.fr/\" rel=\"noopener\">l0g</a> is an independent open research project "
+            "that turns public macro, market and regulatory data into dashboards, methodology notes, "
+            "machine-readable endpoints and source-linked analysis. Its work is deliberately source-first: "
+            "primary data is preferred, methods are documented, and uncertainty is kept visible instead of being hidden behind a glossy score.</p>"
+            "<p>13FLOW is one of those tools. Where l0g.fr tracks macro regimes, debt risk and public datasets, "
+            "13FLOW focuses on SEC filing intelligence: 13F institutional ownership, Form 4 insider disclosures, "
+            "data-quality warnings and integration surfaces for analysts who want evidence before narrative.</p></section>"
+            "<section class=\"doc-section\"><h2>Why this exists</h2>"
+            "<div class=\"split\"><div class=\"doc-card\"><h3>For analysts</h3>"
+            "<p>Reduce SEC filing noise into a reviewable queue: who moved, which issuer changed, what source filing supports it, and where the data can be wrong.</p></div>"
+            "<div class=\"doc-card\"><h3>For builders</h3>"
+            "<p>Expose stable read-only contracts for dashboards, notebooks and agent workflows without pretending the signal is validated alpha.</p></div></div>"
+            "<div class=\"callout\" style=\"margin-top:12px\"><strong>The product stance is conservative.</strong> "
+            "13FLOW sells workflow, structure and auditability. It does not sell a magic trading signal, a probability model or a performance promise.</div></section>"
+            "<section class=\"doc-section\"><h2>Operating principles</h2>"
+            "<div class=\"runbook\">"
+            "<div class=\"runstep\"><b>01</b><span>Use public regulatory sources first, especially SEC EDGAR for the filing layer.</span></div>"
+            "<div class=\"runstep\"><b>02</b><span>Show the boundary: delayed 13F snapshots, incomplete short exposure, mapping gaps and Form 4 limits.</span></div>"
+            "<div class=\"runstep\"><b>03</b><span>Keep human-readable pages and machine-readable contracts aligned.</span></div>"
+            "<div class=\"runstep\"><b>04</b><span>Separate evidence from claims: validation pages say what is proven and what is still only a hypothesis.</span></div>"
+            "</div></section>"
+            "<section class=\"doc-section\"><h2>Useful links</h2>"
+            "<div class=\"doc-grid\">"
+            "<a class=\"doc-card\" href=\"https://l0g.fr/\" rel=\"noopener\"><h3>l0g.fr</h3><p>The research lab and editorial ecosystem behind 13FLOW.</p></a>"
+            "<a class=\"doc-card\" href=\"/methodology\"><h3>Methodology</h3><p>How the application and MCP layers should be interpreted.</p></a>"
+            "<a class=\"doc-card\" href=\"/legal\"><h3>Legal and GDPR</h3><p>Publisher, privacy, RGPD rights, source and liability boundary.</p></a>"
+            "</div></section>"
+        )
+        return _html_response("About", body)
 
     @app.get("/legal")
     def legal():
-        return _serve_html(_LEGAL)
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\">"
+            "<div class=\"kicker\">Legal, privacy and RGPD</div>"
+            "<h1>Clear terms for a public filing research tool</h1>"
+            "<p class=\"doc-lede\">13FLOW is an independent read-only research interface over public SEC EDGAR filings. "
+            "This page covers publisher identity, GDPR / RGPD rights, logs, cookies, source boundaries and liability.</p>"
+            "<div class=\"actions\"><a class=\"pill cta\" href=\"mailto:admin@toonux.com\">Contact publisher</a> "
+            "<a class=\"pill\" href=\"/legal/pro-api\">Pro API terms</a> "
+            "<a class=\"pill\" href=\"/api/live-status\">Live status</a></div></div>"
+            "<aside class=\"doc-panel\"><h3>Short version</h3><div class=\"mini-list\">"
+            "<div><b>No public account.</b> The open site does not require registration, browser login or self-serve checkout.</div>"
+            "<div><b>No ad tracking.</b> Public pages do not rely on advertising pixels, social embeds or third-party analytics cookies.</div>"
+            "<div><b>Public sources.</b> 13FLOW structures SEC EDGAR filings and exposes source-linked research surfaces.</div>"
+            "</div></aside></section>"
+            "<section class=\"doc-metrics\">"
+            "<div class=\"doc-metric\"><b>Publisher</b><span>l0g / bluetouff</span></div>"
+            "<div class=\"doc-metric\"><b>Contact</b><span>admin@toonux.com</span></div>"
+            "<div class=\"doc-metric\"><b>Source</b><span>SEC EDGAR public filings</span></div>"
+            "<div class=\"doc-metric\"><b>Updated</b><span>2026-07-03</span></div>"
+            "</section>"
+            "<section class=\"doc-section\"><h2>Publisher and entity behind 13FLOW</h2>"
+            "<p>13FLOW is operated and published by <a href=\"https://l0g.fr/\" rel=\"noopener\">l0g</a>, "
+            "an independent research and data project focused on macroeconomics, markets, public sources, "
+            "systemic risk and machine-readable financial intelligence. The project is run by bluetouff.</p>"
+            "<div class=\"mini-list\">"
+            "<div><b>Site:</b> https://13flow.eu</div>"
+            "<div><b>Contact and rights requests:</b> <a href=\"mailto:admin@toonux.com\">admin@toonux.com</a></div>"
+            "<div><b>Relationship to third parties:</b> 13FLOW is not affiliated with the SEC, tracked funds, issuers or third-party data providers mentioned on the site.</div>"
+            "</div></section>"
+            "<section class=\"doc-section\"><h2>Personal data and GDPR / RGPD</h2>"
+            "<p>The public 13FLOW site is designed as a low-data read-only surface. It does not require a public user account, "
+            "does not ask visitors to create a profile and does not set advertising or behavioral analytics cookies.</p>"
+            "<div class=\"split\"><div class=\"doc-card\"><h3>Data that may be processed</h3><ul>"
+            "<li>Technical server logs: IP address, timestamp, requested URL, status code and user-agent.</li>"
+            "<li>Security and abuse signals needed to operate the service, rate-limit abuse and investigate incidents.</li>"
+            "<li>Messages you send voluntarily by email, including your email address and the content of the request.</li>"
+            "<li>For operator-reviewed Pro access only: organization, billing contact, key id, endpoint, scope, status and audit metadata needed to administer the API.</li>"
+            "</ul></div><div class=\"doc-card\"><h3>Why it is processed</h3><ul>"
+            "<li>Operate the public site and APIs.</li><li>Secure the service and prevent abuse.</li>"
+            "<li>Respond to legal, privacy, support or commercial requests.</li>"
+            "<li>Administer scoped Pro API access when a pilot or agreement exists.</li></ul></div></div>"
+            "<p class=\"callout\" style=\"margin-top:12px\"><strong>Legal basis.</strong> Processing is based on legitimate interest for security and service operation, "
+            "pre-contractual or contractual necessity for Pro discussions and pilots, consent where you voluntarily contact the publisher, and legal obligation where applicable.</p></section>"
+            "<section class=\"doc-section\"><h2>Your rights</h2>"
+            "<p>Under the GDPR / RGPD, you can request access, rectification, erasure, restriction, objection and portability where applicable. "
+            "Send requests to <a href=\"mailto:admin@toonux.com\">admin@toonux.com</a>. The request may require reasonable identity verification before disclosure or deletion.</p>"
+            "<p>If you believe your request was not handled correctly, you can contact the French data protection authority: "
+            "<a href=\"https://www.cnil.fr/\" rel=\"noopener\">CNIL</a>.</p></section>"
+            "<section class=\"doc-section\"><h2>Cookies, third parties and retention</h2>"
+            "<div class=\"split\"><div class=\"doc-card\"><h3>Cookies and trackers</h3>"
+            "<p>The public research site does not use advertising cookies, social tracking pixels or third-party analytics tags. Fonts are self-hosted from the same domain.</p></div>"
+            "<div class=\"doc-card\"><h3>Retention</h3>"
+            "<p>Technical logs and audit records are kept only as long as needed for security, reliability, abuse prevention, legal evidence or active Pro administration.</p></div></div>"
+            "<p class=\"meta\">External links, including l0g.fr, SEC.gov, GitHub or CNIL, are contacted only when you choose to open them.</p></section>"
+            "<section class=\"doc-section\"><h2>Data and sources</h2>"
+            "<p>13FLOW aggregates, formats and links public SEC EDGAR filings, including 13F-HR institutional holdings and Form 4 ownership reports. "
+            "Those filings are public regulatory records. 13FLOW does not own the underlying SEC filings and does not sell raw SEC access as proprietary data.</p>"
+            "<p>Filing delays, amendments, issuer mistakes, missing tickers, CUSIP mapping gaps and source inconsistencies can occur. "
+            "Use accessions, methodology pages and validation endpoints to verify the evidence before relying on it.</p></section>"
+            "<section class=\"doc-section\"><h2>No investment advice</h2>"
+            "<p>13FLOW is a screening and research tool. Scores, rankings, Confluence views and API responses are not personalized recommendations, "
+            "investment advice, solicitation, execution guidance, probability estimates or performance promises. You remain responsible for your own diligence, risk controls and regulatory framework.</p></section>"
+            "<section class=\"doc-section\"><h2>Pro API, payments and commercial terms</h2>"
+            "<p>The public site has no self-serve checkout and no public browser account creation. Pro access, when issued, is operator-reviewed and covered by separate terms, scopes, quotas and audit rules.</p>"
+            "<p><a class=\"pill\" href=\"/legal/pro-api\">Read Pro API terms</a> "
+            "<a class=\"pill\" href=\"/pro\">Evaluate Pro access</a></p></section>"
+            "<section class=\"doc-section\"><h2>Intellectual property and liability</h2>"
+            "<p>The 13FLOW interface, editorial text, name, product structure and logo are protected. Underlying SEC records remain reusable from their public source. "
+            "13FLOW works to keep the site available and accurate, but cannot guarantee uninterrupted access, complete data, error-free filings, uninterrupted APIs or suitability for any investment process.</p></section>"
+        )
+        return _html_response("Legal, privacy and data terms", body)
 
     @app.get("/mentions-legales")
     @app.get("/mentions-legales.html")

@@ -266,6 +266,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             ("/methodology/app", "13F filings are delayed regulatory disclosures"),
             ("/methodology/mcp", "Pro tools must fail closed"),
             ("/faq", "Frequently asked questions"),
+            ("/about", "13FLOW is operated by l0g"),
             ("/legal", "Legal, privacy and data terms"),
             ("/legal/pro-api", "Pro API, MCP and x402 terms"),
         ):
@@ -409,6 +410,25 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Pro tools are intentionally visible" in developers
         assert "Redistribution" in developers
         assert "SEC EDGAR-derived 13F and Form 4 research surfaces" in developers
+
+        about_page = c.get("/about").get_data(as_text=True)
+        assert "Filing intelligence, built in the l0g lab" in about_page
+        assert "https://l0g.fr/" in about_page
+        assert "13FLOW is operated by l0g" in about_page
+        assert "machine-readable financial intelligence" in about_page
+        assert "It does not sell a magic trading signal" in about_page
+        assert 'href="/legal"' in about_page
+
+        legal_page = c.get("/legal").get_data(as_text=True)
+        assert "GDPR / RGPD" in legal_page
+        assert "CNIL" in legal_page
+        assert "admin@toonux.com" in legal_page
+        assert "advertising or behavioral analytics cookies" in legal_page
+        assert "operated and published by" in legal_page
+        assert "https://l0g.fr/" in legal_page
+        assert "Technical server logs" in legal_page
+        assert "Pro API terms" in legal_page
+        assert "Built by" in legal_page
 
         pro_terms = c.get("/legal/pro-api").get_data(as_text=True)
         assert "Self-serve checkout is disabled" in pro_terms
