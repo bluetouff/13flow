@@ -15,7 +15,7 @@ from tests.test_quality_offline import _seed_quality_db
 
 
 def _client(monkeypatch, tmpdir, *, scopes=("funds:read", "quality:read"),
-            rate_per_min=120):
+            rate_per_min=120, max_watchlists=None):
     data_db = str(Path(tmpdir) / "data.db")
     pro_db = str(Path(tmpdir) / "pro.db")
     store = _seed_quality_db(data_db)
@@ -25,6 +25,8 @@ def _client(monkeypatch, tmpdir, *, scopes=("funds:read", "quality:read"),
                                     rate_per_min=rate_per_min, rate_per_day=10000)
     monkeypatch.setenv("SMARTMONEY_PRO_API", "1")
     monkeypatch.setenv("SMARTMONEY_PRO_DB", pro_db)
+    if max_watchlists is not None:
+        monkeypatch.setenv("SMARTMONEY_PRO_MAX_WATCHLISTS_PER_KEY", str(max_watchlists))
     app = create_app(data_db, secure_cookies=False, open_mode=True)
     return app.test_client(), token, key, pro_db
 
@@ -69,6 +71,8 @@ def test_pro_api_responses_are_not_cacheable(monkeypatch):
 
         r = c.get("/api/pro/v1/status", headers={"Authorization": "Bearer " + token})
         assert r.status_code == 200
+        assert r.get_json()["workspace_limits"]["max_watchlists_per_key"] == 50
+        assert r.get_json()["workspace_limits"]["max_tickers_per_watchlist"] == 50
         assert r.headers["Cache-Control"] == "private, no-store, max-age=0"
         assert r.headers["Pragma"] == "no-cache"
         assert r.headers["Expires"] == "0"
@@ -489,6 +493,44 @@ def test_pro_workspace_watchlists_are_saved_per_api_key(monkeypatch):
         )
         assert other_activity.status_code == 200
         assert other_activity.get_json()["activity"] == []
+
+
+def test_pro_workspace_enforces_storage_limits_and_id_shape(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        c, token, key, pro_db = _client(
+            monkeypatch, d, scopes=("funds:read", "workspace:write"), max_watchlists=1,
+        )
+        hdr = {"Authorization": "Bearer " + token}
+        body = {
+            "name": "One slot",
+            "tickers": ["AAPL"],
+            "filters": {},
+            "alert_policy": {"enabled": False, "frequency": "manual"},
+            "notes": "",
+        }
+
+        first = c.post("/api/pro/v1/workspace/watchlists", headers=hdr, json=body)
+        assert first.status_code == 201
+        assert first.get_json()["watchlist"]["id"]
+
+        limited = c.post(
+            "/api/pro/v1/workspace/watchlists",
+            headers=hdr,
+            json={**body, "name": "Second slot"},
+        )
+        assert limited.status_code == 409
+        payload = limited.get_json()
+        assert payload["error"] == "workspace_quota_exceeded"
+        assert payload["workspace_limits"]["max_watchlists_per_key"] == 1
+
+        bad_id = c.get("/api/pro/v1/workspace/watchlists/not-a-watchlist-id", headers=hdr)
+        assert bad_id.status_code == 400
+
+        bad_filter = c.get(
+            "/api/pro/v1/workspace/alerts?watchlist_id=../bad",
+            headers=hdr,
+        )
+        assert bad_filter.status_code == 400
 
 
 def test_pro_api_rate_limit_is_persistent(monkeypatch):

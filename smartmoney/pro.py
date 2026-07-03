@@ -19,6 +19,7 @@ from typing import Optional
 
 KEY_PREFIX = "13flow_live"
 DEFAULT_SCOPES = ("funds:read", "quality:read")
+DEFAULT_MAX_WATCHLISTS_PER_KEY = 50
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -135,6 +136,10 @@ class APIRateLimited(APIKeyError):
     def __init__(self, retry_after: int = 60):
         super().__init__(self.code)
         self.retry_after = retry_after
+
+
+class WorkspaceQuotaExceeded(Exception):
+    """Raised when a Pro workspace write would exceed bounded storage policy."""
 
 
 def _now() -> datetime:
@@ -335,6 +340,13 @@ class ProAPIStore:
         ).fetchall()
         return [self._watchlist_row(r) for r in rows]
 
+    def watchlist_count(self, key_id: str) -> int:
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS c FROM saved_watchlists WHERE key_id=?",
+            (key_id,),
+        ).fetchone()
+        return int((row or {})["c"] or 0)
+
     def get_watchlist(self, key_id: str, watchlist_id: str) -> Optional[dict]:
         row = self.conn.execute(
             "SELECT * FROM saved_watchlists WHERE key_id=? AND id=?",
@@ -350,10 +362,14 @@ class ProAPIStore:
         filters: Optional[dict] = None,
         alert_policy: Optional[dict] = None,
         notes: str = "",
+        max_watchlists: int = DEFAULT_MAX_WATCHLISTS_PER_KEY,
     ) -> dict:
         now = _iso(_now())
         watchlist_id = secrets.token_hex(8)
+        safe_max = max(1, min(500, int(max_watchlists or DEFAULT_MAX_WATCHLISTS_PER_KEY)))
         with self.conn:
+            if self.watchlist_count(key_id) >= safe_max:
+                raise WorkspaceQuotaExceeded(f"saved watchlist limit reached ({safe_max})")
             self.conn.execute(
                 """INSERT INTO saved_watchlists(
                        id,key_id,name,tickers_json,filters_json,alert_policy_json,

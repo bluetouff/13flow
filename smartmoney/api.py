@@ -51,7 +51,7 @@ from .tracker import Tier, EntitlementError
 from .db import Store
 from .diff import Move, diff_portfolios
 from .portfolio import Portfolio
-from .pro import APIKeyError, APIRateLimited, ProAPIStore
+from .pro import APIKeyError, APIRateLimited, ProAPIStore, WorkspaceQuotaExceeded
 from .quality import data_quality_report, quality_gate_report
 from .valuation import value_portfolio
 
@@ -383,11 +383,18 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     app.config["MAX_CONTENT_LENGTH"] = 256 * 1024   # this API takes no large bodies
     dash = dashboard_path or DASHBOARD
     _truthy = lambda v: str(v or "").strip().lower() in ("1", "true", "yes", "on")
+    def _env_int(name: str, default: int, lo: int, hi: int) -> int:
+        try:
+            value = int(os.environ.get(name, "") or default)
+        except (TypeError, ValueError):
+            return default
+        return max(lo, min(hi, value))
     demo_mode = _truthy(os.environ.get("SMARTMONEY_DEMO"))
     open_mode = open_mode or demo_mode or _truthy(os.environ.get("SMARTMONEY_OPEN"))
     read_only = demo_mode or _truthy(os.environ.get("SMARTMONEY_DB_READONLY"))
     pro_enabled = _truthy(os.environ.get("SMARTMONEY_PRO_API"))
     pro_db_path = os.environ.get("SMARTMONEY_PRO_DB") or os.path.join(APP_ROOT, "13flow-pro.db")
+    pro_workspace_max_watchlists = _env_int("SMARTMONEY_PRO_MAX_WATCHLISTS_PER_KEY", 50, 1, 500)
 
     # Auth + billing exist only in the full build. The open build skips them entirely:
     # no accounts, no Stripe, no sessions/CSRF machinery is even registered.
@@ -2239,6 +2246,24 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             raise BadRequest("invalid activity filter")
         return value
 
+    def _clean_workspace_id(raw) -> str:
+        from werkzeug.exceptions import BadRequest
+        value = str(raw or "").strip()
+        if not re.fullmatch(r"[a-f0-9]{16}", value):
+            raise BadRequest("invalid workspace id")
+        return value
+
+    def _pro_workspace_limits_payload() -> dict:
+        return {
+            "max_watchlists_per_key": pro_workspace_max_watchlists,
+            "max_tickers_per_watchlist": 50,
+            "max_snapshots_per_watchlist": 100,
+            "max_history_returned": 100,
+            "max_alerts_returned": 100,
+            "max_activity_returned": 100,
+            "max_request_bytes": app.config.get("MAX_CONTENT_LENGTH"),
+        }
+
     def _pro_store_call(fn):
         ps = ProAPIStore(pro_db_path)
         try:
@@ -2358,6 +2383,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "rate_per_min": key.rate_per_min,
                     "rate_per_day": key.rate_per_day,
                 },
+                "workspace_limits": _pro_workspace_limits_payload(),
             })
 
         @app.get("/api/pro/v1/funds")
@@ -2561,6 +2587,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "workspace_scope": "api_key",
                     "ui_exposed": False,
                     "automation": "manual_snapshot_only",
+                    "workspace_limits": _pro_workspace_limits_payload(),
                 },
                 "summary": summary,
                 "recent_alerts": recent_alerts,
@@ -2597,7 +2624,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             key = request.pro_api_key
             status = _clean_workspace_alert_status(request.args.get("status"), allow_all=True)
             limit = clean_int(request.args.get("limit"), 50, 1, 100)
-            watchlist_id = (request.args.get("watchlist_id") or "").strip() or None
+            watchlist_id = (
+                _clean_workspace_id(request.args.get("watchlist_id"))
+                if request.args.get("watchlist_id") else None
+            )
             with ProAPIStore(pro_db_path) as ps:
                 alerts = ps.list_workspace_alerts(
                     key.key_id, status=status, limit=limit, watchlist_id=watchlist_id,
@@ -2619,6 +2649,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         @pro_required("workspace:write")
         def pro_workspace_alert_update_ep(alert_id):
             key = request.pro_api_key
+            alert_id = _clean_workspace_id(alert_id)
             payload = request.get_json(silent=True) or {}
             status = _clean_workspace_alert_status(payload.get("status"))
             with ProAPIStore(pro_db_path) as ps:
@@ -2658,6 +2689,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "git_sha": _git_sha(),
                     "workspace_scope": "api_key",
                     "ui_exposed": False,
+                    "workspace_limits": _pro_workspace_limits_payload(),
                 },
                 "watchlists": items,
             })
@@ -2668,14 +2700,22 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             key = request.pro_api_key
             payload = _clean_saved_watchlist_payload(request.get_json(silent=True) or {})
             with ProAPIStore(pro_db_path) as ps:
-                item = ps.create_watchlist(
-                    key.key_id,
-                    payload["name"],
-                    payload["tickers"],
-                    filters=payload["filters"],
-                    alert_policy=payload["alert_policy"],
-                    notes=payload["notes"],
-                )
+                try:
+                    item = ps.create_watchlist(
+                        key.key_id,
+                        payload["name"],
+                        payload["tickers"],
+                        filters=payload["filters"],
+                        alert_policy=payload["alert_policy"],
+                        notes=payload["notes"],
+                        max_watchlists=pro_workspace_max_watchlists,
+                    )
+                except WorkspaceQuotaExceeded as e:
+                    return jsonify({
+                        "error": "workspace_quota_exceeded",
+                        "detail": str(e),
+                        "workspace_limits": _pro_workspace_limits_payload(),
+                    }), 409
                 ps.record_workspace_activity(
                     key.key_id,
                     "watchlist.created",
@@ -2697,6 +2737,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         @pro_required("workspace:write")
         def pro_workspace_watchlists_get_ep(watchlist_id):
             key = request.pro_api_key
+            watchlist_id = _clean_workspace_id(watchlist_id)
             item = _pro_store_call(lambda ps: ps.get_watchlist(key.key_id, watchlist_id))
             if item is None:
                 return jsonify({"error": "not_found"}), 404
@@ -2709,6 +2750,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         @pro_required("workspace:write")
         def pro_workspace_watchlists_put_ep(watchlist_id):
             key = request.pro_api_key
+            watchlist_id = _clean_workspace_id(watchlist_id)
             payload = _clean_saved_watchlist_payload(request.get_json(silent=True) or {})
             with ProAPIStore(pro_db_path) as ps:
                 item = ps.update_watchlist(
@@ -2742,6 +2784,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 
         def _delete_saved_watchlist_response(watchlist_id):
             key = request.pro_api_key
+            watchlist_id = _clean_workspace_id(watchlist_id)
             with ProAPIStore(pro_db_path) as ps:
                 item = ps.get_watchlist(key.key_id, watchlist_id)
                 if item is None:
@@ -2779,6 +2822,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         @pro_required("workspace:write")
         def pro_workspace_watchlists_preview_ep(watchlist_id):
             key = request.pro_api_key
+            watchlist_id = _clean_workspace_id(watchlist_id)
             item = _pro_store_call(lambda ps: ps.get_watchlist(key.key_id, watchlist_id))
             if item is None:
                 return jsonify({"error": "not_found"}), 404
@@ -2798,6 +2842,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         @pro_required("workspace:write")
         def pro_workspace_watchlists_signals_ep(watchlist_id):
             key = request.pro_api_key
+            watchlist_id = _clean_workspace_id(watchlist_id)
             item = _pro_store_call(lambda ps: ps.get_watchlist(key.key_id, watchlist_id))
             if item is None:
                 return jsonify({"error": "not_found"}), 404
@@ -2816,6 +2861,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         @pro_required("workspace:write")
         def pro_workspace_watchlists_signals_snapshot_ep(watchlist_id):
             key = request.pro_api_key
+            watchlist_id = _clean_workspace_id(watchlist_id)
             with ProAPIStore(pro_db_path) as ps:
                 item = ps.get_watchlist(key.key_id, watchlist_id)
                 if item is None:
@@ -2868,6 +2914,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         @pro_required("workspace:write")
         def pro_workspace_watchlists_signals_history_ep(watchlist_id):
             key = request.pro_api_key
+            watchlist_id = _clean_workspace_id(watchlist_id)
             limit = clean_int(request.args.get("limit"), 20, 1, 100)
             include_signals = clean_bool(request.args.get("include_signals"), False)
             with ProAPIStore(pro_db_path) as ps:
