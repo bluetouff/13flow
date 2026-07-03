@@ -226,3 +226,6 @@ Re-test with the revoked token and expect `401`.
   the internal Pro token are configured and tested.
 - Do not relaunch external historical-price or Form 4 fan-out from production to
   satisfy full validation. Import vetted local artifacts and validate them offline.
+- After a long Form 4 export, follow `docs/POST_RUN_FORM4_VALIDATION.md` before
+  deploying queued code, validating the CSV or building a joined Confluence
+  dataset.

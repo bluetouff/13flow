@@ -320,6 +320,10 @@ SEC_UA='13FLOW/1.0 contact@example.com' python run.py \
 Increase `--validation-form4-max-tickers` only after the one-ticker smoke succeeds. The
 exporter reuses existing ticker rows unless `--validation-form4-force` is set and caps each
 ticker with `--validation-form4-max-filings-per-ticker`.
+
+For the operator checklist after a long Form 4 export finishes, including the offline CSV
+gate and deployment order, see `docs/POST_RUN_FORM4_VALIDATION.md`.
+
 The dataset builder joins the reviewed local Form 4 transaction file with
 `--validation-form4`. Accepted CSV/JSONL rows include `ticker`, `accession`,
 `filing_date`, `transaction_date`, owner identity/role fields, transaction code,

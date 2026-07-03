@@ -92,6 +92,10 @@ AAPL,0000320193-26-000004,2026-05-04,2026-05-02,0000000001,Example CEO,Chief Exe
 Only after that validation passes should the full point-in-time feature dataset
 be rebuilt and evaluated.
 
+For the post-run operator sequence after a long Form 4 export, use
+`docs/POST_RUN_FORM4_VALIDATION.md` before building or publishing the joined
+Confluence artifact.
+
 ## External API safety
 
 Default operator policy:
