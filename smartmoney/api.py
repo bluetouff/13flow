@@ -1521,6 +1521,22 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "public_validation_claim": False,
                     "publishable_as_full_validation": False,
                 },
+                "metrics_snapshot": {
+                    "horizon_days": 60,
+                    "split": "test",
+                    "model": "full_score",
+                    "n": 113,
+                    "rank_ic": -0.003655,
+                    "rank_ic_permutation_p": 0.964072,
+                    "top_bottom_spread": 0.026515,
+                    "top_bottom_spread_ci95": [-0.078722, 0.110038],
+                    "hit_rate": 0.5,
+                    "mean_forward_return": 0.004804,
+                    "interpretation": (
+                        "weak_or_neutral_descriptive_metrics; this is not a validated "
+                        "alpha, forecast, probability or expected-return claim"
+                    ),
+                },
                 "blocked_by": (
                     "A 25-ticker mature 13F + Form 4 joined artifact is mechanically "
                     "schema-valid and ready for human review, but metrics remain "
@@ -1652,6 +1668,115 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "</div>"
         )
         return _html_response("Status", body)
+
+    @app.get("/validation")
+    def validation_page():
+        product = product_status_payload()
+        validation = product["validation"]
+        artifact = validation["current_artifact"]
+        metrics = validation["metrics_snapshot"]
+
+        def pct(value: object) -> str:
+            try:
+                return f"{float(value) * 100:.1f}%"
+            except (TypeError, ValueError):
+                return "-"
+
+        proof_rows = [
+            ("Artifact status", artifact["schema_status"]),
+            ("Evidence review", artifact["evidence_review_status"]),
+            ("Metrics status", artifact["metrics_status"]),
+            ("Feature scope", artifact["feature_scope"]),
+            ("Rows", str(artifact["row_count"])),
+            ("Tickers", str(artifact["ticker_count"])),
+            ("Row errors", str(artifact["row_error_count"])),
+            ("Rows with Form 4 accessions", str(artifact["rows_with_form4_accessions"])),
+            ("Rows with open-market buyers", str(artifact["rows_with_open_market_buyers"])),
+            ("Tickers with open-market buyers", str(artifact["tickers_with_open_market_buyers"])),
+            ("20d forward-return coverage", pct(artifact["forward_return_coverage"]["forward_return_20d"])),
+            ("60d forward-return coverage", pct(artifact["forward_return_coverage"]["forward_return_60d"])),
+            ("120d forward-return coverage", pct(artifact["forward_return_coverage"]["forward_return_120d"])),
+        ]
+        proof_html = "".join(
+            f"<tr><td>{html_escape(k)}</td><td><code>{html_escape(v)}</code></td></tr>"
+            for k, v in proof_rows
+        )
+
+        metric_rows = [
+            ("Split", metrics["split"]),
+            ("Model", metrics["model"]),
+            ("Horizon", f"{metrics['horizon_days']} trading days"),
+            ("n", str(metrics["n"])),
+            ("Rank IC", str(metrics["rank_ic"])),
+            ("Permutation p-value", str(metrics["rank_ic_permutation_p"])),
+            ("Top-bottom spread", str(metrics["top_bottom_spread"])),
+            ("Top-bottom spread CI95", f"{metrics['top_bottom_spread_ci95'][0]} -> {metrics['top_bottom_spread_ci95'][1]}"),
+            ("Hit rate", pct(metrics["hit_rate"])),
+            ("Mean forward return", pct(metrics["mean_forward_return"])),
+        ]
+        metrics_html = "".join(
+            f"<tr><td>{html_escape(k)}</td><td><code>{html_escape(v)}</code></td></tr>"
+            for k, v in metric_rows
+        )
+
+        proves = [
+            "The local feature table is mechanically schema-valid.",
+            "The 25-ticker artifact joins 13F and reviewed Form 4 accessions.",
+            "Forward returns are complete for the 20d, 60d and 120d horizons on the mature window.",
+            "The artifact is ready for human methodology review.",
+        ]
+        does_not = [
+            "It does not prove validated alpha.",
+            "It does not provide a probability, price target or expected-return model.",
+            "It does not cover the full historical universe.",
+            "It does not complete price-source, delisting, liquidity, costs or no-lookahead review.",
+        ]
+        proves_html = "".join(f"<li>{html_escape(item)}</li>" for item in proves)
+        does_not_html = "".join(f"<li>{html_escape(item)}</li>" for item in does_not)
+        sources = [
+            ("/api/product-status", "Machine-readable validation boundary"),
+            ("/api/methodology/app", "Application methodology contract"),
+            ("/api/methodology/confluence-v1", "Frozen Confluence v1 contract"),
+            ("/status", "Deployment and runtime proof"),
+            ("/pro", "Commercial access boundary"),
+        ]
+        source_html = "".join(
+            f"<tr><td><a href=\"{html_escape(path)}\"><code>{html_escape(path)}</code></a></td>"
+            f"<td>{html_escape(desc)}</td></tr>"
+            for path, desc in sources
+        )
+
+        body = (
+            "<h1>Validation</h1>"
+            "<p class=\"lede\">Current Confluence evidence pack for 13FLOW. "
+            "This page is intentionally conservative: it separates mechanical dataset readiness "
+            "from any alpha or investment-performance claim.</p>"
+            "<div class=\"grid\">"
+            "<div class=\"card\"><h3>Current status</h3>"
+            f"<p><span class=\"pill\">{html_escape(validation['status'])}</span></p>"
+            f"<p>{html_escape(validation['blocked_by'])}</p></div>"
+            "<div class=\"card\"><h3>Artifact</h3>"
+            f"<p class=\"meta\">{html_escape(artifact['path'])}</p>"
+            f"<p><code>{html_escape(artifact['dataset_sha256'])}</code></p></div>"
+            "<div class=\"card\"><h3>Boundary</h3>"
+            f"<p>Public validation claim: <code>{str(artifact['public_validation_claim']).lower()}</code></p>"
+            f"<p>Publishable as full validation: <code>{str(artifact['publishable_as_full_validation']).lower()}</code></p></div>"
+            "</div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Mechanical Evidence</h2>"
+            f"<table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody>{proof_html}</tbody></table></div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Descriptive Metrics</h2>"
+            "<p class=\"lede\">These 60-day metrics are weak or neutral. They are useful as a "
+            "review checkpoint, not as a performance promise.</p>"
+            f"<table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>{metrics_html}</tbody></table>"
+            f"<p class=\"meta\">{html_escape(metrics['interpretation'])}</p></div>"
+            "<div class=\"grid\" style=\"margin-top:18px\">"
+            "<div class=\"card\"><h3>What this proves</h3><ul>" + proves_html + "</ul></div>"
+            "<div class=\"card\"><h3>What this does not prove</h3><ul>" + does_not_html + "</ul></div>"
+            "</div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Verification Links</h2>"
+            f"<table><thead><tr><th>Surface</th><th>Use</th></tr></thead><tbody>{source_html}</tbody></table></div>"
+        )
+        return _html_response("Validation", body)
 
     def pro_offer_payload() -> dict:
         status = product_status_payload()
@@ -1867,6 +1992,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     ],
                 },
                 "evidence_pack": [
+                    "/validation",
                     "/status",
                     "/api/product-status",
                     "/api/live-status",
@@ -2153,7 +2279,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         nav = (
             '<nav class="topnav"><a class="brand" href="/">13<span>FL</span><b>OW</b></a>'
             '<div class="navlinks"><a href="/funds">Funds</a><a href="/stocks">Stocks</a>'
-            '<a href="/signals">Signals</a><a href="/status">Status</a><a href="/methodology">Methodology</a>'
+            '<a href="/signals">Signals</a><a href="/status">Status</a><a href="/validation">Validation</a><a href="/methodology">Methodology</a>'
             '<a href="/developers">Developers</a><a href="/pro">Pro API</a><a href="/faq">FAQ</a>'
             '<a href="/legal">Legal</a></div></nav>'
         )
@@ -2162,7 +2288,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             '<div><h4>13FLOW</h4><p>SEC EDGAR-derived 13F and Form 4 research surfaces '
             'for analysts, APIs and agent workflows.</p></div>'
             '<div><h4>Product</h4><a href="/funds">Funds</a><a href="/stocks">Stocks</a>'
-            '<a href="/signals">Signals</a><a href="/pro">Pro API</a></div>'
+            '<a href="/signals">Signals</a><a href="/validation">Validation</a><a href="/pro">Pro API</a></div>'
             '<div><h4>Method</h4><a href="/methodology">Overview</a>'
             '<a href="/methodology/app">Application</a><a href="/methodology/mcp">MCP</a>'
             '<a href="/api/methodology/confluence-v1">Confluence v1</a></div>'
@@ -2764,6 +2890,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<div class=\"card\"><h3>Verification</h3>"
             "<p><a href=\"/api/pro-offer\">/api/pro-offer</a> · "
             "<a href=\"/api/product-status\">/api/product-status</a> · "
+            "<a href=\"/validation\">/validation</a> · "
             "<a href=\"/status\">/status</a> · "
             "<a href=\"/api/pro/v1/openapi.json\">Pro OpenAPI</a></p></div>"
             "</div>"

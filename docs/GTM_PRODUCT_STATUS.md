@@ -32,6 +32,12 @@ Machine-readable product status:
 curl -fsS https://13flow.eu/api/product-status | python3 -m json.tool
 ```
 
+Human-readable validation evidence page:
+
+```bash
+curl -fsS https://13flow.eu/validation
+```
+
 ## Claims not allowed yet
 
 Do not claim:

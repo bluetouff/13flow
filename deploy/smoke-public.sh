@@ -131,6 +131,20 @@ else
   bad "/status evidence page" "curl failed"
 fi
 
+validation_page="$tmpdir/validation.html"
+if fetch "/validation" "$validation_page"; then
+  grep -q "Current Confluence evidence pack" "$validation_page" \
+    && grep -q "Mechanical Evidence" "$validation_page" \
+    && grep -q "Descriptive Metrics" "$validation_page" \
+    && grep -q "Public validation claim" "$validation_page" \
+    && grep -q "It does not prove validated alpha" "$validation_page" \
+    && ok "/validation evidence page" \
+    || bad "/validation evidence page" "missing validation boundary copy"
+  contains_none "/validation has no legacy/auth/checkout copy" "$validation_page" "${legacy_forbidden[@]}"
+else
+  bad "/validation evidence page" "curl failed"
+fi
+
 for path in /methodology /methodology/app /methodology/mcp; do
   out="$tmpdir/${path//\//_}.html"
   if fetch "$path" "$out"; then
@@ -241,14 +255,21 @@ if fetch "/api/product-status" "$product"; then
   json_check "/api/product-status GTM boundary" "$product" "
 validation = data.get('validation') or {}
 artifact = validation.get('current_artifact') or {}
+metrics = validation.get('metrics_snapshot') or {}
 offer = data.get('offer_boundary') or {}
 readiness = data.get('commercial_readiness') or {}
 ok = (
     data.get('public_state') == 'LIVE'
+    and validation.get('status') == 'mechanical_evidence_ready_for_review_metrics_unreviewed'
     and readiness.get('public_api') == 'live_read_only'
     and readiness.get('mcp') == 'available_read_only'
     and readiness.get('x402') == 'not_enabled'
+    and artifact.get('evidence_review_status') == 'mechanical_evidence_ready_for_review'
+    and artifact.get('row_error_count') == 0
+    and artifact.get('public_validation_claim') is False
     and artifact.get('publishable_as_full_validation') is False
+    and metrics.get('n') == 113
+    and metrics.get('rank_ic') == -0.003655
     and 'validated alpha' in (offer.get('do_not_claim_yet') or [])
 )
 msg = str(data)

@@ -131,6 +131,7 @@ Bad fit:
 Send or show these before quoting serious access:
 
 ```text
+/validation
 /status
 /api/product-status
 /api/live-status
@@ -165,4 +166,3 @@ buyer has a serious workflow, quote the paid pilot.
 **"Can we redistribute this data?"**
 
 Only under the enterprise/redistribution package with explicit written terms.
-

@@ -183,6 +183,11 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
         assert artifact["row_error_count"] == 0
         assert artifact["forward_return_coverage"]["forward_return_120d"] == 1.0
         assert artifact["public_validation_claim"] is False
+        metrics = product["validation"]["metrics_snapshot"]
+        assert metrics["horizon_days"] == 60
+        assert metrics["n"] == 113
+        assert metrics["rank_ic"] == -0.003655
+        assert "weak_or_neutral_descriptive_metrics" in metrics["interpretation"]
         assert product["validation"]["current_artifact"]["publishable_as_full_validation"] is False
         assert "validated alpha" in product["offer_boundary"]["do_not_claim_yet"]
         assert "25-ticker mature Form 4 joined mechanical evidence pack ready for human review" \
@@ -344,10 +349,24 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "better_not_cheaper" in pro_page
         assert "Quiver Quantitative" in pro_page
         assert "Evidence pack" in pro_page
+        assert 'href="/validation"' in pro_page
         assert "Public filings research. Not investment advice." in pro_page
         assert 'href="/developers"' in pro_page
         assert 'href="/api/live-status"' in pro_page
         assert 'href="/status"' in pro_page
+
+        validation_page = c.get("/validation").get_data(as_text=True)
+        assert "Current Confluence evidence pack" in validation_page
+        assert "Mechanical Evidence" in validation_page
+        assert "Descriptive Metrics" in validation_page
+        assert "weak or neutral" in validation_page
+        assert "Rank IC" in validation_page
+        assert "-0.003655" in validation_page
+        assert "Public validation claim" in validation_page
+        assert "Publishable as full validation" in validation_page
+        assert "What this does not prove" in validation_page
+        assert "It does not prove validated alpha" in validation_page
+        assert "/api/product-status" in validation_page
 
         status_page = c.get("/status").get_data(as_text=True)
         assert "Use this page to distinguish deployed production state" in status_page
