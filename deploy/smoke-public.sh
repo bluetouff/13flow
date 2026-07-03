@@ -104,6 +104,8 @@ pro_page="$tmpdir/pro.html"
 if fetch "/pro" "$pro_page"; then
   grep -q "13FLOW Pro API" "$pro_page" \
     && grep -q "/api/pro-offer" "$pro_page" \
+    && grep -q "Request access" "$pro_page" \
+    && grep -q "Pilot access" "$pro_page" \
     && ok "/pro offer page" \
     || bad "/pro offer page" "missing Pro API packaging copy"
 else
@@ -196,9 +198,14 @@ not_yet = data.get('not_included_yet') or []
 commands = data.get('operator_commands') or {}
 truth = data.get('truth_boundary') or {}
 artifact = truth.get('current_artifact') or {}
+plans = data.get('plans') or []
+buyer_checklist = data.get('buyer_checklist') or []
 ok = (
     offer.get('name') == '13FLOW Pro API'
     and offer.get('self_serve_checkout') is False
+    and (offer.get('contact') or {}).get('email') == 'admin@toonux.com'
+    and [p.get('name') for p in plans] == ['Pilot access', 'Desk API', 'Agent / MCP workflow']
+    and 'organization name and billing contact' in buyer_checklist
     and int(limits.get('rate_per_min') or 0) == 120
     and 'validated alpha' in not_yet
     and bool(commands.get('create_key'))

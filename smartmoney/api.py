@@ -1549,7 +1549,71 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "self_serve_checkout": False,
                 "human_page": "/pro",
                 "runbook": "docs/PRO_API_ONBOARDING.md",
+                "contact": {
+                    "email": "admin@toonux.com",
+                    "mailto": (
+                        "mailto:admin@toonux.com?subject=13FLOW%20Pro%20API%20access"
+                    ),
+                    "expected_response": "operator review before any token is issued",
+                },
             },
+            "plans": [
+                {
+                    "name": "Pilot access",
+                    "fit": "one research desk or analyst validating 13F workflows",
+                    "commercial_model": "operator quoted",
+                    "includes": [
+                        "one scoped API key",
+                        "default limits unless negotiated",
+                        "fund list, fund detail and data-quality endpoints",
+                        "bounded first probes with operator verification",
+                    ],
+                    "success_criteria": [
+                        "status and funds probes pass",
+                        "one bounded fund detail is ingested client-side",
+                        "client accepts current validation boundary",
+                    ],
+                },
+                {
+                    "name": "Desk API",
+                    "fit": "repeatable internal dashboards, notebooks or data pipelines",
+                    "commercial_model": "operator quoted",
+                    "includes": [
+                        "institution-labelled API key",
+                        "documented scopes, limits and rotation policy",
+                        "request audit trail",
+                        "data-quality warnings surfaced as first-class output",
+                    ],
+                    "success_criteria": [
+                        "client workflow handles pagination and bounded payloads",
+                        "audit rows are verified after first integration",
+                        "rotation date is documented",
+                    ],
+                },
+                {
+                    "name": "Agent / MCP workflow",
+                    "fit": "automated agent access to 13F context and quality metadata",
+                    "commercial_model": "operator quoted",
+                    "includes": [
+                        "MCP product-status and Pro tool probes",
+                        "fail-closed behavior without a valid Pro key",
+                        "read-only access pattern suitable for agent workflows",
+                    ],
+                    "success_criteria": [
+                        "MCP public tools respond",
+                        "Pro MCP tool succeeds with a valid key",
+                        "Pro MCP tool fails closed without credential",
+                    ],
+                },
+            ],
+            "buyer_checklist": [
+                "organization name and billing contact",
+                "intended workflow: research desk, data pipeline, MCP agent, monitoring",
+                "required scopes and expected request volume",
+                "preferred token delivery channel",
+                "expiry, rotation and revocation expectations",
+                "confirmation that 13FLOW is a research screen, not investment advice",
+            ],
             "included": [
                 {
                     "capability": "Pro API",
@@ -1592,12 +1656,13 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "max_moves_per_fund_detail": 2000,
             },
             "onboarding": [
-                "Confirm use case, organization label, scopes, rate limits and expiry policy.",
-                "Create one API key per institution or internal service.",
-                "Deliver the plaintext token once through an out-of-band secure channel.",
-                "Run status, funds and bounded fund-detail probes.",
-                "Verify recent audit rows and document the key id.",
-                "Schedule rotation and revoke bootstrap/internal QA keys when no longer needed.",
+                "Buyer sends the access request with organization, workflow, scopes and expected volume.",
+                "Operator confirms fit, validation boundary, limits, expiry and secure token channel.",
+                "Operator creates one API key per institution or internal service.",
+                "Plaintext token is delivered once through an out-of-band secure channel.",
+                "Buyer runs status, funds and bounded fund-detail probes.",
+                "Operator verifies recent audit rows and documents the key id.",
+                "Rotation date is scheduled and bootstrap/internal QA keys are revoked when no longer needed.",
             ],
             "operator_commands": {
                 "create_key": (
@@ -1959,12 +2024,29 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     @app.get("/pro")
     def static_pro_offer():
         offer = pro_offer_payload()
+        contact = offer["offer"]["contact"]
+        contact_link = html_escape(contact["mailto"], quote=True)
         included = "".join(
             "<div class=\"card\">"
             f"<h3>{html_escape(item['capability'])}</h3>"
             "<ul>" + "".join(f"<li>{html_escape(detail)}</li>" for detail in item["details"]) + "</ul>"
             "</div>"
             for item in offer["included"]
+        )
+        plans = "".join(
+            "<div class=\"card\">"
+            f"<h3>{html_escape(plan['name'])}</h3>"
+            f"<p>{html_escape(plan['fit'])}</p>"
+            f"<p><span class=\"pill\">{html_escape(plan['commercial_model'])}</span></p>"
+            "<h4>Includes</h4><ul>"
+            + "".join(f"<li>{html_escape(item)}</li>" for item in plan["includes"])
+            + "</ul><h4>Pilot pass criteria</h4><ul>"
+            + "".join(f"<li>{html_escape(item)}</li>" for item in plan["success_criteria"])
+            + "</ul></div>"
+            for plan in offer["plans"]
+        )
+        checklist = "".join(
+            f"<li>{html_escape(item)}</li>" for item in offer["buyer_checklist"]
         )
         not_yet = "".join(
             f"<li>{html_escape(item)}</li>" for item in offer["not_included_yet"]
@@ -1975,11 +2057,14 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         limits = offer["default_limits"]
         body = (
             "<h1>13FLOW Pro API</h1>"
-            f"<p class=\"lede\">{html_escape(offer['offer']['positioning'])}</p>"
+            "<p class=\"lede\">Source-linked 13F data, quality warnings and agent-ready "
+            "read-only access for research desks that want to stop hand-scraping SEC filings.</p>"
+            "<p><a class=\"pill\" href=\"" + contact_link + "\">Request access</a> "
+            f"<span class=\"meta\">{html_escape(contact['expected_response'])}</span></p>"
             "<div class=\"grid\">"
-            "<div class=\"card\"><h3>Access model</h3>"
-            f"<p>{html_escape(offer['offer']['access_model'].replace('_', ' '))}</p>"
-            "<p class=\"meta\">No public checkout is enabled on the open build.</p></div>"
+            "<div class=\"card\"><h3>What you get</h3>"
+            f"<p>{html_escape(offer['offer']['positioning'])}</p>"
+            "<p class=\"meta\">No public checkout is enabled on the open build; access is operator issued.</p></div>"
             "<div class=\"card\"><h3>Default limits</h3>"
             f"<p class=\"num\">{limits['rate_per_min']} / min · {limits['rate_per_day']} / day</p>"
             f"<p class=\"meta\">{limits['max_positions_per_fund_detail']} positions and "
@@ -1989,11 +2074,16 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<a href=\"/api/product-status\">/api/product-status</a> · "
             "<a href=\"/api/pro/v1/openapi.json\">Pro OpenAPI</a></p></div>"
             "</div>"
+            "<h2>Plans</h2><div class=\"grid\">" + plans + "</div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Access request checklist</h2>"
+            "<p class=\"lede\">Send these details first so the operator can issue the right scoped key.</p>"
+            f"<ul>{checklist}</ul>"
+            "<p><a class=\"pill\" href=\"" + contact_link + "\">Email access request</a></p></div>"
             "<h2>Included</h2><div class=\"grid\">" + included + "</div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Not claimed yet</h2>"
             "<p class=\"lede\">These claims require additional evidence or configuration before use in sales material.</p>"
             f"<ul>{not_yet}</ul></div>"
-            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Onboarding runbook</h2>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Onboarding flow</h2>"
             f"<ol>{onboarding}</ol></div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Validation boundary</h2>"
             f"<p>{html_escape(offer['truth_boundary']['blocked_by'])}</p>"

@@ -218,10 +218,22 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         offer = c.get("/api/pro-offer").get_json()
         assert offer["offer"]["name"] == "13FLOW Pro API"
         assert offer["offer"]["self_serve_checkout"] is False
+        assert offer["offer"]["contact"]["email"] == "admin@toonux.com"
+        assert [p["name"] for p in offer["plans"]] == [
+            "Pilot access",
+            "Desk API",
+            "Agent / MCP workflow",
+        ]
+        assert "organization name and billing contact" in offer["buyer_checklist"]
         assert offer["default_limits"]["rate_per_min"] == 120
         assert "validated alpha" in offer["not_included_yet"]
         assert "create_key" in offer["operator_commands"]
         assert offer["truth_boundary"]["current_artifact"]["publishable_as_full_validation"] is False
+
+        pro_page = c.get("/pro").get_data(as_text=True)
+        assert "Request access" in pro_page
+        assert "Access request checklist" in pro_page
+        assert "Pilot access" in pro_page
 
         api_stock = c.get("/api/stocks/AAPL").get_json()
         assert api_stock["ticker"] == "AAPL"

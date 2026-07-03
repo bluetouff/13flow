@@ -3,7 +3,46 @@
 This runbook is for operator-issued Pro API access. The public open build does
 not expose self-serve checkout or account management.
 
-## 1. Qualify the account
+## 1. Capture the inbound request
+
+The public `/pro` page routes buyers to an operator-reviewed access request. Ask
+for these fields before quoting or issuing a key:
+
+- organization name and billing contact;
+- intended workflow: research desk, data pipeline, MCP agent, monitoring;
+- required scopes and expected request volume;
+- preferred token delivery channel;
+- expiry, rotation and revocation expectations;
+- confirmation that 13FLOW is a research screen, not investment advice.
+
+Suggested reply structure:
+
+```text
+Thanks for the 13FLOW Pro API request.
+
+Before I issue a scoped pilot key, please confirm:
+- Organization / billing contact:
+- Workflow:
+- Expected request volume:
+- Required scopes:
+- Preferred secure token delivery channel:
+- Rotation / expiry expectation:
+- You accept the current validation boundary:
+```
+
+## 2. Select the access package
+
+Use one of the public packages exposed by `/api/pro-offer`:
+
+- **Pilot access** — one research desk or analyst validating 13F workflows.
+- **Desk API** — repeatable internal dashboards, notebooks or data pipelines.
+- **Agent / MCP workflow** — automated agent access to 13F context and quality metadata.
+
+All packages are operator quoted for now. Do not expose public self-serve
+checkout until pricing, terms, payment details and support boundaries are
+ready.
+
+## 3. Qualify the account
 
 Record before creating a key:
 
@@ -22,7 +61,7 @@ The public boundary is:
 curl -fsS https://13flow.eu/api/product-status | python3 -m json.tool
 ```
 
-## 2. Create the key
+## 4. Create the key
 
 Run on production:
 
@@ -38,7 +77,7 @@ sudo /opt/13flow/.venv/bin/python /opt/13flow/run.py \
 The plaintext token is shown once. Store only the key id in the operator notes;
 do not paste the token into tickets, Git, logs or chat.
 
-## 3. First client probes
+## 5. First client probes
 
 Use the customer's token without echoing it:
 
@@ -65,7 +104,7 @@ The bounded fund-detail call must include `positions_total`,
 `positions_returned`, `changes_total` and `changes_returned` so clients can
 detect truncation deterministically.
 
-## 4. MCP probe
+## 6. MCP probe
 
 ```bash
 curl -fsS https://13flow.eu/api/mcp \
@@ -94,7 +133,7 @@ unset TOKEN
 
 Without a token or configured x402 payment, Pro MCP tools must fail closed.
 
-## 5. Audit verification
+## 7. Audit verification
 
 ```bash
 sudo sqlite3 /var/lib/13flow-pro/13flow-pro.db \
@@ -104,7 +143,7 @@ sudo sqlite3 /var/lib/13flow-pro/13flow-pro.db \
 The new key id should appear on successful requests. Denied requests and
 rate-limited requests should also create audit rows.
 
-## 6. Production preflight
+## 8. Production preflight
 
 ```bash
 SHA=<deployed-sha>
@@ -123,7 +162,7 @@ sudo -E /opt/13flow/.venv/bin/python /opt/13flow/run.py --preflight \
 unset SMARTMONEY_PRO_TOKEN
 ```
 
-## 7. Rotation and revocation
+## 9. Rotation and revocation
 
 List keys:
 
