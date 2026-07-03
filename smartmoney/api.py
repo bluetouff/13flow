@@ -607,6 +607,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                                        "responses": {"200": {"description": "Commercial readiness"}}}},
                 "/api/buyer-pack": {"get": {"summary": "Shareable buyer review pack",
                                              "responses": {"200": {"description": "Buyer review pack"}}}},
+                "/api/buyer-pack.md": {"get": {"summary": "Shareable buyer review pack in Markdown",
+                                                "responses": {"200": {"description": "Markdown buyer review pack"}}}},
                 "/api/pro-offer": {"get": {"summary": "Pro offer packaging and onboarding runbook",
                                            "responses": {"200": {"description": "Pro offer"}}}},
                 "/api/funds": {"get": {"summary": "List tracked funds with AUM series",
@@ -4127,6 +4129,99 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     def buyer_pack_ep():
         return jsonify(buyer_pack_payload())
 
+    def buyer_pack_markdown(payload: dict) -> str:
+        snapshot = payload.get("snapshot") or {}
+        terms = payload.get("terms_boundary") or {}
+        def bullets(items) -> str:
+            return "\n".join(f"- {str(item)}" for item in (items or [])) or "- None"
+        def link_bullets(items) -> str:
+            return "\n".join(
+                f"- [{item.get('label')}]({item.get('href')})"
+                for item in (items or [])
+            ) or "- None"
+        packages = []
+        for pkg in payload.get("pilot_packages") or []:
+            packages.append(
+                f"- {pkg.get('name')}: {pkg.get('term')}; "
+                f"price={pkg.get('price_eur_per_month')}; "
+                f"sell_when={pkg.get('sell_when')}"
+            )
+        return "\n".join([
+            "# 13FLOW Buyer Review Pack",
+            "",
+            f"Generated: {payload.get('generated_at')}",
+            f"Git SHA: {payload.get('git_sha')}",
+            f"Status: {payload.get('status')}",
+            f"Sales motion: {payload.get('sales_motion')}",
+            f"Public quote ready: {str(payload.get('public_quote_ready')).lower()}",
+            f"Self-serve checkout: {str(payload.get('self_serve_checkout')).lower()}",
+            "",
+            "## Summary",
+            "",
+            str(payload.get("one_liner") or ""),
+            "",
+            "## Current Snapshot",
+            "",
+            f"- Public state: {snapshot.get('public_state')}",
+            f"- Data as of: {snapshot.get('data_as_of')}",
+            f"- Latest 13F quarter: {snapshot.get('latest_13f_quarter')}",
+            f"- Funds: {snapshot.get('funds')}",
+            f"- Trusted funds: {snapshot.get('trusted_funds')}",
+            f"- Signal eligible funds: {snapshot.get('signal_eligible_funds')}",
+            f"- Quarantined funds: {snapshot.get('quarantined_funds')}",
+            f"- Validation status: {snapshot.get('validation_status')}",
+            f"- Validation rows: {snapshot.get('artifact_rows')}",
+            f"- Validation tickers: {snapshot.get('artifact_tickers')}",
+            "",
+            "## Proof Points",
+            "",
+            bullets(payload.get("proof_points")),
+            "",
+            "## Pilot Packages",
+            "",
+            "\n".join(packages) or "- Not publicly quoted",
+            "",
+            "## Buyer Checklist",
+            "",
+            bullets(payload.get("buyer_checklist")),
+            "",
+            "## Qualification Questions",
+            "",
+            bullets(payload.get("qualification_questions")),
+            "",
+            "## Pilot Handoff",
+            "",
+            bullets(payload.get("pilot_handoff")),
+            "",
+            "## Evidence Links",
+            "",
+            link_bullets(payload.get("evidence_links")),
+            "",
+            "## Do Not Claim Yet",
+            "",
+            bullets(payload.get("do_not_claim_yet")),
+            "",
+            "## Terms Boundary",
+            "",
+            f"- Pricing: {terms.get('pricing')}",
+            f"- Redistribution: {terms.get('redistribution')}",
+            f"- Investment advice: {str(terms.get('investment_advice')).lower()}",
+            f"- Managed-service SLA: {str(terms.get('managed_service_sla')).lower()}",
+            f"- Operator review required: {str(terms.get('operator_review_required')).lower()}",
+            "",
+            "This pack is not investment advice, not a performance claim and not a public price quote.",
+            "",
+        ])
+
+    @app.get("/api/buyer-pack.md")
+    def buyer_pack_markdown_ep():
+        body = buyer_pack_markdown(buyer_pack_payload())
+        return Response(
+            body,
+            content_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": 'inline; filename="13flow-buyer-pack.md"'},
+        )
+
     def coverage_quality_payload() -> dict:
         live = live_status_payload()
         s = store()
@@ -4474,10 +4569,73 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             f"<p><span class=\"pill\">operator_review:{str(terms.get('operator_review_required')).lower()}</span></p>"
             "<p class=\"meta\">This pack is not investment advice, not a performance claim and not a public price quote.</p></section></div>"
             "<p class=\"lede\"><a class=\"pill\" href=\"/api/buyer-pack\">Machine-readable buyer pack</a> "
+            "<a class=\"pill\" href=\"/api/buyer-pack.md\">Markdown export</a> "
+            "<a class=\"pill\" href=\"/buyer-pack/print\">Printable pack</a> "
             "<a class=\"pill\" href=\"/pro/onboarding\">Pro onboarding diagnostic</a> "
             "<a class=\"pill\" href=\"/readiness\">Commercial readiness</a></p>"
         )
         return _html_response("Buyer Review Pack", body)
+
+    @app.get("/buyer-pack/print")
+    def buyer_pack_print_page():
+        payload = buyer_pack_payload()
+        snapshot = payload["snapshot"]
+        terms = payload["terms_boundary"]
+        def list_items(items) -> str:
+            return "".join(f"<li>{html_escape(str(item))}</li>" for item in (items or []))
+        evidence = "".join(
+            f"<li>{html_escape(item['label'])}: <code>{html_escape(item['href'])}</code></li>"
+            for item in payload.get("evidence_links") or []
+        )
+        packages = "".join(
+            "<tr>"
+            f"<td>{html_escape(pkg.get('name') or '-')}</td>"
+            f"<td>{html_escape(pkg.get('term') or '-')}</td>"
+            f"<td>{html_escape(str(pkg.get('price_eur_per_month') or 'not publicly quoted'))}</td>"
+            f"<td>{html_escape(pkg.get('sell_when') or '-')}</td>"
+            "</tr>"
+            for pkg in payload.get("pilot_packages") or []
+        )
+        body = (
+            "<style>@media print{.topnav,.site-footer,.print-actions{display:none!important}.wrap{max-width:none;padding:0}body{background:#fff;color:#111}.doc-section,.doc-panel,.panel{break-inside:avoid;border-color:#bbb;background:#fff;color:#111}.doc-section p,.panel p,.doc-lede,li{color:#222}.pill{border-color:#777;color:#111}.doc-copy h1{font-size:38px}.doc-metrics{grid-template-columns:repeat(4,1fr)}}"
+            ".print-cover{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:24px;margin-bottom:14px}.print-cover h1{font-size:46px;margin-bottom:10px}.print-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}</style>"
+            "<section class=\"print-cover\"><div class=\"kicker\">Shareable buyer pack</div>"
+            "<h1>13FLOW Buyer Review Pack</h1>"
+            f"<p class=\"doc-lede\">{html_escape(payload['one_liner'])}</p>"
+            f"<p class=\"meta\">generated={html_escape(payload['generated_at'])}; git_sha={html_escape(payload['git_sha'])}</p>"
+            "<p class=\"print-actions\"><span class=\"pill cta\">PDF-ready printable view</span>"
+            "<a class=\"pill\" href=\"/api/buyer-pack.md\">Markdown export</a>"
+            "<a class=\"pill\" href=\"/api/buyer-pack\">JSON contract</a></p></section>"
+            "<section class=\"doc-metrics\">"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('funds') or 0))}</b><span>tracked funds</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('trusted_funds') or 0))}</b><span>trusted funds</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('latest_13f_quarter') or '-'))}</b><span>latest 13F</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('artifact_tickers') or 0))}</b><span>validation tickers</span></div>"
+            "</section>"
+            "<section class=\"doc-section\"><h2>Proof Points</h2><ul>"
+            + list_items(payload.get("proof_points")) + "</ul></section>"
+            "<section class=\"doc-section\"><h2>Pilot Packages</h2>"
+            "<table><thead><tr><th>Name</th><th>Term</th><th>Price</th><th>Sell when</th></tr></thead>"
+            f"<tbody>{packages}</tbody></table></section>"
+            "<div class=\"split\"><section class=\"doc-section\"><h2>Buyer Checklist</h2><ul>"
+            + list_items(payload.get("buyer_checklist")) + "</ul></section>"
+            "<section class=\"doc-section\"><h2>Qualification Questions</h2><ul>"
+            + list_items(payload.get("qualification_questions")) + "</ul></section></div>"
+            "<div class=\"split\"><section class=\"doc-section\"><h2>Pilot Handoff</h2><ul>"
+            + list_items(payload.get("pilot_handoff")) + "</ul></section>"
+            "<section class=\"doc-section\"><h2>Do Not Claim Yet</h2><ul>"
+            + list_items(payload.get("do_not_claim_yet")) + "</ul></section></div>"
+            "<section class=\"doc-section\"><h2>Evidence Links</h2><ul>"
+            f"{evidence}</ul></section>"
+            "<section class=\"doc-section\"><h2>Terms Boundary</h2>"
+            f"<p><span class=\"pill\">pricing:{html_escape(str(terms.get('pricing')))}</span>"
+            f"<span class=\"pill\">redistribution:{html_escape(str(terms.get('redistribution')))}</span>"
+            f"<span class=\"pill\">investment_advice:{str(terms.get('investment_advice')).lower()}</span>"
+            f"<span class=\"pill\">sla:{str(terms.get('managed_service_sla')).lower()}</span></p>"
+            "<p class=\"callout\"><strong>Boundary:</strong> This pack is not investment advice, not a performance claim and not a public price quote.</p>"
+            "</section>"
+        )
+        return _html_response("Printable Buyer Pack", body)
 
     @app.get("/validation")
     def validation_page():

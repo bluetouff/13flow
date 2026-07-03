@@ -49,6 +49,7 @@ def test_open_mode_hides_private_surface_and_keeps_public():
                      "/api/live-status", "/api/product-status",
                      "/api/commercial-readiness",
                      "/api/buyer-pack",
+                     "/api/buyer-pack.md",
                      "/api/version", "/healthz", "/", "/coverage"):
             assert c.get(path).status_code == 200, path
         # Confluence no longer serves demo data implicitly. It needs a cache, live provider,
@@ -304,6 +305,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             ("/coverage", "Trusted Fund Coverage"),
             ("/readiness", "Readiness Checklist"),
             ("/buyer-pack", "13FLOW Buyer Review Pack"),
+            ("/buyer-pack/print", "PDF-ready printable view"),
             ("/pro", "13FLOW Pro API"),
             ("/pro/onboarding", "Integration Diagnostic"),
             ("/developers", "MCP tools/list"),
@@ -335,6 +337,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/api/product-status" in doc["paths"]
         assert "/api/commercial-readiness" in doc["paths"]
         assert "/api/buyer-pack" in doc["paths"]
+        assert "/api/buyer-pack.md" in doc["paths"]
         assert "/api/pro-offer" in doc["paths"]
         assert "/api/methodology/confluence-v1" in doc["paths"]
         assert "/api/methodology/app" in doc["paths"]
@@ -560,10 +563,31 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Pilot Handoff" in buyer_pack_page
         assert "Terms Boundary" in buyer_pack_page
         assert "/api/buyer-pack" in buyer_pack_page
+        assert "/api/buyer-pack.md" in buyer_pack_page
+        assert "/buyer-pack/print" in buyer_pack_page
         assert "/coverage" in buyer_pack_page
         assert "/pro/onboarding" in buyer_pack_page
         assert "not a performance claim" in buyer_pack_page
         assert "validated alpha" in buyer_pack_page
+
+        buyer_pack_print = c.get("/buyer-pack/print").get_data(as_text=True)
+        assert "13FLOW Buyer Review Pack" in buyer_pack_print
+        assert "PDF-ready printable view" in buyer_pack_print
+        assert "Proof Points" in buyer_pack_print
+        assert "Pilot Packages" in buyer_pack_print
+        assert "Terms Boundary" in buyer_pack_print
+        assert "/api/buyer-pack.md" in buyer_pack_print
+        assert "not investment advice" in buyer_pack_print
+
+        buyer_pack_md_resp = c.get("/api/buyer-pack.md")
+        assert buyer_pack_md_resp.status_code == 200
+        assert buyer_pack_md_resp.mimetype == "text/markdown"
+        buyer_pack_md = buyer_pack_md_resp.get_data(as_text=True)
+        assert "# 13FLOW Buyer Review Pack" in buyer_pack_md
+        assert "## Proof Points" in buyer_pack_md
+        assert "## Evidence Links" in buyer_pack_md
+        assert "not investment advice" in buyer_pack_md
+        assert "/coverage" in buyer_pack_md
 
         coverage_page = c.get("/coverage").get_data(as_text=True)
         assert "Trusted Fund Coverage" in coverage_page

@@ -171,6 +171,8 @@ if fetch "/buyer-pack" "$buyer_pack_page"; then
     && grep -q "Qualification Questions" "$buyer_pack_page" \
     && grep -q "Terms Boundary" "$buyer_pack_page" \
     && grep -q "/api/buyer-pack" "$buyer_pack_page" \
+    && grep -q "/api/buyer-pack.md" "$buyer_pack_page" \
+    && grep -q "/buyer-pack/print" "$buyer_pack_page" \
     && grep -q "/pro/onboarding" "$buyer_pack_page" \
     && grep -q "not a performance claim" "$buyer_pack_page" \
     && ok "/buyer-pack review page" \
@@ -178,6 +180,34 @@ if fetch "/buyer-pack" "$buyer_pack_page"; then
   contains_none "/buyer-pack has no legacy/auth/checkout copy" "$buyer_pack_page" "${legacy_forbidden[@]}"
 else
   bad "/buyer-pack review page" "curl failed"
+fi
+
+buyer_pack_print="$tmpdir/buyer-pack-print.html"
+if fetch "/buyer-pack/print" "$buyer_pack_print"; then
+  grep -q "13FLOW Buyer Review Pack" "$buyer_pack_print" \
+    && grep -q "PDF-ready printable view" "$buyer_pack_print" \
+    && grep -q "Pilot Packages" "$buyer_pack_print" \
+    && grep -q "Terms Boundary" "$buyer_pack_print" \
+    && grep -q "/api/buyer-pack.md" "$buyer_pack_print" \
+    && grep -q "not investment advice" "$buyer_pack_print" \
+    && ok "/buyer-pack printable page" \
+    || bad "/buyer-pack printable page" "missing printable buyer pack contract"
+  contains_none "/buyer-pack printable has no legacy/auth/checkout copy" "$buyer_pack_print" "${legacy_forbidden[@]}"
+else
+  bad "/buyer-pack printable page" "curl failed"
+fi
+
+buyer_pack_md="$tmpdir/buyer-pack.md"
+if fetch "/api/buyer-pack.md" "$buyer_pack_md"; then
+  grep -q "# 13FLOW Buyer Review Pack" "$buyer_pack_md" \
+    && grep -q "## Proof Points" "$buyer_pack_md" \
+    && grep -q "## Evidence Links" "$buyer_pack_md" \
+    && grep -q "/coverage" "$buyer_pack_md" \
+    && grep -q "not investment advice" "$buyer_pack_md" \
+    && ok "/api/buyer-pack.md export" \
+    || bad "/api/buyer-pack.md export" "missing markdown buyer pack contract"
+else
+  bad "/api/buyer-pack.md export" "curl failed"
 fi
 
 validation_page="$tmpdir/validation.html"
@@ -446,6 +476,7 @@ ok = (
     and terms.get('operator_review_required') is True
     and 'validated alpha' in (data.get('do_not_claim_yet') or [])
     and '/pro/onboarding' in links
+    and '/coverage' in links
     and '/api/commercial-readiness' in links
     and any('Pro API keys are scoped' in item for item in (data.get('proof_points') or []))
 )
@@ -597,7 +628,7 @@ openapi="$tmpdir/_api_openapi.json"
 if [[ -s "$openapi" ]]; then
   json_check "/api/openapi.json public paths" "$openapi" "
 paths = data.get('paths') or {}
-required = ['/api/live-status', '/api/product-status', '/api/commercial-readiness', '/api/buyer-pack', '/api/pro-offer', '/api/funds', '/api/watchlist/discover', '/api/mcp', '/api/methodology/confluence-v1']
+required = ['/api/live-status', '/api/product-status', '/api/commercial-readiness', '/api/buyer-pack', '/api/buyer-pack.md', '/api/pro-offer', '/api/funds', '/api/watchlist/discover', '/api/mcp', '/api/methodology/confluence-v1']
 missing = [p for p in required if p not in paths]
 ok = not missing
 msg = 'missing paths: ' + ', '.join(missing)
