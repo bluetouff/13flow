@@ -591,6 +591,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                              "responses": {"200": {"description": "Live status"}}}},
                 "/api/product-status": {"get": {"summary": "Go-to-market readiness and proof boundary",
                                                 "responses": {"200": {"description": "Product status"}}}},
+                "/api/commercial-readiness": {"get": {"summary": "Commercial readiness checklist and sales boundary",
+                                                       "responses": {"200": {"description": "Commercial readiness"}}}},
                 "/api/pro-offer": {"get": {"summary": "Pro offer packaging and onboarding runbook",
                                            "responses": {"200": {"description": "Pro offer"}}}},
                 "/api/funds": {"get": {"summary": "List tracked funds with AUM series",
@@ -3561,6 +3563,146 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     def product_status_ep():
         return jsonify(product_status_payload())
 
+    def commercial_readiness_payload() -> dict:
+        live = live_status_payload()
+        product = product_status_payload()
+        quality = live.get("quality_summary") or {}
+        validation = product.get("validation") or {}
+        artifact = validation.get("current_artifact") or {}
+        readiness = product.get("commercial_readiness") or {}
+        hard_blocks = []
+        if live.get("public_state") != "LIVE" or live.get("uses_synthetic_data"):
+            hard_blocks.append("public data surface is not LIVE SEC EDGAR")
+        if int((live.get("counts") or {}).get("funds") or 0) <= 0:
+            hard_blocks.append("no tracked fund is available")
+        if int(quality.get("trusted_funds") or 0) <= 0:
+            hard_blocks.append("no trusted fund is eligible for signal surfaces")
+        if artifact.get("public_validation_claim") is not False:
+            hard_blocks.append("validation boundary is not explicit enough")
+        soft_blocks = []
+        if validation.get("status") != "mechanical_evidence_ready_for_review_metrics_unreviewed":
+            soft_blocks.append("validation artifact state changed and should be reviewed")
+        if readiness.get("x402") != "not_enabled":
+            soft_blocks.append("x402 status changed; payment flow requires a fresh security check")
+        if int(quality.get("review_items") or 0) > 0:
+            soft_blocks.append("data-quality review items remain visible and must stay disclosed")
+        status = "controlled_pilot_ready" if not hard_blocks else "not_ready"
+        if status == "controlled_pilot_ready" and soft_blocks:
+            status = "controlled_pilot_ready_with_disclosures"
+        public_checks = [
+            {
+                "id": "public_live_data",
+                "status": "pass" if live.get("public_state") == "LIVE" and not live.get("uses_synthetic_data") else "fail",
+                "evidence": "/api/live-status",
+                "summary": f"public_state={live.get('public_state')} uses_synthetic_data={live.get('uses_synthetic_data')}",
+            },
+            {
+                "id": "data_quality_gate",
+                "status": "pass" if int(quality.get("trusted_funds") or 0) > 0 else "fail",
+                "evidence": "/api/data-quality",
+                "summary": (
+                    f"trusted={quality.get('trusted_funds')} quarantined={quality.get('quarantined_funds')} "
+                    f"review_items={quality.get('review_items')}"
+                ),
+            },
+            {
+                "id": "validation_boundary",
+                "status": "pass" if artifact.get("public_validation_claim") is False and artifact.get("publishable_as_full_validation") is False else "fail",
+                "evidence": "/validation",
+                "summary": validation.get("status"),
+            },
+            {
+                "id": "pro_surface",
+                "status": "pass",
+                "evidence": "/api/pro/v1/openapi.json",
+                "summary": readiness.get("pro_api"),
+            },
+            {
+                "id": "workspace_surface",
+                "status": "pass",
+                "evidence": "/pro/workspace",
+                "summary": "watchlists, snapshots, alerts, reports and exports are implemented behind Pro key scopes",
+            },
+            {
+                "id": "admin_health_surface",
+                "status": "pass",
+                "evidence": "/pro/admin",
+                "summary": "admin health is available behind admin:read and does not expose tokens or key hashes",
+            },
+        ]
+        external_checks = [
+            {
+                "id": "public_smoke",
+                "status": "external_required",
+                "command": "sudo EXPECTED_SHA=$SHA /opt/13flow/deploy/smoke-public.sh",
+            },
+            {
+                "id": "pro_workspace_smoke",
+                "status": "external_required",
+                "command": "sudo EXPECTED_SHA=$SHA PRO_TOKEN=\"$PRO_TOKEN\" /opt/13flow/deploy/smoke-pro-workspace.sh",
+            },
+            {
+                "id": "encrypted_backup_restore",
+                "status": "external_required",
+                "command": "/opt/13flow/deploy/prepare-pro-backup-restore-check.sh and deploy/verify-pro-db-backup.sh on restore host",
+            },
+            {
+                "id": "snapshot_timer",
+                "status": "external_required",
+                "command": "systemctl list-timers | grep 13flow-pro-workspace-snapshot",
+            },
+        ]
+        return {
+            "app": "13flow",
+            "generated_at": _now_iso(),
+            "git_sha": _git_sha(),
+            "status": status,
+            "sales_motion": "controlled_pilot_only",
+            "self_serve_checkout": False,
+            "public_quote_ready": False,
+            "hard_blocks": hard_blocks,
+            "soft_blocks": soft_blocks,
+            "public_checks": public_checks,
+            "external_checks": external_checks,
+            "snapshot": {
+                "public_state": live.get("public_state"),
+                "data_as_of": live.get("data_as_of"),
+                "latest_13f_quarter": live.get("latest_13f_quarter"),
+                "counts": live.get("counts"),
+                "quality_gate": {
+                    "status": quality.get("quality_gate_status"),
+                    "trusted_funds": quality.get("trusted_funds"),
+                    "signal_eligible_funds": quality.get("signal_eligible_funds"),
+                    "quarantined_funds": quality.get("quarantined_funds"),
+                    "review_items": quality.get("review_items"),
+                    "human_review_required_for_routine_publication": False,
+                },
+                "pro_api": readiness.get("pro_api"),
+                "mcp": readiness.get("mcp"),
+                "x402": readiness.get("x402"),
+                "validation_status": validation.get("status"),
+            },
+            "sell_now": product["offer_boundary"]["sell_now"],
+            "do_not_claim_yet": product["offer_boundary"]["do_not_claim_yet"],
+            "runbook": {
+                "before_demo": [
+                    "Confirm /api/version SHA matches deployed commit.",
+                    "Run public smoke.",
+                    "Run Pro workspace smoke with a scoped QA key.",
+                    "Open /readiness and /pro/admin with appropriate keys.",
+                    "Keep validation and quality disclosures visible in buyer material.",
+                ],
+                "operator_boundary": (
+                    "This endpoint does not execute systemctl, read backup files or certify smokes. "
+                    "External checks must be run by the operator."
+                ),
+            },
+        }
+
+    @app.get("/api/commercial-readiness")
+    def commercial_readiness_ep():
+        return jsonify(commercial_readiness_payload())
+
     @app.get("/status")
     def status_page():
         live = live_status_payload()
@@ -3675,6 +3817,55 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<a class=\"pill\" href=\"/methodology/mcp\">MCP methodology</a></p></section>"
         )
         return _html_response("Status", body)
+
+    @app.get("/readiness")
+    def readiness_page():
+        payload = commercial_readiness_payload()
+        snapshot = payload["snapshot"]
+        quality = snapshot["quality_gate"]
+        public_rows = "".join(
+            f"<tr><td>{html_escape(item['id'])}</td>"
+            f"<td><span class=\"pill\">{html_escape(item['status'])}</span></td>"
+            f"<td>{html_escape(item.get('summary') or '')}</td>"
+            f"<td><a href=\"{html_escape(item['evidence'])}\">{html_escape(item['evidence'])}</a></td></tr>"
+            for item in payload["public_checks"]
+        )
+        external_rows = "".join(
+            f"<tr><td>{html_escape(item['id'])}</td>"
+            f"<td><span class=\"pill\">{html_escape(item['status'])}</span></td>"
+            f"<td><code>{html_escape(item['command'])}</code></td></tr>"
+            for item in payload["external_checks"]
+        )
+        sell_now = "".join(f"<li>{html_escape(item)}</li>" for item in payload["sell_now"])
+        do_not = "".join(f"<li>{html_escape(item)}</li>" for item in payload["do_not_claim_yet"])
+        hard = "".join(f"<li>{html_escape(item)}</li>" for item in payload["hard_blocks"]) or "<li>None for controlled pilot readiness.</li>"
+        soft = "".join(f"<li>{html_escape(item)}</li>" for item in payload["soft_blocks"]) or "<li>No current disclosure warning beyond standard product boundaries.</li>"
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Commercial readiness</div>"
+            "<h1>Readiness Checklist</h1>"
+            "<p class=\"doc-lede\">Operator-facing summary for deciding whether 13FLOW can be shown or sold as a controlled Pro pilot today.</p></div>"
+            f"<aside class=\"doc-panel\"><h3>Status</h3><p><span class=\"pill\">{html_escape(payload['status'])}</span></p>"
+            f"<p class=\"meta\">sales_motion={html_escape(payload['sales_motion'])} · public_quote_ready={str(payload['public_quote_ready']).lower()}</p></aside></section>"
+            "<section class=\"doc-metrics\">"
+            f"<div class=\"doc-metric\"><b>{html_escape(str((snapshot.get('counts') or {}).get('funds') or 0))}</b><span>tracked funds</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(quality.get('trusted_funds') or 0))}</b><span>trusted funds</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(quality.get('quarantined_funds') or 0))}</b><span>quarantined funds</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(snapshot.get('latest_13f_quarter') or '-')}</b><span>latest 13F</span></div>"
+            "</section>"
+            "<div class=\"split\"><section class=\"panel\"><h2>Hard Blocks</h2><ul>" + hard + "</ul></section>"
+            "<section class=\"panel\"><h2>Disclosures</h2><ul>" + soft + "</ul></section></div>"
+            "<h2>Public Checks</h2>"
+            f"<table><thead><tr><th>Check</th><th>Status</th><th>Summary</th><th>Evidence</th></tr></thead><tbody>{public_rows}</tbody></table>"
+            "<h2>External Operator Checks</h2>"
+            f"<table><thead><tr><th>Check</th><th>Status</th><th>Command</th></tr></thead><tbody>{external_rows}</tbody></table>"
+            "<div class=\"split\"><section class=\"panel\"><h2>Sell Now</h2><ul>" + sell_now + "</ul></section>"
+            "<section class=\"panel\"><h2>Do Not Claim Yet</h2><ul>" + do_not + "</ul></section></div>"
+            "<p class=\"lede\"><a class=\"pill\" href=\"/api/commercial-readiness\">Machine-readable readiness</a> "
+            "<a class=\"pill\" href=\"/api/product-status\">Product status</a> "
+            "<a class=\"pill\" href=\"/pro/admin\">Pro admin health</a> "
+            "<a class=\"pill\" href=\"/validation\">Validation boundary</a></p>"
+        )
+        return _html_response("Commercial Readiness", body)
 
     @app.get("/validation")
     def validation_page():

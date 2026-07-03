@@ -47,6 +47,7 @@ def test_open_mode_hides_private_surface_and_keeps_public():
         for path in ("/api/funds", "/api/consensus/buys", "/api/compare",
                      "/api/coverage", "/api/data-quality",
                      "/api/live-status", "/api/product-status",
+                     "/api/commercial-readiness",
                      "/api/version", "/healthz", "/"):
             assert c.get(path).status_code == 200, path
         # Confluence no longer serves demo data implicitly. It needs a cache, live provider,
@@ -209,6 +210,30 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
             in product["offer_boundary"]["sell_now"]
         assert "verifiable SEC EDGAR-derived 13F data" in product["offer_boundary"]["sell_now"]
 
+        readiness = create_app(db, secure_cookies=False, open_mode=True).test_client() \
+            .get("/api/commercial-readiness").get_json()
+        assert readiness["status"] in {
+            "controlled_pilot_ready",
+            "controlled_pilot_ready_with_disclosures",
+        }
+        assert readiness["sales_motion"] == "controlled_pilot_only"
+        assert readiness["self_serve_checkout"] is False
+        assert readiness["public_quote_ready"] is False
+        assert readiness["snapshot"]["quality_gate"]["trusted_funds"] >= 1
+        assert readiness["snapshot"]["quality_gate"][
+            "human_review_required_for_routine_publication"
+        ] is False
+        assert any(
+            check["id"] == "public_live_data" and check["status"] == "pass"
+            for check in readiness["public_checks"]
+        )
+        assert any(
+            check["id"] == "pro_workspace_smoke"
+            and check["status"] == "external_required"
+            for check in readiness["external_checks"]
+        )
+        assert "validated alpha" in readiness["do_not_claim_yet"]
+
 
 def test_dashboard_source_does_not_embed_legacy_retail_chrome():
     html = (Path(__file__).resolve().parents[1] / "dashboard.html").read_text(encoding="utf-8")
@@ -260,6 +285,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             ("/signals", "test signal"),
             ("/signals/AAPL", "Latest 13F holders"),
             ("/status", "Evidence status"),
+            ("/readiness", "Readiness Checklist"),
             ("/pro", "13FLOW Pro API"),
             ("/developers", "MCP tools/list"),
             ("/methodology", "Application methodology"),
@@ -288,6 +314,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         doc = c.get("/api/openapi.json").get_json()
         assert "/api/mcp" in doc["paths"]
         assert "/api/product-status" in doc["paths"]
+        assert "/api/commercial-readiness" in doc["paths"]
         assert "/api/pro-offer" in doc["paths"]
         assert "/api/methodology/confluence-v1" in doc["paths"]
         assert "/api/methodology/app" in doc["paths"]
@@ -475,6 +502,16 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Publishable as full validation" in status_page
         assert "validated alpha" in status_page
         assert "Public filings research. Not investment advice." in status_page
+
+        readiness_page = c.get("/readiness").get_data(as_text=True)
+        assert "Readiness Checklist" in readiness_page
+        assert "Commercial readiness" in readiness_page
+        assert "controlled_pilot" in readiness_page
+        assert "Public Checks" in readiness_page
+        assert "External Operator Checks" in readiness_page
+        assert "/api/commercial-readiness" in readiness_page
+        assert "/pro/admin" in readiness_page
+        assert "validated alpha" in readiness_page
 
         developers = c.get("/developers").get_data(as_text=True)
         assert "/status" in developers

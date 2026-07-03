@@ -132,6 +132,20 @@ else
   bad "/status evidence page" "curl failed"
 fi
 
+readiness_page="$tmpdir/readiness.html"
+if fetch "/readiness" "$readiness_page"; then
+  grep -q "Readiness Checklist" "$readiness_page" \
+    && grep -q "External Operator Checks" "$readiness_page" \
+    && grep -q "/api/commercial-readiness" "$readiness_page" \
+    && grep -q "/pro/admin" "$readiness_page" \
+    && grep -q "validated alpha" "$readiness_page" \
+    && ok "/readiness evidence page" \
+    || bad "/readiness evidence page" "missing commercial readiness copy"
+  contains_none "/readiness has no legacy/auth/checkout copy" "$readiness_page" "${legacy_forbidden[@]}"
+else
+  bad "/readiness evidence page" "curl failed"
+fi
+
 validation_page="$tmpdir/validation.html"
 if fetch "/validation" "$validation_page"; then
   grep -q "Current Confluence evidence pack" "$validation_page" \
@@ -335,6 +349,30 @@ else
   bad "/api/product-status fetch" "curl failed"
 fi
 
+readiness="$tmpdir/commercial-readiness.json"
+if fetch "/api/commercial-readiness" "$readiness"; then
+  json_check "/api/commercial-readiness contract" "$readiness" "
+snapshot = data.get('snapshot') or {}
+quality = snapshot.get('quality_gate') or {}
+public_checks = {item.get('id'): item for item in (data.get('public_checks') or [])}
+external_checks = {item.get('id'): item for item in (data.get('external_checks') or [])}
+ok = (
+    data.get('status') in {'controlled_pilot_ready', 'controlled_pilot_ready_with_disclosures'}
+    and data.get('sales_motion') == 'controlled_pilot_only'
+    and data.get('self_serve_checkout') is False
+    and data.get('public_quote_ready') is False
+    and int(quality.get('trusted_funds') or 0) > 0
+    and quality.get('human_review_required_for_routine_publication') is False
+    and (public_checks.get('public_live_data') or {}).get('status') == 'pass'
+    and (external_checks.get('pro_workspace_smoke') or {}).get('status') == 'external_required'
+    and 'validated alpha' in (data.get('do_not_claim_yet') or [])
+)
+msg = str(data)[:1000]
+"
+else
+  bad "/api/commercial-readiness fetch" "curl failed"
+fi
+
 offer="$tmpdir/pro-offer.json"
 if fetch "/api/pro-offer" "$offer"; then
   json_check "/api/pro-offer packaging" "$offer" "
@@ -477,7 +515,7 @@ openapi="$tmpdir/_api_openapi.json"
 if [[ -s "$openapi" ]]; then
   json_check "/api/openapi.json public paths" "$openapi" "
 paths = data.get('paths') or {}
-required = ['/api/live-status', '/api/product-status', '/api/pro-offer', '/api/funds', '/api/watchlist/discover', '/api/mcp', '/api/methodology/confluence-v1']
+required = ['/api/live-status', '/api/product-status', '/api/commercial-readiness', '/api/pro-offer', '/api/funds', '/api/watchlist/discover', '/api/mcp', '/api/methodology/confluence-v1']
 missing = [p for p in required if p not in paths]
 ok = not missing
 msg = 'missing paths: ' + ', '.join(missing)
