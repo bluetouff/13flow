@@ -1478,6 +1478,24 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "counts": live["counts"],
                 "coverage": live["coverage"],
                 "quality_summary": live["quality_summary"],
+                "coverage_boundary": {
+                    "form_13f": (
+                        "Delayed long US reportable securities. It is not a complete "
+                        "portfolio: no shorts, most non-US holdings, bonds, full derivative "
+                        "books, intra-quarter trading or confidential-treatment omissions."
+                    ),
+                    "form_4": (
+                        "Current Confluence/validation rails use normalized Table I Form 4 "
+                        "transactions. Table II derivatives, 10b5-1 plan flags, multi-owner "
+                        "attribution and weighted-average price footnotes are not fully "
+                        "modeled in the live score yet."
+                    ),
+                    "insider_universe": (
+                        "Production Confluence scans Form 4 for a bounded issuer universe "
+                        "driven by tracked 13F activity; insider-only and distribution "
+                        "quadrants are not exhaustive."
+                    ),
+                },
             },
             "commercial_readiness": {
                 "public_site": "live" if live["public_state"] == "LIVE" else "not_live",
@@ -2966,7 +2984,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<span>13F x Form 4</span><span>Read-only API</span><span>Methodology contracts</span></div>"
             "<h1>13FLOW</h1>"
             "<p class=\"home-lede\">SEC filing intelligence for fundamental analysts, macro investors and agent workflows. "
-            "Track institutional ownership, insider Form 4 activity, source links and data-quality boundaries from one commercial-grade research cockpit.</p>"
+            "Track institutional ownership, bounded insider Form 4 activity, source links and data-quality boundaries from one operator-reviewed research cockpit.</p>"
             "<div class=\"home-proof\">"
             f"<div class=\"proof-item\"><b>{html_escape(str(counts.get('funds') or 0))}</b><span>tracked funds</span></div>"
             f"<div class=\"proof-item\"><b>{html_escape(str(counts.get('filings') or 0))}</b><span>SEC filings</span></div>"
@@ -3011,6 +3029,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<a class=\"pill\" href=\"/signals\">Signals</a> <a class=\"pill\" href=\"/api/openapi.json\">OpenAPI</a></p></div>"
             "<div class=\"panel\"><h3>What is not claimed</h3><ul>"
             "<li>No validated alpha claim.</li><li>No probability or expected-return model.</li>"
+            "<li>No complete view of shorts, non-US books, full derivatives or intra-quarter fund trading.</li>"
+            "<li>No exhaustive insider-only or distribution universe yet.</li>"
             "<li>No public self-serve checkout.</li><li>No production x402 payment flow.</li>"
             "<li>No SLA or redistribution right without written agreement.</li></ul>"
             f"<p><span class=\"pill\">{html_escape(validation['status'])}</span> "

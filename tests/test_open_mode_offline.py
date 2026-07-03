@@ -139,6 +139,8 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
         assert "latest 13F quarter 2026-03-31" in html
         assert "Open Confluence" in html
         assert 'href="/confluence"' in html
+        assert "No complete view of shorts" in html
+        assert "No exhaustive insider-only" in html
         assert "Open research app" in html
         assert 'href="/app"' in html
         assert 'href="/developers"' in html
@@ -181,6 +183,9 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
             "separate_service_expected_on_/api/pro/v1_with_api_key"
         assert product["commercial_readiness"]["mcp"] == "available_read_only"
         assert product["commercial_readiness"]["x402"] == "not_enabled"
+        assert "shorts" in product["data"]["coverage_boundary"]["form_13f"]
+        assert "10b5-1" in product["data"]["coverage_boundary"]["form_4"]
+        assert "not exhaustive" in product["data"]["coverage_boundary"]["insider_universe"]
         assert product["validation"]["status"] == \
             "mechanical_evidence_ready_for_review_metrics_unreviewed"
         artifact = product["validation"]["current_artifact"]
@@ -516,7 +521,11 @@ def test_confluence_cache_served_when_present(monkeypatch):
         assert "heuristic" in j["metadata"]["weight_policy"]
         assert j["metadata"]["validation_protocol"]["forward_horizons_days"] == [20, 60, 120]
         assert "SEC-rate-limit control" in j["metadata"]["effective_universe"]["insider"]
+        assert "shorts" in j["metadata"]["filing_scope_boundary"]["form_13f"]
+        assert "10b5-1" in j["metadata"]["filing_scope_boundary"]["form_4"]
         assert any("Form 4 universe is partial" in item
+                   for item in j["metadata"]["known_limitations"])
+        assert any("Table II" in item and "10b5-1" in item
                    for item in j["metadata"]["known_limitations"])
         assert j["metadata"]["served_from_cache"] is True
         assert j["metadata"].get("provider") != "unconfigured"

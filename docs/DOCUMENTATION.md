@@ -61,6 +61,15 @@ D'où quatre cadrans :
 
 > ⚠️ **Lecture honnête.** Le compteur « signals » inclut tout titre où **au moins un fonds accumule** (seuil `min_funds=1`), même sans achat d'initié. Ce qui a de la valeur, c'est la **zone Conviction** et le **haut du classement par score**, pas le total brut.
 
+> ⚠️ **Périmètre data.** Le 13F ne montre pas un portefeuille complet : pas les shorts,
+> pas la plupart des lignes internationales, pas les obligations, pas tout le livre
+> dérivé, pas les mouvements intra-trimestre ni les positions sous traitement
+> confidentiel. Le rail Form 4 public est aussi borné : l'univers insider live dépend
+> du seuil d'activité 13F, les quadrants « insider only » / « distribution » ne sont
+> pas exhaustifs, et les dérivés Table II, flags 10b5-1, attributions multi-owners et
+> footnotes de prix moyens restent des limites explicites tant qu'ils ne sont pas
+> modélisés.
+
 Détails de la méthodologie côté produit : voir `/faq`. Spécifique Form 4 : voir [`FORMS4_INTEGRATION.md`](FORMS4_INTEGRATION.md).
 
 ---
@@ -261,6 +270,14 @@ The map places each name on two axes:
 Four quadrants: **Conviction** (top-right, both buying — strongest), **Institutions only** (bottom-right), **Insider only** (top-left), **Distribution** (bottom-left, everyone exiting).
 
 > ⚠️ **Honest reading.** The "signals" counter includes any name where **at least one fund accumulates** (`min_funds=1`), even with no insider buy. What matters is the **Conviction zone** and the **top of the score ranking**, not the raw total.
+
+> ⚠️ **Data scope.** 13F does not show a complete portfolio: no shorts, most
+> international lines, bonds, full derivative books, intra-quarter moves or
+> confidential-treatment omissions. The public Form 4 rail is also bounded: the
+> live insider universe depends on the 13F activity threshold, "insider only" /
+> "distribution" quadrants are not exhaustive, and Table II derivatives, 10b5-1
+> flags, multi-owner attribution and weighted-average price footnotes remain
+> explicit limitations until modeled.
 
 Product methodology: see `/faq`. Form 4 specifics: [`FORMS4_INTEGRATION.md`](FORMS4_INTEGRATION.md).
 

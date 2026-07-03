@@ -33,6 +33,19 @@ Every public validation report must disclose:
 - Form 4 lookup universe and any operational trims;
 - source commit and parameter hash.
 
+Explicit limitations:
+
+- Form 13F is delayed quarterly disclosure of long US reportable securities. It
+  is not a complete portfolio, short book, international book, bond book,
+  derivative book or intra-quarter trading record.
+- Production Confluence may use a bounded Form 4 issuer universe driven by the
+  tracked 13F activity threshold. Insider-only and distribution quadrants are
+  not exhaustive unless a separate full insider-universe crawl is produced and
+  disclosed.
+- Current Form 4 processing focuses on normalized Table I transactions. Table II
+  derivatives, 10b5-1 plan flags, multi-owner attribution and weighted-average
+  price footnotes are limitations until explicitly modeled, stored and tested.
+
 ## Point-in-time dataset
 
 A valid historical dataset has one row per `(as_of, ticker, score_version, horizon)` and must

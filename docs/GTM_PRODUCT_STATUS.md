@@ -46,11 +46,32 @@ Do not claim:
 - a calibrated probability;
 - an expected-return model;
 - a complete insider-only or distribution universe;
+- a complete fund portfolio view, including shorts, non-US books, bonds,
+  intra-quarter trading, full derivative exposure or confidential-treatment
+  omissions;
+- fully modeled Form 4 derivative Table II exposure, 10b5-1 plan flags,
+  multi-owner attribution or weighted-average price footnotes;
 - production x402 paid access;
 - full 2013-2026 quantitative validation.
 
 The current Confluence score is an ordinal heuristic rank. The correct wording is
 `backtest harness available; default weights are heuristic`.
+
+## Data scope boundary
+
+13FLOW can sell source-linked workflow and review evidence, not omniscient
+ownership data.
+
+- Form 13F is delayed, quarterly, long-US-reportable-securities disclosure. It
+  is not a complete view of a fund's shorts, international book, bonds, full
+  derivatives or intra-quarter trading.
+- Production Confluence uses a bounded Form 4 issuer universe controlled by the
+  tracked 13F activity threshold. Insider-only and distribution quadrants are
+  useful labels inside that bounded universe, not exhaustive market scans.
+- Current Form 4 processing is suitable for normalized Table I open-market
+  activity review. Table II derivative rows, 10b5-1 plan flags, multi-owner
+  attribution and weighted-average price footnotes remain explicit limitations
+  until separately modeled and validated.
 
 ## Quantitative validation status
 

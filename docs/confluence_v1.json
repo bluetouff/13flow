@@ -1,5 +1,5 @@
 {
-  "code_commit": "1a15f2ed4a2b8b2cf777eb7773a0e7c2edddfc53",
+  "code_commit": "705a5c26d68d4785c5c138cf2219269a957e8a37",
   "effective_universe": {
     "coverage_fields_required": [
       "funds_scanned",
@@ -7,7 +7,11 @@
       "accessions",
       "ticker_resolution_coverage"
     ],
-    "insider": "Form 4 open-market P/S issuer filings when live/precomputed Confluence is enabled; no silent sample fallback in production.",
+    "filing_scope_boundary": {
+      "form_13f": "Delayed long US reportable securities only; no complete view of shorts, most non-US holdings, bonds, full derivative books, intra-quarter trading or confidential-treatment omissions.",
+      "form_4": "Table I open-market P/S activity is the current usable rail. Table II derivatives, 10b5-1 plan flags, multi-owner attribution and weighted-average price footnotes remain explicit limitations until modeled."
+    },
+    "insider": "Form 4 open-market P/S issuer filings when live/precomputed Confluence is enabled; no silent sample fallback in production. Production Confluence is not a complete insider-universe crawl and does not make insider-only or distribution quadrants exhaustive.",
     "institutional": "Tracked 13F managers stored in the SQLite market database; latest_filings selects one complete-enough filing per manager and report date."
   },
   "feature_schema_version": "confluence_features_v1",

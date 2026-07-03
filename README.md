@@ -244,6 +244,14 @@ and a quadrant label (Conviction / Institutional bid / Insider conviction / Dist
 Divergent / Neutral), but the quadrant describes direction while the score describes heuristic
 intensity, so they can diverge.
 
+Data-scope boundary: 13F filings are delayed long-US-securities disclosures, not complete
+fund portfolios. They omit shorts, most non-US holdings, bonds, full derivative books,
+intra-quarter trading and confidential-treatment omissions. The live Confluence rail also
+uses a bounded Form 4 issuer universe driven by tracked 13F activity; insider-only and
+distribution quadrants are therefore not exhaustive. Current Form 4 parsing focuses on
+normalized Table I transactions; Table II derivatives, 10b5-1 plan flags, multi-owner
+attribution and weighted-average price footnotes remain explicit limitations until modeled.
+
 The quantitative proof boundary is public: `VALIDATION_PROTOCOL.md` defines the required
 point-in-time dataset, train/validation/test split, baselines, neutralization, costs,
 confidence intervals, permutation tests, and version log before any score can be called

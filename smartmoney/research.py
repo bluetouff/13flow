@@ -81,8 +81,22 @@ def confluence_v1_spec(code_commit: str = "unknown") -> dict[str, Any]:
             ),
             "insider": (
                 "Form 4 open-market P/S issuer filings when live/precomputed Confluence is "
-                "enabled; no silent sample fallback in production."
+                "enabled; no silent sample fallback in production. Production Confluence is "
+                "not a complete insider-universe crawl and does not make insider-only or "
+                "distribution quadrants exhaustive."
             ),
+            "filing_scope_boundary": {
+                "form_13f": (
+                    "Delayed long US reportable securities only; no complete view of shorts, "
+                    "most non-US holdings, bonds, full derivative books, intra-quarter trading "
+                    "or confidential-treatment omissions."
+                ),
+                "form_4": (
+                    "Table I open-market P/S activity is the current usable rail. Table II "
+                    "derivatives, 10b5-1 plan flags, multi-owner attribution and weighted-"
+                    "average price footnotes remain explicit limitations until modeled."
+                ),
+            },
             "coverage_fields_required": [
                 "funds_scanned",
                 "latest_13f_quarter",

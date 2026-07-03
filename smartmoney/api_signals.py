@@ -81,6 +81,20 @@ def default_methodology_metadata() -> dict:
                 "This is an SEC-rate-limit control, not a complete insider-universe crawl."
             ),
         },
+        "filing_scope_boundary": {
+            "form_13f": (
+                "Form 13F exposes delayed long US reportable securities. It does not expose "
+                "shorts, most international holdings, bonds, full derivatives exposure, "
+                "intra-quarter trading, or positions temporarily omitted through confidential "
+                "treatment."
+            ),
+            "form_4": (
+                "Confluence uses normalized Table I Form 4 transactions and treats open-market "
+                "P/S activity as the usable rail. Table II derivative rows, 10b5-1 plan flags, "
+                "multi-owner attribution nuances and weighted-average price footnotes are not "
+                "fully modeled in the live score yet."
+            ),
+        },
         "validation_protocol": {
             "train": "2014-01-01 through 2022-12-31",
             "validation": "2023-01-01 through 2024-12-31",
@@ -112,6 +126,9 @@ def default_methodology_metadata() -> dict:
             "looked up only for tickers that pass the institutional accumulation scan "
             "threshold, so insider-only, distribution, and divergent categories are not "
             "exhaustive.",
+            "Form 4 parsing currently focuses on Table I transaction rows; derivative Table II "
+            "activity, 10b5-1 plan flags, multi-owner attribution and price footnotes remain "
+            "methodology limits until explicitly modeled.",
             "The score currently excludes valuation, liquidity, market cap, sector, market "
             "regime, and base-rate returns.",
             "Quadrants describe direction; the numeric score describes heuristic intensity, "
