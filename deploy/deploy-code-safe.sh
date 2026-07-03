@@ -52,12 +52,26 @@ wait_url() {
   return 1
 }
 
+service_exists() {
+  systemctl cat "$1" >/dev/null 2>&1
+}
+
+stamp_sha() {
+  local service=$1
+  mkdir -p "/etc/systemd/system/$service.d"
+  printf '[Service]\nEnvironment=SMARTMONEY_GIT_SHA=%s\n' "$SHA" \
+    > "/etc/systemd/system/$service.d/version.conf"
+}
+
 backup="$BACKUP_DIR/13flow-backup-before-safe-deploy-$SHA-$(date -u +%Y%m%dT%H%M%SZ)"
 echo "==> [1/6] Backup current tree to $backup"
 cp -a "$APP_DIR" "$backup"
 
 echo "==> [2/6] Stop services"
 systemctl stop 13flow-mcp || true
+if service_exists 13flow-pro.service; then
+  systemctl stop 13flow-pro || true
+fi
 systemctl stop 13flow || true
 
 echo "==> [3/6] Sync code while preserving runtime dependencies"
@@ -83,20 +97,31 @@ find "$APP_DIR" \
 find "$APP_DIR/deploy" -maxdepth 1 -name '*.sh' -type f -exec chmod 750 {} +
 
 echo "==> [5/6] Stamp deployed SHA through systemd"
-mkdir -p /etc/systemd/system/13flow.service.d
-printf '[Service]\nEnvironment=SMARTMONEY_GIT_SHA=%s\n' "$SHA" \
-  > /etc/systemd/system/13flow.service.d/version.conf
+stamp_sha 13flow.service
+if service_exists 13flow-pro.service; then
+  stamp_sha 13flow-pro.service
+fi
 if [[ -f /etc/13flow/13flow-mcp.env ]]; then
-  sed -i "s/^MCP_GIT_SHA=.*/MCP_GIT_SHA=$SHA/" /etc/13flow/13flow-mcp.env
+  if grep -q '^MCP_GIT_SHA=' /etc/13flow/13flow-mcp.env; then
+    sed -i "s/^MCP_GIT_SHA=.*/MCP_GIT_SHA=$SHA/" /etc/13flow/13flow-mcp.env
+  else
+    printf '\nMCP_GIT_SHA=%s\n' "$SHA" >> /etc/13flow/13flow-mcp.env
+  fi
 fi
 systemctl daemon-reload
 
 echo "==> [6/6] Restart and verify local services"
-systemctl reset-failed 13flow 13flow-mcp || true
+systemctl reset-failed 13flow 13flow-pro 13flow-mcp || true
 systemctl restart 13flow
+if service_exists 13flow-pro.service; then
+  systemctl restart 13flow-pro
+fi
 systemctl restart 13flow-mcp
 
 wait_url "13flow API" "http://127.0.0.1:8000/api/version" 20 1
+if service_exists 13flow-pro.service; then
+  wait_url "13flow Pro API" "http://127.0.0.1:8001/api/pro/v1/openapi.json" 20 1
+fi
 wait_url "13flow MCP" "http://127.0.0.1:8849/healthz" 20 1
 echo "Safe deploy complete. Run:"
-echo "  EXPECTED_SHA=$SHA sudo $APP_DIR/deploy/smoke-public.sh"
+echo "  sudo EXPECTED_SHA=$SHA $APP_DIR/deploy/smoke-public.sh"

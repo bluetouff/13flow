@@ -105,6 +105,17 @@ def test_apache_method_policy_separates_public_and_pro_api():
     assert "ProxyPass        /api/pro/ http://127.0.0.1:8001/api/pro/" in pro_conf
 
 
+def test_safe_deploy_restarts_and_stamps_pro_service():
+    root = Path(__file__).resolve().parents[1]
+    script = (root / "deploy" / "deploy-code-safe.sh").read_text(encoding="utf-8")
+
+    assert "systemctl stop 13flow-pro" in script
+    assert "stamp_sha 13flow-pro.service" in script
+    assert "systemctl restart 13flow-pro" in script
+    assert "http://127.0.0.1:8001/api/pro/v1/openapi.json" in script
+    assert "sudo EXPECTED_SHA=$SHA" in script
+
+
 # ---- helpers -------------------------------------------------------------
 class _FakeAlert:
     target = ""
