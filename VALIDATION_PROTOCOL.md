@@ -108,6 +108,17 @@ commercial Confluence claim. Review at least:
 If `rows_with_open_market_buyers=0`, the artifact can test the join and negative/neutral
 insider evidence, but it is not a persuasive Confluence validation sample.
 
+`evidence_review.status` turns those counters into a conservative operator verdict:
+
+- `blocked`: at least one mechanical blocker prevents commercial use of the sample, such
+  as missing Form 4 joins, missing open-market buyers, incomplete forward returns or schema
+  failure;
+- `smoke_passed_needs_larger_sample`: the mechanics are present, but the sample is too
+  small to treat as validation evidence;
+- `mechanical_evidence_ready_for_review`: the artifact has the minimum raw material for a
+  human methodology review. It is still not a public validation claim until the rest of this
+  protocol is satisfied.
+
 Without `--validation-form4`, the builder exports the institutional 13F side
 (`feature_scope=13f_only_no_form4`). With `--validation-form4`, it exports
 `feature_scope=13f_form4_joined`, hashes the joined Form 4 accessions and fills insider

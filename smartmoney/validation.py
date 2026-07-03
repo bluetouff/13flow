@@ -268,6 +268,45 @@ def dataset_manifest(path: str, rows: Iterable[dict[str, Any]] | None = None) ->
     }
 
 
+def evidence_review(manifest: dict[str, Any]) -> dict[str, Any]:
+    evidence = manifest.get("evidence") or {}
+    blockers: list[str] = []
+    warnings: list[str] = []
+    row_count = int(manifest.get("row_count") or 0)
+
+    if manifest.get("status") != "valid_minimum_schema":
+        blockers.append("minimum_schema_not_valid")
+    if evidence.get("feature_scope_counts", {}).get("13f_form4_joined", 0) == 0:
+        blockers.append("no_13f_form4_joined_rows")
+    if int(evidence.get("rows_with_form4_accessions") or 0) == 0:
+        blockers.append("no_visible_form4_accessions")
+    if int(evidence.get("rows_with_open_market_buyers") or 0) == 0:
+        blockers.append("no_open_market_form4_buyers")
+    for col, coverage in (evidence.get("forward_return_coverage") or {}).items():
+        if float(coverage.get("coverage") or 0.0) < 1.0:
+            blockers.append(f"incomplete_{col}")
+    if row_count < 100:
+        warnings.append("sample_below_100_rows")
+
+    if blockers:
+        status = "blocked"
+    elif warnings:
+        status = "smoke_passed_needs_larger_sample"
+    else:
+        status = "mechanical_evidence_ready_for_review"
+
+    return {
+        "status": status,
+        "blockers": blockers,
+        "warnings": warnings,
+        "meaning": (
+            "Mechanical evidence review only. This is not a validation or alpha claim; "
+            "price source, delisting treatment, costs, liquidity and no-lookahead controls "
+            "still require review."
+        ),
+    }
+
+
 def _baseline_scores(row: dict[str, Any]) -> dict[str, float]:
     out = {}
     for name, col in BASELINE_COLUMNS.items():
@@ -364,6 +403,7 @@ def validation_report(path: str, *, horizon: int = 60,
             split_reports[split][name] = _metrics(pair[0], pair[1])
 
     evidence = manifest["evidence"]
+    review = evidence_review(manifest)
     notes = [
         "Metrics are descriptive until the dataset builder, price source, costs, "
         "liquidity rules and no-lookahead controls are independently reviewed.",
@@ -378,6 +418,9 @@ def validation_report(path: str, *, horizon: int = 60,
     if manifest["row_count"] < 100:
         notes.append("Sample size is below 100 rows; treat this as a pipeline smoke test, "
                      "not validation evidence.")
+    if review["status"] == "mechanical_evidence_ready_for_review":
+        notes.append("Mechanical evidence is ready for human review, but the artifact is "
+                     "still not a public validation claim.")
 
     return {
         "protocol": "confluence_v1_validation",
@@ -385,6 +428,7 @@ def validation_report(path: str, *, horizon: int = 60,
         else "minimum_schema_valid_metrics_unreviewed",
         "horizon_days": horizon,
         "manifest": manifest,
+        "evidence_review": review,
         "metrics": split_reports,
         "notes": notes,
     }

@@ -150,6 +150,11 @@ reality check:
 - `data_quality_flag_counts` is the disclosure list for empty Form 4 windows,
   non-priceable names and other caveats.
 
+`evidence_review.status` is the operator shortcut. `blocked` means the sample lacks a
+mechanical requirement, `smoke_passed_needs_larger_sample` means the pipeline works but the
+sample is too small, and `mechanical_evidence_ready_for_review` means the artifact can enter
+human methodology review. None of these statuses is a public validation or alpha claim.
+
 For imported vendor/bulk price files, validate the CSV before building features:
 
 ```bash

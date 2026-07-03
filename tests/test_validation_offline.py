@@ -14,7 +14,13 @@ from smartmoney.research import (
     WEIGHT_VERSION,
     confluence_v1_spec,
 )
-from smartmoney.validation import dataset_evidence, dataset_manifest, split_for_as_of, validation_report
+from smartmoney.validation import (
+    dataset_evidence,
+    dataset_manifest,
+    evidence_review,
+    split_for_as_of,
+    validation_report,
+)
 
 
 def _row(i: int, as_of: str, ticker: str, score: float, fwd60: float) -> dict:
@@ -71,10 +77,12 @@ def test_validation_manifest_and_metrics(tmp_path):
     assert manifest["evidence"]["feature_scope_counts"] == {"13f_form4_joined": 30}
     assert manifest["evidence"]["rows_with_open_market_buyers"] == 12
     assert manifest["evidence"]["forward_return_coverage"]["forward_return_60d"]["coverage"] == 1.0
+    assert evidence_review(manifest)["status"] == "smoke_passed_needs_larger_sample"
     assert len(manifest["sha256"]) == 64
 
     report = validation_report(str(path), horizon=60)
     assert report["status"] == "minimum_schema_valid_metrics_unreviewed"
+    assert report["evidence_review"]["warnings"] == ["sample_below_100_rows"]
     assert report["metrics"]["train"]["full_score"]["n"] == 10
     assert report["metrics"]["train"]["full_score"]["rank_ic"] > 0.9
     assert "quadrant_only" in report["metrics"]["test"]
@@ -97,6 +105,24 @@ def test_dataset_evidence_flags_smoke_without_form4_buyers():
     assert evidence["rows_with_open_market_buyers"] == 0
     assert evidence["tickers_with_open_market_buyers"] == 0
     assert evidence["data_quality_flag_counts"] == {"no_form4_activity_in_window": 3}
+
+
+def test_evidence_review_blocks_samples_without_open_market_buyers(tmp_path):
+    rows = [
+        {
+            **_row(i, "2025-06-30", f"TE{i}", 20 + i, 0.01),
+            "open_market_buyers": 0,
+            "open_market_buy_value_usd": 0,
+            "form4_accessions": f"F4-{i}",
+        }
+        for i in range(3)
+    ]
+    path = tmp_path / "features.csv"
+    _write_csv(path, rows)
+
+    review = evidence_review(dataset_manifest(str(path)))
+    assert review["status"] == "blocked"
+    assert "no_open_market_form4_buyers" in review["blockers"]
 
 
 def test_validation_manifest_refuses_incomplete_jsonl(tmp_path):
