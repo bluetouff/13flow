@@ -8,7 +8,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from smartmoney.api import create_app
+from smartmoney.db import Store
 from smartmoney.pro import APIKeyError, ProAPIStore
+from tests.test_db_offline import AAPL, MSFT, _save
 from tests.test_quality_offline import _seed_quality_db
 
 
@@ -130,6 +132,42 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         doc = r.get_json()
         assert doc["openapi"].startswith("3.")
         assert "/api/pro/v1/fund/{cik}" in doc["paths"]
+        assert "/api/pro/v1/watchlist" in doc["paths"]
+
+
+def test_pro_watchlist_feed_uses_ticker_flow(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        data_db = str(Path(d) / "watchlist-data.db")
+        pro_db = str(Path(d) / "watchlist-pro.db")
+        s = Store(data_db)
+        _save(s, "0001067983", "Berkshire Hathaway", "Warren Buffett",
+              "BRK-Q1", "13F-HR", "2026-02-14", "2025-12-31",
+              [("APPLE INC", AAPL, 1_000, 100, "")])
+        _save(s, "0001067983", "Berkshire Hathaway", "Warren Buffett",
+              "BRK-Q2", "13F-HR", "2026-05-15", "2026-03-31",
+              [("APPLE INC", AAPL, 1_300, 120, ""), ("MICROSOFT", MSFT, 500, 10, "")])
+        _save(s, "0001336528", "Pershing Square", "Bill Ackman",
+              "PS-Q2", "13F-HR", "2026-05-15", "2026-03-31",
+              [("APPLE INC", AAPL, 700, 35, "")])
+        s.conn.execute("UPDATE holdings SET ticker='AAPL' WHERE cusip=?", (AAPL,))
+        s.conn.execute("UPDATE holdings SET ticker='MSFT' WHERE cusip=?", (MSFT,))
+        s.conn.commit()
+        s.close()
+        with ProAPIStore(pro_db) as pro:
+            token, key = pro.create_key("Watchlist Institution", scopes=("funds:read",),
+                                        rate_per_min=120, rate_per_day=10000)
+        monkeypatch.setenv("SMARTMONEY_PRO_API", "1")
+        monkeypatch.setenv("SMARTMONEY_PRO_DB", pro_db)
+        c = create_app(data_db, secure_cookies=False, open_mode=True).test_client()
+
+        r = c.get("/api/pro/v1/watchlist?tickers=AAPL,MSFT", headers={"Authorization": "Bearer " + token})
+        assert r.status_code == 200
+        payload = r.get_json()
+        assert payload["meta"]["api"] == "13flow-pro"
+        assert payload["watchlist"]["metadata"]["version"] == "watchlist_preview_v1"
+        assert payload["watchlist"]["summary"]["alerts"] >= 1
+        tickers = {item["ticker"] for item in payload["watchlist"]["items"]}
+        assert tickers == {"AAPL", "MSFT"}
 
 
 def test_pro_api_rate_limit_is_persistent(monkeypatch):

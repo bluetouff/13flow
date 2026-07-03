@@ -600,6 +600,15 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                       "400": {"description": "Invalid ticker"}},
                     }
                 },
+                "/api/watchlist/preview": {
+                    "get": {
+                        "summary": "Stateless watchlist trigger preview from trusted ticker flow",
+                        "parameters": [{"name": "tickers", "in": "query", "required": True,
+                                        "schema": {"type": "string"}}],
+                        "responses": {"200": {"description": "Watchlist trigger feed"},
+                                      "400": {"description": "Invalid ticker list"}},
+                    }
+                },
                 "/api/consensus/holdings": {"get": {"summary": "Consensus holdings by quarter",
                                                      "responses": {"200": {"description": "Holdings"}}}},
                 "/api/consensus/buys": {"get": {"summary": "Consensus buys/openings by quarter",
@@ -687,6 +696,17 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                             {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 100}},
                         ],
                         "responses": {"200": {"description": "Quality report"}},
+                    }
+                },
+                "/api/pro/v1/watchlist": {
+                    "get": {
+                        "security": security,
+                        "summary": "Stateless watchlist trigger feed from trusted ticker flow",
+                        "parameters": [
+                            {"name": "tickers", "in": "query", "required": True,
+                             "schema": {"type": "string"}},
+                        ],
+                        "responses": {"200": {"description": "Watchlist trigger feed"}},
                     }
                 },
                 "/api/pro/v1/openapi.json": {
@@ -1102,6 +1122,15 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 },
             },
             {
+                "name": "watchlist.preview",
+                "description": "Preview automatic watchlist triggers from trusted ticker flow for up to 25 tickers.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"tickers": {"type": "array", "items": {"type": "string"}}},
+                    "required": ["tickers"],
+                },
+            },
+            {
                 "name": "signals.history",
                 "description": "Read append-only Confluence signal revisions.",
                 "inputSchema": {
@@ -1339,9 +1368,134 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "sec_company_search": f"https://www.sec.gov/edgar/search/#/q={t}",
         }
 
+    def _clean_watchlist_tickers(raw, limit: int = 25) -> list[str]:
+        from werkzeug.exceptions import BadRequest
+        if isinstance(raw, str):
+            parts = re.split(r"[\s,;]+", raw.strip())
+        elif isinstance(raw, (list, tuple)):
+            parts = [str(x).strip() for x in raw]
+        else:
+            parts = []
+        out: list[str] = []
+        seen: set[str] = set()
+        for part in parts:
+            ticker = part.upper()
+            if not ticker:
+                continue
+            if not re.fullmatch(r"[A-Z0-9.\-]{1,12}", ticker):
+                raise BadRequest("invalid ticker")
+            if ticker in seen:
+                continue
+            seen.add(ticker)
+            out.append(ticker)
+            if len(out) > limit:
+                raise BadRequest(f"watchlist is limited to {limit} tickers")
+        if not out:
+            raise BadRequest("tickers required")
+        return out
+
+    def _watchlist_triggers(stock: dict) -> list[dict]:
+        summary = stock.get("movement_summary") or {}
+        confidence = stock.get("confidence") or {}
+        score = float((stock.get("score") or {}).get("score") or 0.0)
+        buyers = int(summary.get("buyers_count") or 0)
+        sellers = int(summary.get("sellers_count") or 0)
+        new_positions = int(summary.get("new_positions") or 0)
+        exits = int(summary.get("exits") or 0)
+        conviction = int(summary.get("conviction_funds") or 0)
+        confidence_status = confidence.get("status") or "unknown"
+        triggers: list[dict] = []
+
+        def add(code: str, severity: str, detail: str) -> None:
+            triggers.append({"code": code, "severity": severity, "detail": detail})
+
+        if confidence_status == "review":
+            add("blocked_by_quality_gate", "blocked", "Ticker has active data-quality review flags.")
+            return triggers
+        if score >= 80:
+            add("high_score", "high", f"Ticker Flow Score is {score:.1f}.")
+        elif score >= 65:
+            add("elevated_score", "medium", f"Ticker Flow Score is {score:.1f}.")
+        if new_positions:
+            add("new_position", "high" if new_positions >= 2 else "medium",
+                f"{new_positions} trusted fund(s) opened a position.")
+        if buyers >= 2:
+            add("accumulation", "high", f"{buyers} trusted fund(s) opened or added.")
+        elif buyers == 1:
+            add("single_buyer", "medium", "One trusted fund opened or added.")
+        if exits:
+            add("exit", "medium", f"{exits} trusted fund(s) exited.")
+        if sellers > buyers and sellers:
+            add("distribution", "medium", f"{sellers} trusted fund(s) trimmed or exited versus {buyers} buyer(s).")
+        if conviction >= 2:
+            add("multi_fund_conviction", "high", f"{conviction} trusted conviction fund(s).")
+        if confidence_status == "thin" and not triggers:
+            add("thin_signal", "low", "No latest-quarter trusted holder; keep as monitoring-only.")
+        return triggers
+
+    def _watchlist_action(triggers: list[dict]) -> str:
+        severities = {t.get("severity") for t in triggers}
+        if "blocked" in severities:
+            return "blocked"
+        if "high" in severities:
+            return "alert"
+        if "medium" in severities:
+            return "watch"
+        return "monitor"
+
+    def _watchlist_payload(raw_tickers, limit: int = 25) -> dict:
+        tickers = _clean_watchlist_tickers(raw_tickers, limit=limit)
+        items = []
+        for ticker in tickers:
+            stock = _stock_payload(ticker)
+            triggers = _watchlist_triggers(stock)
+            action = _watchlist_action(triggers)
+            summary = stock.get("movement_summary") or {}
+            items.append({
+                "ticker": ticker,
+                "action": action,
+                "triggers": triggers,
+                "score": stock.get("score"),
+                "confidence": stock.get("confidence"),
+                "latest_13f_quarter": stock.get("latest_13f_quarter"),
+                "movement_summary": summary,
+                "quality_gate": stock.get("quality_gate"),
+                "top_movements": stock.get("movements", [])[:8],
+                "links": {
+                    "api": f"/api/stocks/{ticker}",
+                    "page": f"/stocks/{ticker}",
+                    "sec_company_search": stock.get("sec_company_search"),
+                },
+            })
+        rank = {"alert": 0, "watch": 1, "monitor": 2, "blocked": 3}
+        items.sort(key=lambda i: (
+            rank.get(i["action"], 9),
+            -float((i.get("score") or {}).get("score") or 0.0),
+            i["ticker"],
+        ))
+        return {
+            "metadata": {
+                "version": "watchlist_preview_v1",
+                "input_count": len(tickers),
+                "human_review_required_for_routine_publication": False,
+                "source": "trusted_ticker_flow",
+            },
+            "summary": {
+                "alerts": len([i for i in items if i["action"] == "alert"]),
+                "watch": len([i for i in items if i["action"] == "watch"]),
+                "monitor": len([i for i in items if i["action"] == "monitor"]),
+                "blocked": len([i for i in items if i["action"] == "blocked"]),
+            },
+            "items": items,
+        }
+
     @app.get("/api/stocks/<ticker>")
     def stock_ep(ticker):
         return jsonify(_stock_payload(ticker))
+
+    @app.get("/api/watchlist/preview")
+    def watchlist_preview_ep():
+        return jsonify(_watchlist_payload(request.args.get("tickers") or "", limit=25))
 
     def _mcp_call_tool(name: str, args: dict) -> dict:
         if name == "product.status":
@@ -1372,6 +1526,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 s.close()
         if name == "stocks.get":
             return _stock_payload(str(args.get("ticker") or ""))
+        if name == "watchlist.preview":
+            return _watchlist_payload(args.get("tickers") or [], limit=25)
         if name == "signals.history":
             from .research import HISTORY_FILENAME, read_signal_history
             rows = read_signal_history(
@@ -1612,6 +1768,15 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 })
             finally:
                 s.close()
+
+        @app.get("/api/pro/v1/watchlist")
+        @pro_required("funds:read")
+        def pro_watchlist_ep():
+            payload = _watchlist_payload(request.args.get("tickers") or "", limit=50)
+            return jsonify({
+                "meta": {"api": "13flow-pro", "version": "v1", "git_sha": _git_sha()},
+                "watchlist": payload,
+            })
 
         @app.get("/api/pro/v1/openapi.json")
         def pro_openapi_ep():

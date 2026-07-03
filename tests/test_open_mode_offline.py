@@ -448,6 +448,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}
         }).get_json()
         assert any(t["name"] == "stocks.get" for t in mcp["result"]["tools"])
+        assert any(t["name"] == "watchlist.preview" for t in mcp["result"]["tools"])
         assert any(t["name"] == "product.status" for t in mcp["result"]["tools"])
         assert any(t["name"] == "pro.offer" for t in mcp["result"]["tools"])
 
@@ -458,6 +459,13 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert stock["result"]["structuredContent"]["ticker"] == "AAPL"
         assert stock["result"]["structuredContent"]["holder_count"] == 1
         assert stock["result"]["structuredContent"]["score"]["version"] == "ticker_flow_v1"
+
+        watchlist = c.post("/api/mcp", json={
+            "jsonrpc": "2.0", "id": 20, "method": "tools/call",
+            "params": {"name": "watchlist.preview", "arguments": {"tickers": ["AAPL"]}},
+        }).get_json()
+        assert watchlist["result"]["structuredContent"]["metadata"]["version"] == "watchlist_preview_v1"
+        assert watchlist["result"]["structuredContent"]["items"][0]["ticker"] == "AAPL"
 
         product = c.post("/api/mcp", json={
             "jsonrpc": "2.0", "id": 3, "method": "tools/call",
@@ -520,6 +528,15 @@ def test_ticker_flow_payload_explains_quarter_moves_and_confidence():
         assert "Ticker Flow Score" in html
         assert "Quarter Moves" in html
         assert "Data Confidence" in html
+
+        watchlist = c.get("/api/watchlist/preview?tickers=AAPL,MSFT").get_json()
+        assert watchlist["metadata"]["version"] == "watchlist_preview_v1"
+        assert watchlist["metadata"]["human_review_required_for_routine_publication"] is False
+        assert watchlist["summary"]["alerts"] >= 1
+        by_ticker = {item["ticker"]: item for item in watchlist["items"]}
+        assert by_ticker["AAPL"]["action"] in {"alert", "watch"}
+        assert any(t["code"] in {"high_score", "accumulation", "new_position"}
+                   for t in by_ticker["AAPL"]["triggers"])
 
 
 def test_ticker_flow_uses_trusted_universe_and_exposes_automatic_exclusions():
