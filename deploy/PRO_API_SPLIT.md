@@ -119,6 +119,9 @@ sudo systemctl list-timers | grep 13flow-pro-backup
 
 The backup script uses SQLite `.backup`, writes a manifest with integrity/counts/SHA-256,
 encrypts with GPG, and deletes old encrypted archives after `BACKUP_RETENTION_DAYS`.
+The systemd unit runs as `flowpro` and keeps `/var/lib/13flow-pro` in `ReadWritePaths`
+because SQLite WAL sidecar access may be required even though the script opens the DB in
+`mode=ro`.
 
 ## Audit retention
 
