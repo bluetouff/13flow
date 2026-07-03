@@ -303,6 +303,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             ("/signals/AAPL", "Latest 13F holders"),
             ("/status", "Evidence status"),
             ("/coverage", "Trusted Fund Coverage"),
+            ("/security", "Controlled Pilot Security"),
             ("/readiness", "Readiness Checklist"),
             ("/buyer-pack", "13FLOW Buyer Review Pack"),
             ("/buyer-pack/print", "PDF-ready printable view"),
@@ -336,6 +337,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/api/mcp" in doc["paths"]
         assert "/api/product-status" in doc["paths"]
         assert "/api/commercial-readiness" in doc["paths"]
+        assert "/api/security-posture" in doc["paths"]
         assert "/api/buyer-pack" in doc["paths"]
         assert "/api/buyer-pack.md" in doc["paths"]
         assert "/api/pro-offer" in doc["paths"]
@@ -555,6 +557,26 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/pro/admin" in readiness_page
         assert "validated alpha" in readiness_page
 
+        security = c.get("/api/security-posture").get_json()
+        assert security["status"] == "controlled_pilot_security_ready"
+        assert security["public_surface"]["mode"] == "read_only_open_build"
+        assert security["public_surface"]["synthetic_data"] is False
+        assert security["pro_surface"]["token_in_url_allowed"] is False
+        assert security["privacy"]["tokens_echoed"] is False
+        assert security["privacy"]["secrets_in_payloads"] is False
+        assert security["data_quality"]["manual_13f_review_required_for_routine_publication"] is False
+        assert "third-party penetration test" in security["non_claims"]
+        assert "/api/security-posture" in [x["href"] for x in security["evidence_links"]]
+
+        security_page = c.get("/security").get_data(as_text=True)
+        assert "Controlled Pilot Security" in security_page
+        assert "Machine-readable security posture" in security_page
+        assert "Operator Checks" in security_page
+        assert "Non-Claims" in security_page
+        assert "tokens_echoed:false" in security_page
+        assert "secrets_in_payloads:false" in security_page
+        assert "third-party penetration test" in security_page
+
         buyer_pack_page = c.get("/buyer-pack").get_data(as_text=True)
         assert "13FLOW Buyer Review Pack" in buyer_pack_page
         assert "Proof Points" in buyer_pack_page
@@ -566,6 +588,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/api/buyer-pack.md" in buyer_pack_page
         assert "/buyer-pack/print" in buyer_pack_page
         assert "/coverage" in buyer_pack_page
+        assert "/security" in buyer_pack_page
         assert "/pro/onboarding" in buyer_pack_page
         assert "not a performance claim" in buyer_pack_page
         assert "validated alpha" in buyer_pack_page
@@ -588,6 +611,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "## Evidence Links" in buyer_pack_md
         assert "not investment advice" in buyer_pack_md
         assert "/coverage" in buyer_pack_md
+        assert "/security" in buyer_pack_md
 
         coverage_page = c.get("/coverage").get_data(as_text=True)
         assert "Trusted Fund Coverage" in coverage_page

@@ -149,6 +149,22 @@ else
   bad "/coverage quality page" "curl failed"
 fi
 
+security_page="$tmpdir/security.html"
+if fetch "/security" "$security_page"; then
+  grep -q "Controlled Pilot Security" "$security_page" \
+    && grep -q "Machine-readable security posture" "$security_page" \
+    && grep -q "Operator Checks" "$security_page" \
+    && grep -q "Non-Claims" "$security_page" \
+    && grep -q "tokens_echoed:false" "$security_page" \
+    && grep -q "secrets_in_payloads:false" "$security_page" \
+    && grep -q "third-party penetration test" "$security_page" \
+    && ok "/security posture page" \
+    || bad "/security posture page" "missing security posture contract"
+  contains_none "/security has no legacy/auth/checkout copy" "$security_page" "${legacy_forbidden[@]}"
+else
+  bad "/security posture page" "curl failed"
+fi
+
 readiness_page="$tmpdir/readiness.html"
 if fetch "/readiness" "$readiness_page"; then
   grep -q "Readiness Checklist" "$readiness_page" \
@@ -173,6 +189,7 @@ if fetch "/buyer-pack" "$buyer_pack_page"; then
     && grep -q "/api/buyer-pack" "$buyer_pack_page" \
     && grep -q "/api/buyer-pack.md" "$buyer_pack_page" \
     && grep -q "/buyer-pack/print" "$buyer_pack_page" \
+    && grep -q "/security" "$buyer_pack_page" \
     && grep -q "/pro/onboarding" "$buyer_pack_page" \
     && grep -q "not a performance claim" "$buyer_pack_page" \
     && ok "/buyer-pack review page" \
@@ -461,6 +478,32 @@ else
   bad "/api/commercial-readiness fetch" "curl failed"
 fi
 
+security="$tmpdir/security-posture.json"
+if fetch "/api/security-posture" "$security"; then
+  json_check "/api/security-posture contract" "$security" "
+public = data.get('public_surface') or {}
+pro = data.get('pro_surface') or {}
+privacy = data.get('privacy') or {}
+quality = data.get('data_quality') or {}
+links = {item.get('href') for item in (data.get('evidence_links') or [])}
+ok = (
+    data.get('status') == 'controlled_pilot_security_ready'
+    and public.get('mode') == 'read_only_open_build'
+    and public.get('synthetic_data') is False
+    and pro.get('token_in_url_allowed') is False
+    and privacy.get('tokens_echoed') is False
+    and privacy.get('secrets_in_payloads') is False
+    and quality.get('manual_13f_review_required_for_routine_publication') is False
+    and '/api/security-posture' in links
+    and '/legal/pro-api' in links
+    and 'third-party penetration test' in (data.get('non_claims') or [])
+)
+msg = str(data)[:1000]
+"
+else
+  bad "/api/security-posture fetch" "curl failed"
+fi
+
 buyer_pack="$tmpdir/buyer-pack.json"
 if fetch "/api/buyer-pack" "$buyer_pack"; then
   json_check "/api/buyer-pack contract" "$buyer_pack" "
@@ -477,7 +520,9 @@ ok = (
     and 'validated alpha' in (data.get('do_not_claim_yet') or [])
     and '/pro/onboarding' in links
     and '/coverage' in links
+    and '/security' in links
     and '/api/commercial-readiness' in links
+    and (data.get('security_boundary') or {}).get('status') == 'controlled_pilot_security_ready'
     and any('Pro API keys are scoped' in item for item in (data.get('proof_points') or []))
 )
 msg = str(data)[:1000]

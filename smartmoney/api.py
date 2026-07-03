@@ -605,6 +605,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                                 "responses": {"200": {"description": "Product status"}}}},
                 "/api/commercial-readiness": {"get": {"summary": "Commercial readiness checklist and sales boundary",
                                                        "responses": {"200": {"description": "Commercial readiness"}}}},
+                "/api/security-posture": {"get": {"summary": "Controlled-pilot security posture and evidence links",
+                                                   "responses": {"200": {"description": "Security posture"}}}},
                 "/api/buyer-pack": {"get": {"summary": "Shareable buyer review pack",
                                              "responses": {"200": {"description": "Buyer review pack"}}}},
                 "/api/buyer-pack.md": {"get": {"summary": "Shareable buyer review pack in Markdown",
@@ -4047,9 +4049,116 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     def commercial_readiness_ep():
         return jsonify(commercial_readiness_payload())
 
+    def security_posture_payload() -> dict:
+        live = live_status_payload()
+        readiness = commercial_readiness_payload()
+        quality = (readiness.get("snapshot") or {}).get("quality_gate") or {}
+        workspace_limits = _pro_workspace_limits_payload()
+        hard_blocks = list(readiness.get("hard_blocks") or [])
+        status = "controlled_pilot_security_ready" if not hard_blocks else "security_review_required"
+        return {
+            "app": "13flow",
+            "generated_at": _now_iso(),
+            "git_sha": _git_sha(),
+            "status": status,
+            "scope": (
+                "Security posture for a controlled technical pilot. This is an operator "
+                "evidence pack, not a third-party penetration test, SOC 2 report, "
+                "investment-advice review or managed-service SLA."
+            ),
+            "public_surface": {
+                "mode": "read_only_open_build",
+                "synthetic_data": bool(live.get("uses_synthetic_data")),
+                "auth_billing_accounts": "not registered in open mode",
+                "mutation_policy": "public endpoints are GET-oriented; Pro writes live only behind the separate Pro service",
+                "headers": [
+                    "nosniff baseline",
+                    "DENY frame policy",
+                    "no-referrer baseline",
+                    "per-response CSP with no third-party scripts",
+                ],
+                "evidence": ["/api/version", "/api/config", "/api/live-status", "/api/openapi.json"],
+            },
+            "pro_surface": {
+                "service_boundary": "separate /api/pro/v1 service with scoped API keys",
+                "credential_headers": ["Authorization: Bearer <token>", "X-13FLOW-Key: <token>"],
+                "token_in_url_allowed": False,
+                "browser_storage": "diagnostic/cockpit pages use sessionStorage only; not localStorage",
+                "cache_policy": "private no-store for authenticated Pro responses",
+                "audit": "accepted, denied and rate-limited Pro requests create audit rows without storing plaintext tokens",
+                "rate_limits": "persistent per-key minute/day quotas",
+                "workspace_limits": workspace_limits,
+                "evidence": ["/api/pro/v1/status", "/api/pro/v1/usage", "/api/pro/v1/onboarding", "/pro/onboarding"],
+            },
+            "mcp_surface": {
+                "transport": "streamable-http",
+                "public_path": "/api/mcp",
+                "host_origin_policy": "MCP server enforces Host/Origin validation and a bounded request body",
+                "rate_limit": "per-client rate limit in MCP process",
+                "pro_tool_boundary": "Pro tools fail closed without payment or a valid key",
+                "evidence": ["/methodology/mcp", "/developers"],
+            },
+            "data_quality": {
+                "mode": "automated_fail_closed",
+                "manual_13f_review_required_for_routine_publication": False,
+                "signal_rule": "only trusted funds are eligible for scores, consensus and watchlist signals",
+                "trusted_funds": quality.get("trusted_funds"),
+                "signal_eligible_funds": quality.get("signal_eligible_funds"),
+                "quarantined_funds": quality.get("quarantined_funds"),
+                "review_items": quality.get("review_items"),
+                "evidence": ["/coverage", "/api/data-quality"],
+            },
+            "operations": {
+                "deploy_gate": "public and Pro workspace smoke tests must pass after each deploy",
+                "backup": "Pro DB backup is encrypted and restore verification is performed off-host with the private key",
+                "external_checks_required": readiness.get("external_checks") or [],
+                "operator_boundary": (
+                    "This endpoint does not read systemd, Apache configs, journal logs, "
+                    "backup files or secrets. Those remain operator-side checks."
+                ),
+            },
+            "privacy": {
+                "public_accounts": False,
+                "self_serve_checkout": False,
+                "tokens_echoed": False,
+                "secrets_in_payloads": False,
+                "payload_policy": "security posture exposes controls and evidence links, never keys, hashes, IPs, user agents or request bodies",
+            },
+            "non_claims": [
+                "third-party penetration test",
+                "SOC 2, ISO 27001 or regulated outsourcing certification",
+                "public self-serve payment flow",
+                "managed-service SLA",
+                "validated alpha or investment advice",
+                "complete coverage of non-13F assets, shorts or intra-quarter trades",
+            ],
+            "buyer_security_questions": [
+                "Who owns token custody and rotation on the buyer side?",
+                "Which scopes are needed for the pilot and which are deliberately excluded?",
+                "What request volume and burst profile should be configured before go-live?",
+                "Does the buyer require IP allow-listing, contractual DPA clauses or a custom retention policy?",
+                "Which evidence links must be archived before recurring access begins?",
+            ],
+            "evidence_links": [
+                {"label": "Commercial readiness", "href": "/api/commercial-readiness"},
+                {"label": "Security posture", "href": "/api/security-posture"},
+                {"label": "Coverage and quality", "href": "/coverage"},
+                {"label": "Validation boundary", "href": "/validation"},
+                {"label": "Public OpenAPI", "href": "/api/openapi.json"},
+                {"label": "Pro OpenAPI", "href": "/api/pro/v1/openapi.json"},
+                {"label": "Pro terms", "href": "/legal/pro-api"},
+                {"label": "Operator admin health", "href": "/pro/admin"},
+            ],
+        }
+
+    @app.get("/api/security-posture")
+    def security_posture_ep():
+        return jsonify(security_posture_payload())
+
     def buyer_pack_payload() -> dict:
         product = product_status_payload()
         readiness = commercial_readiness_payload()
+        security = security_posture_payload()
         offer = pro_offer_payload()
         snapshot = readiness.get("snapshot") or {}
         quality = snapshot.get("quality_gate") or {}
@@ -4077,6 +4186,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "Pro API keys are scoped, rate-limited, audited and no-store.",
                 "Workspace watchlists, snapshots, alerts, reports and exports are available behind Pro scopes.",
                 "MCP Pro tools fail closed without payment or a valid key.",
+                "Security posture separates implemented controls from external operator checks and non-claims.",
                 "Validation page separates mechanical evidence from alpha claims.",
             ],
             "snapshot": {
@@ -4098,6 +4208,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "pilot_handoff": offer["sales_packet"]["pilot_handoff"],
             "evidence_links": [
                 {"label": "Commercial readiness", "href": "/api/commercial-readiness"},
+                {"label": "Security posture", "href": "/security"},
                 {"label": "Product status", "href": "/api/product-status"},
                 {"label": "Coverage and quality", "href": "/coverage"},
                 {"label": "Validation boundary", "href": "/validation"},
@@ -4122,6 +4233,11 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "investment_advice": False,
                 "managed_service_sla": False,
                 "operator_review_required": True,
+            },
+            "security_boundary": {
+                "status": security.get("status"),
+                "scope": security.get("scope"),
+                "non_claims": security.get("non_claims"),
             },
         }
 
@@ -4514,10 +4630,74 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<section class=\"panel\"><h2>Do Not Claim Yet</h2><ul>" + do_not + "</ul></section></div>"
             "<p class=\"lede\"><a class=\"pill\" href=\"/api/commercial-readiness\">Machine-readable readiness</a> "
             "<a class=\"pill\" href=\"/api/product-status\">Product status</a> "
+            "<a class=\"pill\" href=\"/security\">Security posture</a> "
             "<a class=\"pill\" href=\"/pro/admin\">Pro admin health</a> "
             "<a class=\"pill\" href=\"/validation\">Validation boundary</a></p>"
         )
         return _html_response("Commercial Readiness", body)
+
+    @app.get("/security")
+    def security_page():
+        payload = security_posture_payload()
+        public = payload["public_surface"]
+        pro = payload["pro_surface"]
+        mcp = payload["mcp_surface"]
+        quality = payload["data_quality"]
+        ops = payload["operations"]
+        privacy = payload["privacy"]
+        public_controls = "".join(f"<li>{html_escape(item)}</li>" for item in public.get("headers") or [])
+        non_claims = "".join(f"<li>{html_escape(item)}</li>" for item in payload.get("non_claims") or [])
+        questions = "".join(f"<li>{html_escape(item)}</li>" for item in payload.get("buyer_security_questions") or [])
+        evidence = "".join(
+            f"<li><a href=\"{html_escape(item['href'], quote=True)}\">{html_escape(item['label'])}</a></li>"
+            for item in payload.get("evidence_links") or []
+        )
+        external = "".join(
+            f"<tr><td>{html_escape(item.get('id') or '-')}</td>"
+            f"<td><span class=\"pill\">{html_escape(item.get('status') or '-')}</span></td>"
+            f"<td><code>{html_escape(item.get('command') or '-')}</code></td></tr>"
+            for item in ops.get("external_checks_required") or []
+        )
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Security posture</div>"
+            "<h1>Controlled Pilot Security</h1>"
+            "<p class=\"doc-lede\">Evidence pack for a controlled Pro pilot: implemented controls, operator-side checks and explicit non-claims. "
+            "It is designed for security review without exposing secrets, tokens, hashes, IPs, user agents or request bodies.</p></div>"
+            f"<aside class=\"doc-panel\"><h3>Status</h3><p><span class=\"pill\">{html_escape(payload['status'])}</span></p>"
+            f"<p class=\"meta\">generated={html_escape(payload['generated_at'])}</p>"
+            f"<p class=\"meta\">sha={html_escape(payload['git_sha'])}</p></aside></section>"
+            "<section class=\"doc-metrics\">"
+            f"<div class=\"doc-metric\"><b>{str(public.get('synthetic_data')).lower()}</b><span>synthetic data</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(quality.get('trusted_funds') or 0))}</b><span>trusted funds</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(pro['workspace_limits']['max_watchlists_per_key']))}</b><span>watchlists/key</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(pro['workspace_limits']['max_request_bytes']))}</b><span>max request bytes</span></div>"
+            "</section>"
+            "<div class=\"split\"><section class=\"panel\"><h2>Public Surface</h2>"
+            f"<p><span class=\"pill\">{html_escape(public['mode'])}</span><span class=\"pill\">auth:{html_escape(public['auth_billing_accounts'])}</span></p>"
+            f"<p>{html_escape(public['mutation_policy'])}</p><ul>{public_controls}</ul></section>"
+            "<section class=\"panel\"><h2>Pro Surface</h2>"
+            f"<p><span class=\"pill\">token_in_url:{str(pro['token_in_url_allowed']).lower()}</span><span class=\"pill\">storage:sessionStorage</span></p>"
+            f"<p>{html_escape(pro['service_boundary'])}</p><p class=\"meta\">{html_escape(pro['audit'])}</p></section></div>"
+            "<div class=\"split\"><section class=\"panel\"><h2>MCP Boundary</h2>"
+            f"<p>{html_escape(mcp['host_origin_policy'])}</p><p>{html_escape(mcp['pro_tool_boundary'])}</p></section>"
+            "<section class=\"panel\"><h2>Data Quality Gate</h2>"
+            f"<p><span class=\"pill\">mode:{html_escape(quality['mode'])}</span><span class=\"pill\">human_review:{str(quality['manual_13f_review_required_for_routine_publication']).lower()}</span></p>"
+            f"<p>{html_escape(quality['signal_rule'])}</p></section></div>"
+            "<section class=\"doc-section\"><h2>Operator Checks</h2>"
+            f"<p>{html_escape(ops['operator_boundary'])}</p>"
+            f"<table><thead><tr><th>Check</th><th>Status</th><th>Command</th></tr></thead><tbody>{external}</tbody></table></section>"
+            "<div class=\"split\"><section class=\"panel\"><h2>Privacy</h2>"
+            f"<p><span class=\"pill\">tokens_echoed:{str(privacy['tokens_echoed']).lower()}</span>"
+            f"<span class=\"pill\">secrets_in_payloads:{str(privacy['secrets_in_payloads']).lower()}</span></p>"
+            f"<p>{html_escape(privacy['payload_policy'])}</p></section>"
+            "<section class=\"panel\"><h2>Non-Claims</h2><ul>" + non_claims + "</ul></section></div>"
+            "<div class=\"split\" style=\"margin-top:18px\"><section class=\"panel\"><h2>Buyer Security Questions</h2><ul>" + questions + "</ul></section>"
+            "<section class=\"panel\"><h2>Evidence Links</h2><ul>" + evidence + "</ul></section></div>"
+            "<p class=\"lede\"><a class=\"pill\" href=\"/api/security-posture\">Machine-readable security posture</a> "
+            "<a class=\"pill\" href=\"/readiness\">Commercial readiness</a> "
+            "<a class=\"pill\" href=\"/legal/pro-api\">Pro terms</a></p>"
+        )
+        return _html_response("Security Posture", body)
 
     @app.get("/buyer-pack")
     def buyer_pack_page():
@@ -4571,6 +4751,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<p class=\"lede\"><a class=\"pill\" href=\"/api/buyer-pack\">Machine-readable buyer pack</a> "
             "<a class=\"pill\" href=\"/api/buyer-pack.md\">Markdown export</a> "
             "<a class=\"pill\" href=\"/buyer-pack/print\">Printable pack</a> "
+            "<a class=\"pill\" href=\"/security\">Security posture</a> "
             "<a class=\"pill\" href=\"/pro/onboarding\">Pro onboarding diagnostic</a> "
             "<a class=\"pill\" href=\"/readiness\">Commercial readiness</a></p>"
         )
@@ -5245,7 +5426,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             '<nav class="topnav"><a class="brand" href="/">13<span>FL</span><b>OW</b></a>'
             '<div class="navlinks"><a class="primary" href="/app">Cockpit</a><a href="/confluence">Confluence</a>'
             '<a href="/funds">Funds</a><a href="/stocks">Stocks</a><a href="/signals">Signals</a>'
-            '<a href="/status">Status</a><a href="/coverage">Coverage</a><a href="/validation">Validation</a><a href="/methodology">Methodology</a>'
+            '<a href="/status">Status</a><a href="/coverage">Coverage</a><a href="/security">Security</a><a href="/validation">Validation</a><a href="/methodology">Methodology</a>'
             '<a href="/developers">API</a><a href="/pro">Pro</a><a href="/about">About</a></div></nav>'
         )
         footer = (
@@ -5257,7 +5438,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             '<div><h4>Method</h4><a href="/methodology">Overview</a>'
             '<a href="/methodology/app">Application</a><a href="/methodology/mcp">MCP</a>'
             '<a href="/api/methodology/confluence-v1">Confluence v1</a></div>'
-            '<div><h4>Trust</h4><a href="/status">Status</a><a href="/coverage">Coverage</a><a href="/about">About</a><a href="/developers">Developers</a>'
+            '<div><h4>Trust</h4><a href="/status">Status</a><a href="/coverage">Coverage</a><a href="/security">Security</a><a href="/about">About</a><a href="/developers">Developers</a>'
             '<a href="/api/openapi.json">OpenAPI</a><a href="/api/live-status">Live status</a>'
             '<a href="/legal">Legal</a></div>'
             '</div><div class="fine"><span>Public filings research. Not investment advice.</span>'
