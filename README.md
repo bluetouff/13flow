@@ -192,6 +192,10 @@ Operational baseline:
   [`deploy/PRO_API_SPLIT.md`](deploy/PRO_API_SPLIT.md), `deploy/backup-pro-db.sh`, and
   [`docs/PRO_API_ONBOARDING.md`](docs/PRO_API_ONBOARDING.md).
 
+Commercial packaging is intentionally evidence-first rather than cheap raw SEC
+access. Use [`docs/COMMERCIAL_MODEL.md`](docs/COMMERCIAL_MODEL.md) before
+quoting a buyer or issuing a pilot key.
+
 `GET /api/pro/v1/fund/<cik>` is the institutional detail endpoint: it returns the selected
 filing metadata, previous filing metadata, full holdings, share-count moves versus the
 previous quarter, fund-scoped data-quality warnings, and the methodology block needed to

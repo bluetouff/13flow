@@ -21,6 +21,11 @@ product with:
   contract;
 - offline preflight and public smoke gates.
 
+Commercial packaging and competitor positioning are maintained in
+`docs/COMMERCIAL_MODEL.md`. The pricing rule is deliberately not "cheaper raw
+SEC access": sell the audited workflow, support, evidence pack and validation
+boundary.
+
 Machine-readable product status:
 
 ```bash

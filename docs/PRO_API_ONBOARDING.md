@@ -65,6 +65,11 @@ All packages are operator quoted for now. Do not expose public self-serve
 checkout until pricing, terms, payment details and support boundaries are
 ready.
 
+Commercial positioning, competitor context, pricing floors and objection
+handling live in `docs/COMMERCIAL_MODEL.md`. Use that document before quoting:
+13FLOW should be sold as a verified 13F plus Form 4 workflow, not as cheap raw
+SEC access.
+
 ## 3. Qualify the account
 
 Record before creating a key:

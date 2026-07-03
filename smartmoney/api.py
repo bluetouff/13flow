@@ -1776,22 +1776,73 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "full_live_api_access_eur_per_month": 490,
                     "reason": "below that level the buyer gets curated live workflow, support and audit for less than the operator cost of serious onboarding",
                 },
+                "pricing_policy": {
+                    "strategy": "better_not_cheaper",
+                    "do_not_compete_on": [
+                        "generic SEC filing download volume",
+                        "self-serve retail portfolio widgets",
+                        "unvalidated alpha claims",
+                    ],
+                    "compete_on": [
+                        "13F plus Form 4 confluence workflow",
+                        "source-linked methodology and validation boundary",
+                        "operator-issued keys with audit, limits and fail-closed MCP tools",
+                        "evidence pack suitable for a professional buyer review",
+                    ],
+                    "discount_rule": "reduce scope, term or request limits before reducing the full live API floor",
+                },
                 "market_context": [
                     {
                         "provider": "SEC.gov",
                         "source_url": "https://www.sec.gov/search-filings/edgar-application-programming-interfaces",
-                        "note": "official EDGAR JSON APIs are free and unauthenticated; 13FLOW must add workflow value rather than resell raw access",
+                        "observed_offer": "official EDGAR JSON APIs and nightly bulk files",
+                        "risk_if_competing_directly": "free official source makes raw filing resale indefensible",
+                        "thirteenflow_response": "sell normalized workflow, quality warnings, status evidence and support around the official data",
                     },
                     {
                         "provider": "SEC-API.io",
                         "source_url": "https://sec-api.io/pricing",
-                        "note": "public pricing shows low self-serve SEC API plans and custom enterprise tiers; 13FLOW should not compete as a generic filing API",
+                        "observed_offer": "broad SEC API suite with self-serve personal/business plans and enterprise options",
+                        "risk_if_competing_directly": "a generic 13F or Form 4 endpoint would be compared against a mature low-cost API vendor",
+                        "thirteenflow_response": "position as a narrower research product: 13F, Form 4 validation, Confluence boundary, MCP and audit-ready onboarding",
                     },
                     {
-                        "provider": "Intrinio",
-                        "source_url": "https://intrinio.com/pricing",
-                        "note": "many institutional datasets are sold as business-use or enterprise products with trials and support",
+                        "provider": "Quiver Quantitative",
+                        "source_url": "https://api.quiverquant.com/",
+                        "observed_offer": "alternative-data API and retail platform, including insider trades, hedge fund activity and MCP surface",
+                        "risk_if_competing_directly": "broad alternative-data UX is hard to beat with a narrower raw-data catalogue",
+                        "thirteenflow_response": "stay professional and evidence-first: fewer claims, stronger method boundary, scoped Pro API and verifiable MCP behavior",
                     },
+                    {
+                        "provider": "Dataroma",
+                        "source_url": "https://www.dataroma.com/m/home.php",
+                        "observed_offer": "free curated superinvestor portfolios and significant insider buys",
+                        "risk_if_competing_directly": "free curation absorbs casual retail interest",
+                        "thirteenflow_response": "avoid retail checkout; sell machine-readable proof, API access, auditability and buyer-specific workflows",
+                    },
+                ],
+                "qualification_filter": {
+                    "good_fit": [
+                        "professional buyer with a repeatable 13F research workflow",
+                        "needs API or MCP access rather than screenshots",
+                        "accepts the current no-alpha validation boundary",
+                        "values audit trail, source links and methodology stability",
+                    ],
+                    "bad_fit": [
+                        "wants cheap raw SEC access only",
+                        "requires a public self-serve checkout today",
+                        "expects investment advice, price targets or validated alpha",
+                        "needs redistribution without a custom contract",
+                    ],
+                },
+                "evidence_pack": [
+                    "/status",
+                    "/api/product-status",
+                    "/api/live-status",
+                    "/api/pro-offer",
+                    "/api/openapi.json",
+                    "/api/pro/v1/openapi.json",
+                    "/api/methodology/confluence-v1",
                 ],
             },
             "sales_packet": {
@@ -2626,6 +2677,29 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "</div>"
             for item in commercial["ideal_customer_profiles"]
         )
+        market_cards = "".join(
+            "<div class=\"card\">"
+            f"<h3>{html_escape(item['provider'])}</h3>"
+            f"<p>{html_escape(item['observed_offer'])}</p>"
+            f"<p class=\"meta\">Risk: {html_escape(item['risk_if_competing_directly'])}</p>"
+            f"<p>{html_escape(item['thirteenflow_response'])}</p>"
+            f"<p class=\"meta\"><a href=\"{html_escape(item['source_url'], quote=True)}\">source</a></p>"
+            "</div>"
+            for item in commercial["market_context"]
+        )
+        compete_on = "".join(
+            f"<li>{html_escape(item)}</li>" for item in commercial["pricing_policy"]["compete_on"]
+        )
+        good_fit = "".join(
+            f"<li>{html_escape(item)}</li>" for item in commercial["qualification_filter"]["good_fit"]
+        )
+        bad_fit = "".join(
+            f"<li>{html_escape(item)}</li>" for item in commercial["qualification_filter"]["bad_fit"]
+        )
+        evidence_pack = "".join(
+            f"<li><a href=\"{html_escape(item, quote=True)}\">{html_escape(item)}</a></li>"
+            for item in commercial["evidence_pack"]
+        )
         not_yet = "".join(
             f"<li>{html_escape(item)}</li>" for item in offer["not_included_yet"]
         )
@@ -2662,10 +2736,25 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<div class=\"grid\">" + icp_cards + "</div></div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Pricing guide</h2>"
             f"<p class=\"lede\">{html_escape(commercial['principle'])}</p>"
+            f"<p class=\"meta\">Strategy: {html_escape(commercial['pricing_policy']['strategy'])}. "
+            f"{html_escape(commercial['pricing_policy']['discount_rule'])}</p>"
             "<div class=\"grid\">" + commercial_cards + "</div>"
+            "<h3>Compete on</h3>"
+            f"<ul>{compete_on}</ul>"
             f"<p class=\"meta\">Do not sell full live API access below "
             f"{html_escape(str(commercial['do_not_discount_below']['full_live_api_access_eur_per_month']))} EUR / month. "
             f"{html_escape(commercial['do_not_discount_below']['reason'])}</p></div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Competitive position</h2>"
+            "<p class=\"lede\">13FLOW should not race raw SEC API vendors to the bottom. "
+            "It should sell verified workflow, method boundaries and buyer-specific evidence.</p>"
+            "<div class=\"grid\">" + market_cards + "</div></div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Qualification filter</h2>"
+            "<div class=\"grid\"><div class=\"card\"><h3>Good fit</h3>"
+            f"<ul>{good_fit}</ul></div>"
+            "<div class=\"card\"><h3>Bad fit</h3>"
+            f"<ul>{bad_fit}</ul></div>"
+            "<div class=\"card\"><h3>Evidence pack</h3>"
+            f"<ul>{evidence_pack}</ul></div></div></div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Operator lead kit</h2>"
             "<div class=\"grid\"><div class=\"card\"><h3>Qualification questions</h3>"
             f"<ul>{questions}</ul></div>"

@@ -277,6 +277,15 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert commercial["recommended_packages"][0]["price_eur_per_month"] == 490
         assert commercial["do_not_discount_below"]["full_live_api_access_eur_per_month"] == 490
         assert "raw SEC data" in commercial["principle"]
+        assert commercial["pricing_policy"]["strategy"] == "better_not_cheaper"
+        assert "13F plus Form 4 confluence workflow" in commercial["pricing_policy"]["compete_on"]
+        assert [item["provider"] for item in commercial["market_context"]] == [
+            "SEC.gov",
+            "SEC-API.io",
+            "Quiver Quantitative",
+            "Dataroma",
+        ]
+        assert "/api/pro/v1/openapi.json" in commercial["evidence_pack"]
         assert offer["default_limits"]["rate_per_min"] == 120
         assert "validated alpha" in offer["not_included_yet"]
         assert "create_key" in offer["operator_commands"]
@@ -310,6 +319,10 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Operator lead kit" in pro_page
         assert "490 EUR / month" in pro_page
         assert "Pilot access" in pro_page
+        assert "Competitive position" in pro_page
+        assert "better_not_cheaper" in pro_page
+        assert "Quiver Quantitative" in pro_page
+        assert "Evidence pack" in pro_page
         assert "Public filings research. Not investment advice." in pro_page
         assert 'href="/developers"' in pro_page
         assert 'href="/api/live-status"' in pro_page
