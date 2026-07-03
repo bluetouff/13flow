@@ -301,7 +301,26 @@ python run.py \
 The validator reports required columns, positive-price failures, duplicate ticker/date rows,
 missing tickers, partial histories and major calendar gaps before the file is used in a
 validation dataset.
-The dataset builder can now join a reviewed local Form 4 transaction file with
+
+The Form 4 validation artifact can be produced from SEC EDGAR with a conservative,
+checkpointed exporter:
+
+```bash
+SEC_UA='13FLOW/1.0 contact@example.com' python run.py \
+  --build-validation-form4 \
+  --validation-tickers /var/lib/13flow/validation_tickers_sample25.txt \
+  --validation-form4-out /var/lib/13flow/validation_form4_sample25.csv \
+  --validation-start 2024-07-03 \
+  --validation-end 2026-07-02 \
+  --validation-form4-sleep-sec 2 \
+  --validation-form4-max-tickers 1 \
+  --validation-json
+```
+
+Increase `--validation-form4-max-tickers` only after the one-ticker smoke succeeds. The
+exporter reuses existing ticker rows unless `--validation-form4-force` is set and caps each
+ticker with `--validation-form4-max-filings-per-ticker`.
+The dataset builder joins the reviewed local Form 4 transaction file with
 `--validation-form4`. Accepted CSV/JSONL rows include `ticker`, `accession`,
 `filing_date`, `transaction_date`, owner identity/role fields, transaction code,
 acquired/disposed flag, shares, price and ownership-after fields. The join is point-in-time:

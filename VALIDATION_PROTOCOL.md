@@ -99,6 +99,25 @@ is enough to test the complete Confluence feature contract, but still not enough
 public validation claim until the Form 4 artifact coverage, price source, delisting handling,
 costs and no-lookahead controls are reviewed.
 
+The normalized Form 4 artifact can be built from SEC EDGAR separately from the offline
+dataset builder:
+
+```bash
+SEC_UA='13FLOW/1.0 contact@example.com' python run.py \
+  --build-validation-form4 \
+  --validation-tickers /var/lib/13flow/validation_tickers_sample25.txt \
+  --validation-form4-out /var/lib/13flow/validation_form4_sample25.csv \
+  --validation-start 2024-07-03 \
+  --validation-end 2026-07-02 \
+  --validation-form4-sleep-sec 2 \
+  --validation-form4-max-tickers 1 \
+  --validation-json
+```
+
+This command touches SEC EDGAR. Use a descriptive `SEC_UA`, start with one ticker, preserve
+the checkpointed CSV, and increase the ticker cap only after the smoke output has no repeated
+429/5xx or parsing errors.
+
 By default, the builder excludes non-priceable/common-equity suspects from validation rows:
 convertible notes, preferreds, warrants, currency-suffixed FIGI artefacts, tickers with
 spaces/digits and similar rows. Use `--validation-include-non-priceable` only for audit

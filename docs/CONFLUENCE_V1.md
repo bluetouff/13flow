@@ -148,11 +148,29 @@ python run.py \
   --validation-json
 ```
 
+Build a normalized Form 4 artifact from SEC EDGAR, starting with a single ticker:
+
+```bash
+SEC_UA='13FLOW/1.0 contact@example.com' \
+python run.py \
+  --build-validation-form4 \
+  --validation-tickers /var/lib/13flow/validation_tickers_sample25.txt \
+  --validation-form4-out /var/lib/13flow/validation_form4_sample25.csv \
+  --validation-start 2024-07-03 \
+  --validation-end 2026-07-02 \
+  --validation-form4-sleep-sec 2 \
+  --validation-form4-max-tickers 1 \
+  --validation-json
+```
+
 The price exporter writes `ticker,date,adj_close` adjusted closes, resumes from existing
 rows unless `--validation-price-force` is set, deduplicates repeated ticker/date rows, retries
 `429`/`5xx` responses with exponential backoff and reports complete/partial history coverage.
 It checkpoints after each ticker and supports `--validation-price-max-tickers` for safe
 provider smoke tests.
+The Form 4 exporter writes normalized ownership transactions, resumes from existing ticker
+rows unless `--validation-form4-force` is set, caps filings per ticker, and must be run with
+a descriptive `SEC_UA`.
 `massive` is the preferred price source; `yahoo` is available only as a no-key research
 fallback when the primary vendor account cannot serve enough history, and must be disclosed
 as such in any validation artifact.

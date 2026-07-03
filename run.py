@@ -729,6 +729,67 @@ def cmd_build_validation_prices(tickers_path: str | None,
               f"(sample in --validation-json)")
 
 
+def cmd_build_validation_form4(tickers_path: str | None,
+                               output: str | None,
+                               start: str | None,
+                               end: str | None,
+                               sleep_sec: float,
+                               max_tickers: int | None,
+                               max_filings_per_ticker: int,
+                               force: bool,
+                               as_json: bool) -> None:
+    import json
+    from smartmoney.validation_form4 import build_validation_form4_file
+    from smartmoney.validation_prices import parse_date
+    missing = []
+    if not tickers_path:
+        missing.append("--validation-tickers")
+    if not output:
+        missing.append("--validation-form4-out")
+    if not start:
+        missing.append("--validation-start")
+    if not end:
+        missing.append("--validation-end")
+    if missing:
+        print("--build-validation-form4 requires " + ", ".join(missing), file=sys.stderr)
+        sys.exit(2)
+    user_agent = os.environ.get("SEC_UA", "")
+    if not user_agent:
+        print("--build-validation-form4 requires SEC_UA in the environment", file=sys.stderr)
+        sys.exit(2)
+    try:
+        summary = build_validation_form4_file(
+            tickers_path,
+            output,
+            user_agent=user_agent,
+            start=parse_date(start),
+            end=parse_date(end),
+            sleep_sec=max(0.0, sleep_sec),
+            max_tickers=max_tickers if max_tickers and max_tickers > 0 else None,
+            max_filings_per_ticker=max(1, max_filings_per_ticker),
+            force=force,
+        )
+    except Exception as exc:  # noqa: BLE001 - CLI should return a clear operator error
+        print(f"--build-validation-form4 failed: {exc}", file=sys.stderr)
+        sys.exit(2)
+    if as_json:
+        print(json.dumps(summary, indent=2, sort_keys=True))
+        return
+    print(f"validation Form 4 -> {summary['path']}")
+    print(f"  window:   {summary['start']} -> {summary['end']}")
+    print(f"  tickers:  {summary['tickers_requested']} "
+          f"({summary['tickers_cached']} cached, {summary['tickers_fetched']} fetched)")
+    print(f"  filings:  {summary['filings_seen']}")
+    print(f"  rows:     {summary['rows_total']} total, {summary['rows_new']} new")
+    print(f"  coverage: {summary['coverage']}")
+    if summary["tickers_without_cik"] or summary["tickers_without_filings"]:
+        print(f"  gaps:     no_cik={summary['tickers_without_cik']}, "
+              f"no_filings={summary['tickers_without_filings']}")
+    if summary["tickers_with_errors"]:
+        print(f"  errors:   {summary['tickers_with_errors']} "
+              f"(sample in --validation-json)")
+
+
 def cmd_validate_price_csv(path: str,
                            tickers_path: str | None,
                            start: str | None,
@@ -867,6 +928,8 @@ def main() -> None:
                     help="export a point-in-time Confluence feature dataset from the local 13F DB")
     ap.add_argument("--build-validation-prices", action="store_true",
                     help="export adjusted daily closes for validation tickers")
+    ap.add_argument("--build-validation-form4", action="store_true",
+                    help="export normalized Form 4 transactions for validation tickers")
     ap.add_argument("--validate-price-csv", metavar="CSV",
                     help="validate an imported adjusted-price CSV before validation use")
     ap.add_argument("--validation-format", choices=["csv", "jsonl"], default="csv",
@@ -875,8 +938,18 @@ def main() -> None:
                     help="optional adjusted-price CSV: ticker,date,adj_close")
     ap.add_argument("--validation-form4", metavar="CSV_OR_JSONL",
                     help="optional normalized Form 4 transaction file for full Confluence feature join")
+    ap.add_argument("--validation-form4-out", metavar="CSV",
+                    help="output normalized Form 4 CSV for --build-validation-form4")
     ap.add_argument("--validation-form4-window-days", type=int, default=90,
                     help="trailing Form 4 window for --build-validation-dataset (default 90)")
+    ap.add_argument("--validation-form4-sleep-sec", type=float, default=1.0,
+                    help="pause between ticker Form 4 exports (default 1)")
+    ap.add_argument("--validation-form4-max-tickers", type=int,
+                    help="limit tickers processed in one Form 4 export smoke run")
+    ap.add_argument("--validation-form4-max-filings-per-ticker", type=int, default=200,
+                    help="cap Form 4 filings downloaded per ticker (default 200)")
+    ap.add_argument("--validation-form4-force", action="store_true",
+                    help="ignore existing Form 4 CSV cache and refetch all tickers")
     ap.add_argument("--validation-tickers", metavar="FILE",
                     help=("ticker list for --build-validation-prices, or optional universe "
                           "filter for --build-validation-dataset"))
@@ -967,6 +1040,13 @@ def main() -> None:
             args.validation_price_retry_base_sec, args.validation_price_retry_max_sec,
             args.validation_price_timeout_sec, args.validation_price_max_tickers,
             args.validation_price_force, args.validation_json)
+    if args.build_validation_form4:
+        return cmd_build_validation_form4(
+            args.validation_tickers, args.validation_form4_out,
+            args.validation_start, args.validation_end,
+            args.validation_form4_sleep_sec, args.validation_form4_max_tickers,
+            args.validation_form4_max_filings_per_ticker,
+            args.validation_form4_force, args.validation_json)
     if args.validate_price_csv:
         return cmd_validate_price_csv(
             args.validate_price_csv, args.validation_tickers, args.validation_start,
