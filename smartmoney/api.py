@@ -1986,20 +1986,35 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     def _html_response(title: str, body: str) -> Response:
         nonce = secrets.token_urlsafe(16)
         nav = (
-            '<nav><a class="brand" href="/">13<span>FL</span><b>OW</b></a>'
-            '<a href="/funds">Funds</a><a href="/stocks">Stocks</a>'
-            '<a href="/signals">Signals</a><a href="/methodology/app">Methodology</a>'
+            '<nav class="topnav"><a class="brand" href="/">13<span>FL</span><b>OW</b></a>'
+            '<div class="navlinks"><a href="/funds">Funds</a><a href="/stocks">Stocks</a>'
+            '<a href="/signals">Signals</a><a href="/methodology">Methodology</a>'
             '<a href="/developers">Developers</a><a href="/pro">Pro API</a><a href="/faq">FAQ</a>'
-            '<a href="/legal">Legal</a></nav>'
+            '<a href="/legal">Legal</a></div></nav>'
+        )
+        footer = (
+            '<footer class="site-footer"><div class="foot-grid">'
+            '<div><h4>13FLOW</h4><p>SEC EDGAR-derived 13F and Form 4 research surfaces '
+            'for analysts, APIs and agent workflows.</p></div>'
+            '<div><h4>Product</h4><a href="/funds">Funds</a><a href="/stocks">Stocks</a>'
+            '<a href="/signals">Signals</a><a href="/pro">Pro API</a></div>'
+            '<div><h4>Method</h4><a href="/methodology">Overview</a>'
+            '<a href="/methodology/app">Application</a><a href="/methodology/mcp">MCP</a>'
+            '<a href="/api/methodology/confluence-v1">Confluence v1</a></div>'
+            '<div><h4>Trust</h4><a href="/developers">Developers</a>'
+            '<a href="/api/openapi.json">OpenAPI</a><a href="/api/live-status">Live status</a>'
+            '<a href="/legal">Legal</a></div>'
+            '</div><div class="fine"><span>Public filings research. Not investment advice.</span>'
+            '<span>Source: SEC EDGAR · LIVE state exposed at /api/live-status</span></div></footer>'
         )
         html = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html_escape(title)} · 13FLOW</title><link href="/assets/fonts/13flow-fonts.css" rel="stylesheet">
 <style>
-:root{{--bg:#0c1611;--panel:#13241c;--line:#1f3329;--text:#eaf5ef;--muted:#a9c4b7;--faint:#6f897d;--accent:#19c187;--amber:#e0a534;--sans:'Hanken Grotesk',system-ui,sans-serif;--display:'Bricolage Grotesque',system-ui,sans-serif;--mono:'Geist Mono',ui-monospace,monospace}}
-*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.55;background-image:radial-gradient(46rem 30rem at 88% -8%,rgba(25,193,135,.14),transparent 60%)}}
-.wrap{{max-width:1120px;margin:0 auto;padding:24px 24px 72px}}a{{color:var(--accent);text-decoration:none}}nav{{display:flex;gap:14px;align-items:center;margin-bottom:34px;flex-wrap:wrap}}nav a{{color:var(--muted);font-weight:650}}.brand{{font-family:var(--display);font-size:24px;font-weight:800;color:var(--text);margin-right:auto}}.brand span{{color:var(--accent)}}.brand b{{color:var(--amber)}}h1{{font-family:var(--display);font-size:40px;line-height:1.05;margin:0 0 8px}}.lede{{color:var(--muted);max-width:760px;margin:0 0 26px}}.grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}}.card,.panel{{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px}}.card h2,.card h3{{font-family:var(--display);margin:0 0 6px}}.meta,.num{{font-family:var(--mono)}}.meta{{font-size:12px;color:var(--faint)}}.num{{font-size:13px}}table{{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:16px;overflow:hidden}}th,td{{padding:11px 13px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}}th:first-child,td:first-child{{text-align:left}}th{{font-family:var(--mono);font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em}}td{{font-size:14px}}.pill{{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:3px 8px;font-family:var(--mono);font-size:11px;color:var(--muted)}}.sec{{font-family:var(--mono);font-size:11px}}footer{{margin-top:34px;color:var(--faint);font-size:12px}}
-</style></head><body><div class="wrap">{nav}{body}<footer>13FLOW · SEC EDGAR public-domain data · screen, not investment advice.</footer></div><script nonce="{nonce}"></script></body></html>"""
+:root{{--bg:#0c1611;--panel:#13241c;--panel-2:#16291f;--line:#1f3329;--line-soft:#182a20;--text:#eaf5ef;--muted:#a9c4b7;--faint:#6f897d;--accent:#19c187;--amber:#e0a534;--sans:'Hanken Grotesk',system-ui,sans-serif;--display:'Bricolage Grotesque',system-ui,sans-serif;--mono:'Geist Mono',ui-monospace,monospace}}
+*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.55;letter-spacing:0;background-image:linear-gradient(180deg,rgba(255,255,255,.025),transparent 420px)}}
+.wrap{{max-width:1120px;margin:0 auto;padding:24px 24px 0}}a{{color:var(--accent);text-decoration:none}}.topnav{{display:flex;gap:18px;align-items:center;margin-bottom:38px;flex-wrap:wrap}}.navlinks{{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-left:auto}}.navlinks a{{color:var(--muted);font-weight:650;font-size:13px;padding:8px 11px;border-radius:999px}}.navlinks a:hover{{color:var(--text);background:var(--panel-2)}}.brand{{font-family:var(--display);font-size:24px;font-weight:800;color:var(--text);margin-right:auto}}.brand span{{color:var(--accent)}}.brand b{{color:var(--amber)}}h1{{font-family:var(--display);font-size:40px;line-height:1.05;margin:0 0 8px}}h2{{font-family:var(--display)}}.lede{{color:var(--muted);max-width:760px;margin:0 0 26px}}.grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}}.card,.panel{{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px}}.card h2,.card h3{{font-family:var(--display);margin:0 0 6px}}.card p,.panel p,.panel li{{color:var(--muted)}}.meta,.num{{font-family:var(--mono)}}.meta{{font-size:12px;color:var(--faint)}}.num{{font-size:13px}}pre{{white-space:pre-wrap;background:var(--panel-2);border:1px solid var(--line);border-radius:14px;padding:14px;overflow:auto}}code{{font-family:var(--mono)}}table{{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:16px;overflow:hidden}}th,td{{padding:11px 13px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}}th:first-child,td:first-child{{text-align:left}}th{{font-family:var(--mono);font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em}}td{{font-size:14px}}.pill{{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:4px 9px;font-family:var(--mono);font-size:11px;color:var(--muted);margin:2px 5px 2px 0}}.sec{{font-family:var(--mono);font-size:11px}}.site-footer{{margin-top:46px;border-top:1px solid var(--line);padding:28px 0 34px;color:var(--muted)}}.foot-grid{{display:grid;grid-template-columns:1.4fr repeat(3,1fr);gap:26px}}.site-footer h4{{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin:0 0 10px}}.site-footer p{{margin:0;color:var(--muted);font-size:13px;line-height:1.55;max-width:38ch}}.site-footer a{{display:block;color:var(--text);font-weight:600;font-size:13px;margin:7px 0}}.site-footer a:hover{{color:var(--accent)}}.fine{{border-top:1px solid var(--line-soft);margin-top:24px;padding-top:16px;display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--faint)}}@media(max-width:760px){{.wrap{{padding:18px 16px 0}}.topnav{{align-items:flex-start}}.navlinks{{margin-left:0}}.foot-grid{{grid-template-columns:1fr}}h1{{font-size:34px}}}}
+</style></head><body><div class="wrap">{nav}{body}{footer}</div><script nonce="{nonce}"></script></body></html>"""
         resp = Response(html, mimetype="text/html; charset=utf-8")
         resp.headers["Content-Security-Policy"] = (
             "default-src 'none'; "
