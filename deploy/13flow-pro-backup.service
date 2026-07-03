@@ -4,8 +4,8 @@ After=13flow-pro.service
 
 [Service]
 Type=oneshot
-User=root
-Group=root
+User=flowpro
+Group=flowpro
 EnvironmentFile=/etc/13flow/13flow-pro-backup.env
 ExecStart=/opt/13flow/deploy/backup-pro-db.sh
 StateDirectory=13flow-pro-backup

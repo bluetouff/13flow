@@ -9,6 +9,7 @@ set -euo pipefail
 
 PRO_DB=${PRO_DB:-/var/lib/13flow-pro/13flow-pro.db}
 BACKUP_DIR=${BACKUP_DIR:-/var/backups/13flow-pro}
+BACKUP_WORK_DIR=${BACKUP_WORK_DIR:-/var/lib/13flow-pro-backup/tmp}
 RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-30}
 GPG_RECIPIENT=${GPG_RECIPIENT:-}
 GPG_HOMEDIR=${GPG_HOMEDIR:-}
@@ -29,7 +30,8 @@ fi
 
 umask 077
 install -d -m 700 "$BACKUP_DIR"
-tmpdir=$(mktemp -d)
+install -d -m 700 "$BACKUP_WORK_DIR"
+tmpdir=$(mktemp -d "$BACKUP_WORK_DIR/backup.XXXXXX")
 cleanup() {
   rm -rf "$tmpdir"
 }
@@ -41,7 +43,7 @@ manifest="$tmpdir/manifest.txt"
 archive="$tmpdir/13flow-pro-$ts.tar.gz"
 out="$BACKUP_DIR/13flow-pro-$ts.tar.gz.gpg"
 
-sqlite3 "$PRO_DB" ".backup '$snapshot'"
+sqlite3 "file:$PRO_DB?mode=ro" ".backup '$snapshot'"
 chmod 600 "$snapshot"
 
 {

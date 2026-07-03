@@ -98,8 +98,11 @@ sudo install -o root -g root -m 600 /opt/13flow/deploy/13flow-pro-backup.env.exa
   /etc/13flow/13flow-pro-backup.env
 sudo nano /etc/13flow/13flow-pro-backup.env
 
-sudo install -d -o root -g root -m 700 /var/lib/13flow-pro-backup/gnupg
-sudo GNUPGHOME=/var/lib/13flow-pro-backup/gnupg gpg --import /path/to/backup-public-key.asc
+sudo install -d -o flowpro -g flowpro -m 700 /var/backups/13flow-pro
+sudo install -d -o flowpro -g flowpro -m 700 /var/lib/13flow-pro-backup/gnupg
+sudo install -d -o flowpro -g flowpro -m 700 /var/lib/13flow-pro-backup/tmp
+sudo -u flowpro gpg --homedir /var/lib/13flow-pro-backup/gnupg \
+  --import /path/to/backup-public-key.asc
 
 sudo install -o root -g root -m 755 /opt/13flow/deploy/backup-pro-db.sh \
   /opt/13flow/deploy/backup-pro-db.sh
