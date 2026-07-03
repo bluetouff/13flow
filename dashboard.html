@@ -17,15 +17,14 @@
     --mono:'Geist Mono',ui-monospace,monospace;
     --shadow:0 1px 2px rgba(0,0,0,.35), 0 20px 46px -22px rgba(0,0,0,.72);
     --shadow-sm:0 1px 2px rgba(0,0,0,.35);
-    --r:18px;
+    --r:8px;
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
   body{
     background:var(--bg); color:var(--text); font-family:var(--sans); font-size:14px;
     -webkit-font-smoothing:antialiased; letter-spacing:0;
-    background-image:
-      linear-gradient(180deg, rgba(255,255,255,.025), transparent 420px);
+    background-image:linear-gradient(180deg, rgba(255,255,255,.025), transparent 420px);
     background-attachment:fixed;
   }
   a{color:inherit;text-decoration:none}
@@ -34,7 +33,7 @@
 
   /* shell */
   .app{display:grid;grid-template-columns:264px 1fr;min-height:100vh}
-  .rail{padding:26px 20px;position:sticky;top:0;height:100vh;
+  .rail{padding:24px 18px;position:sticky;top:0;height:100vh;
     border-right:1px solid var(--line);background:rgba(15,28,22,.55);backdrop-filter:blur(12px)}
   .brand{font-family:var(--display);font-weight:800;font-size:22px;line-height:1;letter-spacing:-.03em}
   .brand .dot{color:var(--accent)}
@@ -44,9 +43,9 @@
   .logo svg{filter:drop-shadow(0 2px 9px rgba(25,193,135,.28))}
   .brand-sub{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--faint);
     text-transform:uppercase;margin-top:9px}
-  nav{margin-top:28px;display:flex;flex-direction:column;gap:4px}
+  nav{margin-top:24px;display:flex;flex-direction:column;gap:4px}
   .nav-section{margin:18px 0 3px;font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
-  .nav-item{display:flex;align-items:center;gap:12px;padding:10px 13px;border-radius:12px;
+  .nav-item{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;
     color:var(--muted);font-weight:500;cursor:pointer;transition:all .15s ease}
   .nav-item:hover{color:var(--text);background:var(--panel-2)}
   .nav-item.active{color:var(--accent-2);background:var(--accent-soft);font-weight:600}
@@ -54,7 +53,7 @@
   .ico{width:18px;height:18px;display:grid;place-items:center;font-family:var(--mono);font-size:13px;color:var(--faint)}
   .rail-foot{position:absolute;bottom:22px;left:20px;right:20px;font-size:11px;color:var(--faint)}
   .rail-links{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:13px}
-  .footlink{display:inline-flex;align-items:center;justify-content:center;min-height:30px;color:var(--muted);font-weight:650;font-size:12px;text-decoration:none;border:1px solid var(--line);border-radius:9px;background:rgba(19,36,28,.54)}
+  .footlink{display:inline-flex;align-items:center;justify-content:center;min-height:30px;color:var(--muted);font-weight:650;font-size:12px;text-decoration:none;border:1px solid var(--line);border-radius:8px;background:rgba(19,36,28,.54)}
   .footlink:hover{color:var(--accent-2)}
   .badge{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10px;
     letter-spacing:.08em;padding:5px 10px;border:1px solid var(--line);border-radius:999px;background:var(--panel-2)}
@@ -63,21 +62,21 @@
 
   /* main */
   .mobilebar{display:none}
-  main{padding:30px 44px 0;max-width:1240px;width:100%}
+  main{padding:24px 36px 0;max-width:1320px;width:100%}
   .masthead{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
-  .masthead h1{font-family:var(--display);font-weight:800;font-size:30px;margin:0;letter-spacing:-.03em}
+  .masthead h1{font-family:var(--display);font-weight:800;font-size:34px;margin:0;letter-spacing:0}
   .masthead .kicker{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;
     color:var(--accent);margin-bottom:9px;font-weight:500}
   .masthead .meta{text-align:right;font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.7}
-  .rule-thin{height:0;margin:24px 0 26px}
-  .view-title{font-size:14px;color:var(--muted);margin:2px 0 22px;max-width:640px}
+  .rule-thin{height:1px;background:var(--line);margin:20px 0 22px}
+  .view-title{font-size:14px;color:var(--muted);margin:2px 0 22px;max-width:760px;line-height:1.55}
   .top-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
-  .top-link{font-family:var(--mono);font-size:11px;color:var(--muted);border:1px solid var(--line);background:var(--panel-2);border-radius:999px;padding:7px 11px}
+  .top-link{font-family:var(--mono);font-size:11px;color:var(--muted);border:1px solid var(--line);background:var(--panel-2);border-radius:8px;padding:7px 11px}
   .top-link:hover{color:var(--accent-2);border-color:var(--accent)}
 
   /* metric strip */
   .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:30px}
-  .stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;box-shadow:var(--shadow-sm)}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;box-shadow:var(--shadow-sm)}
   .stat .l{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-weight:600}
   .stat .v{font-family:var(--mono);font-size:26px;margin-top:9px;letter-spacing:-.02em}
   .stat .v small{font-size:12px;color:var(--muted);font-family:var(--sans)}
@@ -109,7 +108,7 @@
 
   /* fund grid */
   .fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(252px,1fr));gap:16px}
-  .fcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px;cursor:pointer;
+  .fcard{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px;cursor:pointer;
     transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease;box-shadow:var(--shadow-sm)}
   .fcard:hover{transform:translateY(-3px);box-shadow:var(--shadow);border-color:var(--accent)}
   .fcard .mgr{font-family:var(--mono);font-size:10px;color:var(--faint);letter-spacing:.08em;text-transform:uppercase}
@@ -131,7 +130,7 @@
 
   /* detail / controls */
   .back{font-family:var(--mono);font-size:11px;color:var(--muted);cursor:pointer;margin-bottom:18px;display:inline-block;
-    padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:var(--panel-2);transition:.14s}
+    padding:6px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel-2);transition:.14s}
   .back:hover{color:var(--accent-2);border-color:var(--accent)}
   .fund-hd{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:6px}
   .fund-hd h2{font-family:var(--display);font-size:30px;font-weight:800;margin:0;letter-spacing:-.03em}
@@ -141,7 +140,7 @@
     border-radius:12px;padding:9px 13px;font-family:var(--mono);font-size:12px;box-shadow:var(--shadow-sm)}
   .selectbar{display:flex;flex-wrap:wrap;gap:9px;margin-bottom:22px}
   .pick{font-family:var(--sans);font-weight:500;font-size:13px;padding:9px 15px;border:1px solid var(--line);
-    border-radius:999px;cursor:pointer;color:var(--muted);background:var(--panel-2);transition:.14s}
+    border-radius:8px;cursor:pointer;color:var(--muted);background:var(--panel-2);transition:.14s}
   .pick:hover{color:var(--text);border-color:var(--muted)}
   .pick.on{border-color:transparent;color:var(--accent-2);background:var(--accent-soft);font-weight:600}
   .heat{width:100%;text-align:center;border-radius:8px;padding:7px 0;font-family:var(--mono);font-size:12px}
@@ -180,7 +179,7 @@
   @media (max-width:900px){.site-footer .foot-grid{grid-template-columns:1fr 1fr}.masthead{align-items:flex-start;gap:18px}.top-actions{justify-content:flex-start}}
   @media (max-width:760px){
     .app{display:block}.rail{display:none}
-    .mobilebar{display:block;position:sticky;top:0;z-index:40;background:rgba(12,22,17,.94);backdrop-filter:blur(14px);border-bottom:1px solid var(--line);padding:12px 14px}
+  .mobilebar{display:block;position:sticky;top:0;z-index:40;background:rgba(12,22,17,.94);backdrop-filter:blur(14px);border-bottom:1px solid var(--line);padding:12px 14px}
     .mobilebar .logo{justify-content:center;margin-bottom:10px}
     .mobile-nav{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:0}
     .mobile-nav .nav-item{justify-content:center;gap:0;padding:8px 5px;border-radius:10px;font-size:11px;text-align:center;min-height:38px}
@@ -238,7 +237,7 @@
   .crawler-state{font-size:12px;color:var(--muted);margin:-10px 0 22px;max-width:760px;line-height:1.5}
   /* ===== Confluence (13FLOW) — all scoped under .cfl to avoid clashing with other screens ===== */
   .cfl .pillrow{display:flex;gap:6px;margin:2px 0 18px}
-  .cfl .pill{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--muted);border:1px solid var(--line);background:var(--panel-2);padding:6px 13px;border-radius:999px;cursor:pointer;transition:.15s}
+  .cfl .pill{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--muted);border:1px solid var(--line);background:var(--panel-2);padding:6px 13px;border-radius:8px;cursor:pointer;transition:.15s}
   .cfl .pill:hover{color:var(--text)}
   .cfl .pill.on{background:var(--accent);color:#04130c;border-color:transparent}
   .cfl .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px}
@@ -323,10 +322,10 @@
       <span class="wm">13<span class="fl">FL</span><span class="ow">OW</span></span>
     </a>
     <nav class="mobile-nav nav-scope" aria-label="Mobile navigation">
-      <div class="nav-item active" data-view="consensus"><span class="ico">◎</span>Consensus</div>
+      <div class="nav-item active" data-view="confluence"><span class="ico">✦</span>Signal</div>
+      <div class="nav-item" data-view="consensus"><span class="ico">◎</span>Flow</div>
       <div class="nav-item" data-view="funds"><span class="ico">▤</span>Funds</div>
-      <div class="nav-item" data-view="compare"><span class="ico">⊞</span>Compare</div>
-      <div class="nav-item" data-view="confluence"><span class="ico">✦</span>Confluence</div>
+      <div class="nav-item" data-view="compare"><span class="ico">⊞</span>Matrix</div>
       <div class="nav-item" data-view="quality"><span class="ico">◇</span>Quality</div>
     </nav>
   </header>
@@ -340,13 +339,13 @@
       </svg>
       <span class="wm">13<span class="fl">FL</span><span class="ow">OW</span></span>
     </a>
-    <div class="brand-sub">13F × Form 4 · confluence</div>
+    <div class="brand-sub">The Filings · 13F × Form 4</div>
     <nav id="nav" class="nav-scope" aria-label="Primary navigation">
       <div class="nav-section">Research</div>
-      <div class="nav-item active" data-view="consensus"><span class="ico">◎</span> Consensus</div>
+      <div class="nav-item active" data-view="confluence"><span class="ico">✦</span> Signal cockpit</div>
+      <div class="nav-item" data-view="consensus"><span class="ico">◎</span> Flow tape</div>
       <div class="nav-item" data-view="funds"><span class="ico">▤</span> Funds</div>
-      <div class="nav-item" data-view="compare"><span class="ico">⊞</span> Compare</div>
-      <div class="nav-item" data-view="confluence"><span class="ico">✦</span> Confluence</div>
+      <div class="nav-item" data-view="compare"><span class="ico">⊞</span> Matrix</div>
       <div class="nav-section">Operations</div>
       <div class="nav-item" data-view="quality"><span class="ico">◇</span> Quality</div>
     </nav>
@@ -369,15 +368,16 @@
   <main>
     <div class="masthead">
       <div>
-        <div class="kicker">Following the trail of capital</div>
-        <h1>The Filings</h1>
+        <div class="kicker">SEC EDGAR research cockpit</div>
+        <h1>13FLOW</h1>
       </div>
       <div>
         <div class="top-actions">
-          <a class="top-link" href="/developers">Developers</a>
-          <a class="top-link" href="/methodology">Methodology</a>
+          <a class="top-link" href="/funds">Static funds</a>
+          <a class="top-link" href="/signals">Static signals</a>
+          <a class="top-link" href="/developers">API</a>
           <a class="top-link" href="/status">Status</a>
-          <a class="top-link" href="/pro">Request access</a>
+          <a class="top-link" href="/pro">Pro access</a>
         </div>
         <div class="meta" id="mast-meta"></div>
       </div>
@@ -553,7 +553,7 @@ async function boot(){
   document.getElementById("mast-meta").innerHTML =
     `Quarter ending <b>${esc(latest)||"—"}</b><br>${FUNDS.length} funds · ${fmtUSD(aum)} 13F AUM`;
   const want=(location.hash||"").replace("#","");
-  const start=VIEWS.includes(want)?want:"consensus";
+  const start=VIEWS.includes(want)?want:"confluence";
   setActiveView(start);
   route(start);
 }
@@ -573,7 +573,7 @@ function route(v){ ({consensus:vConsensus,funds:vFunds,compare:vCompare,confluen
 
 //---- Consensus ----
 async function vConsensus(){
-  V.innerHTML=`<p class="view-title">Where the smart money agrees — this quarter's crowd.</p>
+  V.innerHTML=`<p class="view-title">Quarterly 13F changes, grouped into names where several tracked managers moved together.</p>
     <div class="stats" id="cstats"></div><div class="cols">
     <div class="panel"><div class="panel-h"><h3>Smart money is buying</h3><span class="hint">≥2 FUNDS · OPENED/ADDED</span></div><div id="buys"></div></div>
     <div class="panel"><div class="panel-h"><h3>Most owned</h3><span class="hint">≥2 FUNDS · HOLDING</span></div><div id="holds"></div></div>
@@ -607,7 +607,7 @@ const short=s=>s.length>14?s.slice(0,13)+"…":s;
 
 //---- Funds list + detail ----
 async function vFunds(){
-  V.innerHTML=`<p class="view-title">The superinvestors on the tape.</p><div class="fgrid">${
+  V.innerHTML=`<p class="view-title">Tracked managers, latest portfolio size, filing quarter and position count. Open a fund to inspect holdings and source links.</p><div class="fgrid">${
     FUNDS.map(f=>`<div class="fcard fade" data-cik="${esc(f.cik)}">
       <div class="mgr">${esc(f.manager)||""}</div>
       <h4>${esc(f.label)}</h4>
@@ -668,7 +668,7 @@ function convictionPanel(conv){
 let SEL=[];
 async function vCompare(){
   if(!SEL.length) SEL=FUNDS.slice(0,3).map(f=>f.cik);
-  V.innerHTML=`<p class="view-title">Overlap matrix — who holds what, side by side.</p>
+  V.innerHTML=`<p class="view-title">Overlap matrix across selected funds. Use it to spot common holdings and weight concentration.</p>
     <div class="selectbar">${FUNDS.map(f=>`<span class="pick ${SEL.includes(f.cik)?'on':''}" data-cik="${esc(f.cik)}">${esc(f.label)}</span>`).join("")}</div>
     <div class="panel"><div id="cmp"></div></div>`;
   V.querySelectorAll(".pick").forEach(p=>p.onclick=()=>{
@@ -688,7 +688,7 @@ async function vCompare(){
 
 //---- Data quality ----
 async function vQuality(){
-  V.innerHTML=`<p class="view-title">SEC-derived series with review flags kept visible.</p>
+  V.innerHTML=`<p class="view-title">Data-quality flags stay visible. Suspect filing jumps are surfaced for review instead of being corrected silently.</p>
     <div class="stats" id="qstats"></div>
     <div class="panel">
       <div class="panel-h"><h3>AUM discontinuities</h3><span class="hint" id="qhint">THRESHOLD 100X</span></div>
@@ -924,7 +924,7 @@ async function cflLoad(){
 async function vConfluence(){
   cflHideTip();
   V.innerHTML=`<div class="cfl">
-    <p class="view-title">Where 13F superinvestors are accumulating <b>and</b> insiders are buying open-market — ranked by a transparent confluence score.</p>
+    <p class="view-title">Where 13F superinvestors are accumulating and insiders are buying open-market, ranked by a transparent confluence score.</p>
     <p class="view-title" id="cfl-methodology">Methodology loading…</p>
     <div class="pillrow" id="cfl-pills">
       <button class="pill" data-w="30">30D</button>
