@@ -2310,6 +2310,21 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "quality_summary": live.get("quality_summary"),
             },
             "truth_boundary": status["validation"],
+            "verified_now": [
+                "tracked Form 13F holdings are served from a local SEC EDGAR-derived database",
+                "public runtime state exposes deployed SHA, LIVE/DEMO/DEGRADED state and dataset counts",
+                "source accessions and SEC filing links remain inspectable from fund and stock pages",
+                "data-quality warnings are surfaced instead of silently corrected away",
+                "open public build has no browser account, retail checkout or alert upsell chrome",
+            ],
+            "not_verified_yet": [
+                "Confluence v1 is not validated as alpha, probability or expected-return model",
+                "full point-in-time Form 4 plus adjusted-price validation is not yet published",
+                "x402 paid production access is not enabled",
+                "complete insider-only/distribution universe is not claimed",
+                "institutional deployment requires buyer-specific contract, support and redistribution terms",
+            ],
+            "sellable_now": status["offer_boundary"]["sell_now"],
             "not_claimed": status["offer_boundary"]["do_not_claim_yet"],
             "user_interpretation": [
                 "13F filings are delayed regulatory disclosures, not real-time portfolios.",
@@ -2392,6 +2407,38 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             f"<li>{html_escape(item)}</li>" for item in payload.get("user_interpretation", payload.get("operator_checks", []))
         )
         boundary = payload.get("truth_boundary") or {}
+        artifact = boundary.get("current_artifact") or {}
+        verified = "".join(
+            f"<li>{html_escape(item)}</li>" for item in payload.get("verified_now", [])
+        )
+        not_verified = "".join(
+            f"<li>{html_escape(item)}</li>" for item in payload.get("not_verified_yet", [])
+        )
+        sellable = "".join(
+            f"<li>{html_escape(item)}</li>" for item in payload.get("sellable_now", [])
+        )
+        not_claimed = "".join(
+            f"<li>{html_escape(item)}</li>" for item in payload.get("not_claimed", [])
+        )
+        proof_panels = ""
+        if verified or not_verified or sellable or not_claimed:
+            proof_panels = (
+                "<div class=\"grid\" style=\"margin-top:18px\">"
+                "<div class=\"card\"><h3>What is verified</h3><ul>" + verified + "</ul></div>"
+                "<div class=\"card\"><h3>What is not verified yet</h3><ul>" + not_verified + "</ul></div>"
+                "<div class=\"card\"><h3>Sellable now</h3><ul>" + sellable + "</ul></div>"
+                "<div class=\"card\"><h3>Do not claim</h3><ul>" + not_claimed + "</ul></div>"
+                "</div>"
+            )
+        artifact_panel = ""
+        if artifact:
+            artifact_panel = (
+                "<div class=\"panel\" style=\"margin-top:18px\"><h2>Current validation artifact</h2>"
+                f"<p class=\"meta\">scope={html_escape(str(artifact.get('scope') or 'unknown'))}</p>"
+                f"<p>Publishable as full validation: <code>{str(artifact.get('publishable_as_full_validation')).lower()}</code></p>"
+                f"<p class=\"meta\">features_sha256={html_escape(str(artifact.get('features_sha256') or ''))}</p>"
+                f"<p class=\"meta\">prices_sha256={html_escape(str(artifact.get('prices_sha256') or ''))}</p></div>"
+            )
         body = (
             f"<h1>{html_escape(title)}</h1>"
             f"<p class=\"lede\">{html_escape(payload['scope'])}</p>"
@@ -2402,6 +2449,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "</div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Method</h2>"
             f"<ul>{bullets}</ul></div>"
+            + proof_panels +
+            artifact_panel +
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Sources and contracts</h2>"
             f"<ul>{sources}</ul></div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Interpretation boundary</h2>"

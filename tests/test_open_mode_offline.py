@@ -285,7 +285,20 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         app_method = c.get("/api/methodology/app").get_json()
         assert app_method["current_state"]["public_state"] == "LIVE"
         assert "13F filings are delayed regulatory disclosures" in app_method["user_interpretation"][0]
+        assert any("open public build has no browser account" in item
+                   for item in app_method["verified_now"])
+        assert any("Confluence v1 is not validated as alpha" in item
+                   for item in app_method["not_verified_yet"])
+        assert "verifiable SEC EDGAR-derived 13F data" in app_method["sellable_now"]
         assert "validated alpha" in app_method["not_claimed"]
+
+        app_method_page = c.get("/methodology/app").get_data(as_text=True)
+        assert "What is verified" in app_method_page
+        assert "What is not verified yet" in app_method_page
+        assert "Sellable now" in app_method_page
+        assert "Do not claim" in app_method_page
+        assert "Current validation artifact" in app_method_page
+        assert "Publishable as full validation" in app_method_page
 
         mcp_method = c.get("/api/methodology/mcp").get_json()
         assert "Pro tools must fail closed" in mcp_method["contract"][1]
