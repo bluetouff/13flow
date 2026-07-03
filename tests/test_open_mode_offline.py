@@ -175,6 +175,24 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
         assert "verifiable SEC EDGAR-derived 13F data" in product["offer_boundary"]["sell_now"]
 
 
+def test_dashboard_source_does_not_embed_legacy_retail_chrome():
+    html = (Path(__file__).resolve().parents[1] / "dashboard.html").read_text(encoding="utf-8")
+    forbidden = [
+        "SAMPLE DATA",
+        "Sign in",
+        "Upgrade to Pro",
+        "Continue to checkout",
+        "€12",
+        'data-view="alerts"',
+        'document.getElementById("closeUpgrade").onclick=',
+        'document.getElementById("goCheckout").onclick=',
+        'document.getElementById("authSubmit").onclick=',
+    ]
+
+    for needle in forbidden:
+        assert needle not in html
+
+
 def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
     import json
     with tempfile.TemporaryDirectory() as d:

@@ -349,10 +349,9 @@
       <div class="nav-item" data-view="confluence"><span class="ico">✦</span> Confluence</div>
       <div class="nav-section">Operations</div>
       <div class="nav-item" data-view="quality"><span class="ico">◇</span> Quality</div>
-      <div class="nav-item" data-view="alerts"><span class="ico">!</span> Alerts</div>
     </nav>
     <div class="rail-foot">
-      <div id="authbox"></div>
+      <div id="authbox"><div style="font-size:11px;color:var(--faint);line-height:1.5">Public access · read-only<br>no account needed</div></div>
       <span id="srcBadge" class="badge"><span class="led"></span><span id="srcText">VERIFYING DATA</span></span>
       <div id="srcDetail" style="margin-top:10px">Source: SEC EDGAR · public API verification pending</div>
       <div class="rail-links">
@@ -418,49 +417,6 @@
       </div>
     </footer>
   </main>
-</div>
-
-<div class="modal" id="authModal">
-  <div class="auth-card">
-    <h3 id="authTitle">Sign in</h3>
-    <p id="authSubtitle">Access alerts and your watchlist.</p>
-    <div class="field"><label>Email</label><input id="authEmail" type="email" autocomplete="email"></div>
-    <div class="field"><label>Password</label><input id="authPass" type="password" autocomplete="current-password"></div>
-    <div class="auth-err" id="authErr"></div>
-    <button class="btn" id="authSubmit" style="width:100%">Sign in</button>
-    <div class="auth-switch" id="authSwitch"></div>
-  </div>
-</div>
-
-<div class="modal" id="upgradeModal">
-  <div class="auth-card" style="width:520px">
-    <h3>Upgrade to Pro</h3>
-    <p id="upgradeSub">Unlock filing alerts delivered the moment a 13F lands.</p>
-    <div class="plans">
-      <div class="plan">
-        <div class="plan-name">Free</div>
-        <div class="plan-price">€0</div>
-        <ul class="plan-feats">
-          <li>Consensus, funds &amp; compare screens</li>
-          <li>Valuation &amp; conviction history</li>
-          <li class="off">Filing alerts</li>
-        </ul>
-        <button class="btn ghost sm" disabled style="width:100%">Current plan</button>
-      </div>
-      <div class="plan featured">
-        <div class="plan-name">Pro <span class="tierpill paid">recommended</span></div>
-        <div class="plan-price">€12<span>/mo</span></div>
-        <ul class="plan-feats">
-          <li>Everything in Free</li>
-          <li>Real-time filing alerts (email / webhook)</li>
-          <li>Up to 50 fund subscriptions</li>
-        </ul>
-        <button class="btn" id="goCheckout" style="width:100%">Continue to checkout</button>
-      </div>
-    </div>
-    <div class="auth-err" id="upgradeErr" style="text-align:center"></div>
-    <div class="auth-switch"><a id="closeUpgrade">Maybe later</a></div>
-  </div>
 </div>
 
 <div id="toast" class="toast"></div>
@@ -561,10 +517,8 @@ let OPEN_MODE=false;
 async function boot(){
   // Ask the backend which build this is. Missing endpoint (e.g. file://) -> full build.
   try{ const cfg=await api("/api/config"); OPEN_MODE=!!(cfg&&cfg.open); }catch(e){ if(!DEMO_MODE) throw e; OPEN_MODE=false; }
-  let VIEWS=["consensus","funds","compare","alerts","confluence","quality"];
+  let VIEWS=["consensus","funds","compare","confluence","quality"];
   if(OPEN_MODE){
-    VIEWS=["consensus","funds","compare","confluence","quality"];
-    const al=document.querySelector('.nav-item[data-view="alerts"]'); if(al) al.remove();
     const ab=document.getElementById("authbox");
     if(ab) ab.innerHTML='<div style="font-size:11px;color:var(--faint);line-height:1.5">Public access · read-only<br>no account needed</div>';
   }else{
@@ -594,7 +548,6 @@ async function boot(){
     : "Demo data status: explicit sample mode (?demo=1). Not production data.";
   document.getElementById("mast-meta").innerHTML =
     `Quarter ending <b>${esc(latest)||"—"}</b><br>${FUNDS.length} funds · ${fmtUSD(aum)} 13F AUM`;
-  if(!OPEN_MODE) await handleBillingReturn();
   const want=(location.hash||"").replace("#","");
   const start=VIEWS.includes(want)?want:"consensus";
   setActiveView(start);
@@ -612,7 +565,7 @@ document.querySelectorAll(".nav-scope").forEach(nav=>{
     route(view);
   });
 });
-function route(v){ ({consensus:vConsensus,funds:vFunds,compare:vCompare,alerts:vAlerts,confluence:vConfluence,quality:vQuality}[v])(); }
+function route(v){ ({consensus:vConsensus,funds:vFunds,compare:vCompare,confluence:vConfluence,quality:vQuality}[v])(); }
 
 //---- Consensus ----
 async function vConsensus(){
@@ -729,70 +682,6 @@ async function vCompare(){
     </tr>`).join("")}</tbody></table></div>`;
 }
 
-//---- Alerts ----
-async function vAlerts(){
-  V.innerHTML=`<p class="view-title">Filing alerts — the diff, delivered.</p>
-    <div class="cols" style="grid-template-columns:1fr 1.4fr">
-    <div class="panel"><div class="panel-h"><h3>Subscriptions</h3><span class="hint" id="subHint"></span></div><div id="subs"></div></div>
-    <div><div id="feed"></div></div></div>`;
-
-  // Gate: real backend + not signed in -> prompt sign in.
-  if(AUTH_BACKEND && !USER){
-    document.getElementById("subHint").textContent="SIGN IN";
-    document.getElementById("subs").innerHTML=
-      `<div class="empty" style="padding:30px 20px">Sign in to manage filing alerts.<br><br>
-       <button class="btn sm" id="subsSignin">Sign in</button></div>`;
-    const _ssi=document.getElementById("subsSignin"); if(_ssi) _ssi.onclick=()=>openAuth("login");
-  }else{
-    document.getElementById("subHint").textContent = USER ? esc(USER.tier.toUpperCase()) : "PREVIEW";
-    const subs=await api("/api/subscriptions");
-    const list = Array.isArray(subs)?subs:[];
-    let html = list.length? list.map(s=>`
-      <div class="row"><span class="tk">●</span>
-        <span class="nm">${esc(s.fund_label||s.cik)}<br><small>${esc(s.channel)}${s.target?' · '+esc(s.target):''}</small></span>
-        ${USER?`<button class="btn danger sm" data-del="${s.id}">Remove</button>`:""}
-      </div>`).join("") : `<div class="empty">No subscriptions yet.</div>`;
-    // Add-subscription form (only with a real session).
-    if(USER){
-      html += `<div class="addsub">
-        <select id="subFund">${FUNDS.map(f=>`<option value="${esc(f.cik)}">${esc(f.label)}</option>`).join("")}</select>
-        <select id="subChan"><option value="console">console</option><option value="email">email</option><option value="webhook">webhook</option></select>
-        <input id="subTarget" placeholder="email or webhook URL" style="flex:1;min-width:120px">
-        <button class="btn sm" id="subAdd">Add</button>
-        <div class="auth-err" id="subErr" style="flex-basis:100%;margin:0"></div></div>`;
-    }
-    document.getElementById("subs").innerHTML=html;
-    if(USER){
-      document.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{
-        await apiMutate("/api/subscriptions/"+b.dataset.del,"DELETE"); vAlerts();
-      });
-      document.getElementById("subAdd").onclick=async()=>{
-        const errEl=document.getElementById("subErr"); errEl.textContent="";
-        const res=await apiMutate("/api/subscriptions","POST",{
-          cik:document.getElementById("subFund").value,
-          channel:document.getElementById("subChan").value,
-          target:document.getElementById("subTarget").value.trim()});
-        if(res.ok) vAlerts();
-        else if(res.status===402){
-          errEl.innerHTML=`Filing alerts are a Pro feature. <a id="upsellLink" style="color:var(--accent-2);cursor:pointer;font-weight:600">Upgrade →</a>`;
-          const _ul=document.getElementById("upsellLink"); if(_ul) _ul.onclick=openUpgrade;
-        }
-        else errEl.textContent = res.data.error||"Could not add subscription.";
-      };
-    }
-  }
-
-  // Public alert feed (latest diff per fund).
-  const previews=await Promise.all(FUNDS.slice(0,4).map(f=>api("/api/alerts/preview/"+encodeURIComponent(f.cik))));
-  document.getElementById("feed").innerHTML = previews.filter(a=>a&&!a.error).map(a=>`
-    <div class="alert fade"><div class="ah"><span>${esc(a.fund_label)} · ${esc(a.manager)||""}</span><span>${esc(a.report_date)}</span></div>
-      <h4>${a.counts.NEW?a.counts.NEW+' new':''}${a.counts.EXIT?' · '+a.counts.EXIT+' exits':''}${(!a.counts.NEW&&!a.counts.EXIT)?'Filing update':''}</h4>
-      ${a.moves.slice(0,6).map(m=>`<div class="ml"><span class="tag ${esc(m.move)}">${esc(m.move)}</span>
-        <span class="gold">${esc(m.ticker)||""}</span> <span style="color:var(--muted)">${esc(m.issuer)}</span>
-        <span style="margin-left:auto" class="num">${esc(m.detail.replace(m.move,'').trim())}</span></div>`).join("")}
-    </div>`).join("") || `<div class="empty">No recent filings.</div>`;
-}
-
 //---- Data quality ----
 async function vQuality(){
   V.innerHTML=`<p class="view-title">SEC-derived series with review flags kept visible.</p>
@@ -836,153 +725,13 @@ async function vQuality(){
 //=================== auth UI ===================
 function renderAuthbox(){
   const el=document.getElementById("authbox");
-  if(!AUTH_BACKEND){ el.innerHTML=""; return; }   // preview mode: no auth chrome
-  if(USER){
-    const isPaid = USER.tier==="paid";
-    el.innerHTML=`<div class="userbox">
-      <span class="em" title="${esc(USER.email)}">${esc(USER.email)}</span>
-      <span class="tierpill ${isPaid?'paid':'free'}">${esc(USER.tier)}</span></div>
-      ${isPaid
-        ? `<button class="btn ghost sm" id="manageBtn" style="width:100%;margin-bottom:6px">Manage billing</button>`
-        : `<button class="btn sm" id="upgradeBtn" style="width:100%;margin-bottom:6px">★ Upgrade to Pro</button>`}
-      <button class="btn ghost sm" id="logoutBtn" style="width:100%">Sign out</button>`;
-    document.getElementById("logoutBtn").onclick=async()=>{
-      await apiMutate("/api/auth/logout","POST"); await refreshAuth();
-      if(document.querySelector(".nav-item.active")?.dataset.view==="alerts") vAlerts();
-    };
-    if(!isPaid) document.getElementById("upgradeBtn").onclick=()=>openUpgrade();
-    if(isPaid){
-      const mb=document.getElementById("manageBtn");
-      mb.onclick=async()=>{
-        const res=await apiMutate("/api/billing/portal","POST");
-        if(res.ok && res.data.url){ safeGo(res.data.url); }
-        else { mb.textContent = res.data.error||"Portal unavailable (mock mode)"; setTimeout(()=>mb.textContent="Manage billing",2600); }
-      };
-    }
-  }else{
-    el.innerHTML=`<button class="btn sm" id="signinBtn" style="width:100%">Sign in</button>`;
-    document.getElementById("signinBtn").onclick=()=>openAuth("login");
-  }
+  if(!el) return;
+  el.innerHTML='<div style="font-size:11px;color:var(--faint);line-height:1.5">Public access · read-only<br>Pro API by operator request</div>';
 }
-let AUTH_MODE="login";
-// ---- billing / upgrade ----
 function toast(msg){
   const t=document.getElementById("toast"); t.textContent=msg; t.classList.add("show");
   setTimeout(()=>t.classList.remove("show"),3200);
 }
-function openUpgrade(){ document.getElementById("upgradeErr").textContent=""; document.getElementById("upgradeModal").classList.add("open"); }
-function closeUpgrade(){ document.getElementById("upgradeModal").classList.remove("open"); }
-const closeUpgradeBtn=document.getElementById("closeUpgrade");
-if(closeUpgradeBtn) closeUpgradeBtn.onclick=closeUpgrade;
-const upgradeModal=document.getElementById("upgradeModal");
-if(upgradeModal) upgradeModal.addEventListener("click",e=>{ if(e.target.id==="upgradeModal") closeUpgrade(); });
-const goCheckoutBtn=document.getElementById("goCheckout");
-if(goCheckoutBtn) goCheckoutBtn.onclick=async()=>{
-  const btn=document.getElementById("goCheckout"), err=document.getElementById("upgradeErr");
-  btn.disabled=true; btn.textContent="Starting checkout…"; err.textContent="";
-  const res=await apiMutate("/api/billing/checkout","POST");
-  if(res.ok && res.data.url){ safeGo(res.data.url); }   // Stripe-hosted, or local mock page
-  else { err.textContent=res.data.error||"Could not start checkout."; btn.disabled=false; btn.textContent="Continue to checkout"; }
-};
-// handle return from checkout
-async function handleBillingReturn(){
-  const p=new URLSearchParams(location.search);
-  if(p.get("upgraded")){
-    await refreshAuth();
-    toast(USER && USER.tier==="paid" ? "Welcome to Pro — alerts unlocked ✦" : "Payment received — finalizing…");
-    history.replaceState({},"",location.pathname);
-  }else if(p.get("canceled")){
-    toast("Checkout canceled."); history.replaceState({},"",location.pathname);
-  }else if(p.get("verified")){
-    toast("Email verified — you can sign in now ✦"); history.replaceState({},"",location.pathname);
-    openAuth("login");
-  }else if(p.get("verify_error")){
-    toast("That verification link is invalid or expired."); history.replaceState({},"",location.pathname);
-  }
-}
-
-function openAuth(mode){
-  AUTH_MODE=mode;
-  document.getElementById("authTitle").textContent = mode==="login"?"Sign in":"Create account";
-  document.getElementById("authSubtitle").textContent =
-    mode==="login"?"Access alerts and your watchlist.":"Free tier: browse data. Paid: filing alerts.";
-  document.getElementById("authSubmit").textContent = mode==="login"?"Sign in":"Create account";
-  document.getElementById("authPass").setAttribute("autocomplete", mode==="login"?"current-password":"new-password");
-  document.getElementById("authSwitch").innerHTML = mode==="login"
-    ? `No account? <a id="toReg">Create one</a>`
-    : `Have an account? <a id="toLogin">Sign in</a>`;
-  // reset any "verify pending" / "resend" state
-  const err=document.getElementById("authErr"); err.textContent=""; err.style.color="";
-  document.getElementById("authEmail").style.display=""; document.getElementById("authPass").style.display="";
-  const b=document.getElementById("authSubmit"); b.dataset.mode=""; b.disabled=false;
-  document.getElementById("authModal").classList.add("open");
-  const sw=document.getElementById("toReg")||document.getElementById("toLogin");
-  if(sw) sw.onclick=()=>openAuth(mode==="login"?"register":"login");
-  document.getElementById("authEmail").focus();
-}
-function showVerifyNotice(email, devUrl){
-  document.getElementById("authTitle").textContent="Check your email";
-  document.getElementById("authSubtitle").textContent=`We sent a verification link to ${email}. Open it, then sign in.`;
-  document.getElementById("authEmail").style.display="none";
-  document.getElementById("authPass").style.display="none";
-  const err=document.getElementById("authErr"); err.textContent=""; err.style.color="";
-  const btn=document.getElementById("authSubmit"); btn.textContent="Resend verification email"; btn.disabled=false;
-  btn.dataset.mode="resend"; btn.dataset.email=email;
-  let sw=`Done? <a id="toLogin">Sign in</a>`;
-  if(devUrl) sw=`<a href="${esc(devUrl)}">Dev: verify now →</a> · `+sw;
-  document.getElementById("authSwitch").innerHTML=sw;
-  const l=document.getElementById("toLogin"); if(l) l.onclick=()=>openAuth("login");
-}
-const authModal=document.getElementById("authModal");
-if(authModal) authModal.addEventListener("click",e=>{
-  if(e.target.id==="authModal") e.currentTarget.classList.remove("open");
-});
-const authSubmitBtn=document.getElementById("authSubmit");
-if(authSubmitBtn) authSubmitBtn.onclick=async()=>{
-  const btn=document.getElementById("authSubmit");
-  const errEl=document.getElementById("authErr"); errEl.textContent=""; errEl.style.color="";
-  // resend-verification mode
-  if(btn.dataset.mode==="resend"){
-    btn.disabled=true;
-    const res=await apiMutate("/api/auth/resend-verification","POST",{email:btn.dataset.email});
-    btn.disabled=false; errEl.style.color="var(--muted)";
-    errEl.textContent = res.ok ? "Sent. Check your inbox." : (res.data.error||"Could not resend.");
-    if(res.ok && res.data.dev_verify_url)
-      document.getElementById("authSwitch").innerHTML=`<a href="${esc(res.data.dev_verify_url)}">Dev: verify now →</a>`;
-    return;
-  }
-  const email=document.getElementById("authEmail").value.trim();
-  const password=document.getElementById("authPass").value;
-  btn.disabled=true;
-  const path=AUTH_MODE==="login"?"/api/auth/login":"/api/auth/register";
-  const res=await apiMutate(path,"POST",{email,password});
-  btn.disabled=false;
-  // registration: account created, must verify before logging in
-  if(AUTH_MODE==="register" && res.ok && res.data.status==="verify_email"){
-    showVerifyNotice(email, res.data.dev_verify_url); return;
-  }
-  if(res.ok){
-    document.getElementById("authModal").classList.remove("open");
-    document.getElementById("authPass").value="";
-    await refreshAuth();
-    route("alerts"); document.querySelectorAll(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view==="alerts"));
-    return;
-  }
-  // login blocked because email not verified -> offer resend
-  if(res.status===403 && res.data.code==="unverified"){
-    errEl.textContent="Email not verified.";
-    document.getElementById("authSwitch").innerHTML=`<a id="doResend">Resend verification email</a>`;
-    const dr=document.getElementById("doResend");
-    if(dr) dr.onclick=async()=>{
-      const rr=await apiMutate("/api/auth/resend-verification","POST",{email});
-      errEl.style.color="var(--muted)"; errEl.textContent = rr.ok ? "Sent. Check your inbox." : "Could not resend.";
-      if(rr.ok && rr.data.dev_verify_url)
-        document.getElementById("authSwitch").innerHTML=`<a href="${esc(rr.data.dev_verify_url)}">Dev: verify now →</a>`;
-    };
-    return;
-  }
-  errEl.textContent=res.data.error||"Something went wrong.";
-};
 
 //=================== Confluence (13FLOW) screen ===================
 let CFL_WIN=90;
