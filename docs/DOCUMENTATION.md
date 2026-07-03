@@ -61,7 +61,7 @@ D'où quatre cadrans :
 
 > ⚠️ **Lecture honnête.** Le compteur « signals » inclut tout titre où **au moins un fonds accumule** (seuil `min_funds=1`), même sans achat d'initié. Ce qui a de la valeur, c'est la **zone Conviction** et le **haut du classement par score**, pas le total brut.
 
-Détails de la méthodologie côté produit : voir `faq.html`. Spécifique Form 4 : voir [`FORMS4_INTEGRATION.md`](FORMS4_INTEGRATION.md).
+Détails de la méthodologie côté produit : voir `/faq`. Spécifique Form 4 : voir [`FORMS4_INTEGRATION.md`](FORMS4_INTEGRATION.md).
 
 ---
 
@@ -71,9 +71,9 @@ Détails de la méthodologie côté produit : voir `faq.html`. Spécifique Form 
 
 ```
 13flow/
-├── dashboard.html          # SPA (une page, vanilla JS) — Consensus / Funds / Compare / Confluence
-├── faq.html                # FAQ (méthodologie)
-├── mentions-legales.html   # mentions légales
+├── dashboard.html          # source HTML de l'accueil, servi à `/`
+├── faq.html                # source FAQ, servie à `/faq`
+├── mentions-legales.html   # source legal, servie à `/legal`
 ├── run.py                  # CLI (ingestion, vérif CIK, pré-calcul Confluence, comptes…)
 ├── wsgi.py                 # entrée Gunicorn (create_app via variables d'env)
 ├── seed_demo.py            # base de démo hors-ligne (5 fonds, zéro réseau)
@@ -163,7 +163,7 @@ Le mode **WAL** accélère l'ingestion ; mais le tier web ouvre la base en `mode
 | `GET /api/compare?ciks=…` | recoupement de portefeuilles (≤ 12 CIK) |
 | `GET /api/coverage` | couverture de résolution ticker |
 | `GET /api/signals/confluence?window=30\|90\|180` | signaux de confluence (sert le **cache** si présent) |
-| `GET /` · `/faq` · `/mentions-legales` | pages HTML (CSP à **nonce** par requête) |
+| `GET /` · `/faq` · `/legal` | pages HTML (CSP à **nonce** par requête) |
 | *(build complet)* `…/auth/*`, `…/billing/*`, `…/subscriptions`, `…/alerts/*` | **404 en mode ouvert** |
 
 ### Interface en ligne de commande (`run.py`)
@@ -262,7 +262,7 @@ Four quadrants: **Conviction** (top-right, both buying — strongest), **Institu
 
 > ⚠️ **Honest reading.** The "signals" counter includes any name where **at least one fund accumulates** (`min_funds=1`), even with no insider buy. What matters is the **Conviction zone** and the **top of the score ranking**, not the raw total.
 
-Product methodology: see `faq.html`. Form 4 specifics: [`FORMS4_INTEGRATION.md`](FORMS4_INTEGRATION.md).
+Product methodology: see `/faq`. Form 4 specifics: [`FORMS4_INTEGRATION.md`](FORMS4_INTEGRATION.md).
 
 ---
 
@@ -272,8 +272,8 @@ Product methodology: see `faq.html`. Form 4 specifics: [`FORMS4_INTEGRATION.md`]
 
 ```
 13flow/
-├── dashboard.html          # SPA (single page, vanilla JS)
-├── faq.html · mentions-legales.html
+├── dashboard.html          # home HTML source, served at `/`
+├── faq.html · mentions-legales.html  # sources served at `/faq` and `/legal`
 ├── run.py                  # CLI (ingest, verify CIKs, precompute Confluence, accounts…)
 ├── wsgi.py                 # Gunicorn entrypoint (create_app from env)
 ├── seed_demo.py            # offline demo DB (5 funds, no network)
@@ -341,7 +341,7 @@ VIEW latest_filings(cik, report_date, accession)
 
 ### HTTP API (read-only in open mode)
 
-`GET /api/config` · `…/funds` · `…/fund/<cik>` · `…/consensus/holdings|buys` (`?min_funds=`, bounded) · `…/compare?ciks=` (≤12) · `…/coverage` · `…/signals/confluence?window=30|90|180` (serves the **cache** if present). HTML pages `/`, `/faq`, `/mentions-legales` carry a **per-request nonce CSP**. Full-build routes (`auth/billing/subscriptions/alerts`) return **404 in open mode**.
+`GET /api/config` · `…/funds` · `…/fund/<cik>` · `…/consensus/holdings|buys` (`?min_funds=`, bounded) · `…/compare?ciks=` (≤12) · `…/coverage` · `…/signals/confluence?window=30|90|180` (serves the **cache** if present). HTML pages `/`, `/faq`, `/legal` carry a **per-request nonce CSP**. Legacy aliases `/dashboard.html`, `/faq.html`, `/mentions-legales` and `/mentions-legales.html` redirect to canonical URLs. Full-build routes (`auth/billing/subscriptions/alerts`) return **404 in open mode**.
 
 ### CLI (`run.py`)
 

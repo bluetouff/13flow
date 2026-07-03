@@ -31,7 +31,9 @@ from typing import Optional
 
 import functools
 import secrets
-from flask import Flask, Response, abort, jsonify, make_response, request, send_from_directory
+from flask import (
+    Flask, Response, abort, jsonify, make_response, redirect, request, send_from_directory,
+)
 from werkzeug.exceptions import HTTPException
 
 from .analytics import consensus_moves
@@ -2552,22 +2554,28 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 
     @app.get("/dashboard.html")
     def dashboard_alias():
-        return _serve_html(dash)
+        return redirect("/", code=301)
 
     _FAQ = os.path.join(os.path.dirname(dash), "faq.html")
 
     @app.get("/faq")
-    @app.get("/faq.html")
     def faq():
         return _serve_html(_FAQ)
+
+    @app.get("/faq.html")
+    def faq_legacy_alias():
+        return redirect("/faq", code=301)
 
     _LEGAL = os.path.join(os.path.dirname(dash), "mentions-legales.html")
 
     @app.get("/legal")
+    def legal():
+        return _serve_html(_LEGAL)
+
     @app.get("/mentions-legales")
     @app.get("/mentions-legales.html")
     def mentions_legales():
-        return _serve_html(_LEGAL)
+        return redirect("/legal", code=301)
 
     return app
 

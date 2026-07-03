@@ -422,8 +422,8 @@ sudo -E /opt/13flow/.venv/bin/python /opt/13flow/run.py --preflight --preflight-
 `deploy/smoke-public.sh` is the crawler-visible release gate. It makes live HTTP calls to the
 public site or staging, but never calls EDGAR. It fails if the root page regresses to
 `SAMPLE DATA`, auth/checkout copy appears in the open build, FAQ/Legal show legacy text,
-public JSON contracts break, MCP disappears, or a Pro MCP tool no longer fails closed without
-payment/API key.
+legacy page aliases stop redirecting to canonical URLs, public JSON contracts break, MCP
+disappears, or a Pro MCP tool no longer fails closed without payment/API key.
 
 ```bash
 EXPECTED_SHA=<deployed-git-sha> /opt/13flow/deploy/smoke-public.sh
@@ -484,8 +484,8 @@ separated from the web user, and a scheduled refresh) lives in [`deploy/`](deplo
 - `crosssignal.py` — Confluence engine: 13F accumulation × insider buying → scored, classified signal.
 - `backtest.py` — rank-IC / quantile-spread harness + coordinate-ascent research optimiser.
 - `api_signals.py` — read-only `GET /api/signals/confluence` blueprint (live + sample providers).
-- `dashboard.html` — single-file web UI (consensus / funds / compare / alerts / confluence + auth + upgrade).
-- `faq.html` — branded FAQ / explainer page, served at `/faq`, sharing the dashboard's theme.
+- `dashboard.html` — single-file web UI source; `/dashboard.html` redirects to canonical `/`.
+- `faq.html` — branded FAQ / explainer source, served at `/faq`; `/faq.html` redirects there.
 
 See **`SECURITY.md`** for the threat model, the audit findings, and deployment hardening.
 

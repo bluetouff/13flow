@@ -30,6 +30,19 @@ fetch() {
   curl -fsS --max-time 20 "$SITE$path" -o "$out"
 }
 
+redirects_to() {
+  local label=$1 path=$2 target=$3
+  local headers code location
+  headers=$(curl -sS -D - -o /dev/null --max-time 15 "$SITE$path" || true)
+  code=$(printf '%s\n' "$headers" | awk 'NR==1{print $2}')
+  location=$(printf '%s\n' "$headers" | awk 'tolower($1)=="location:"{print $2; exit}' | tr -d '\r')
+  if [[ "$code" =~ ^30 && "$location" == "$target" ]]; then
+    ok "$label"
+  else
+    bad "$label" "got code=${code:-none} location=${location:-none}, expected 30x -> $target"
+  fi
+}
+
 json_check() {
   local label=$1 file=$2 code=$3
   python3 - "$file" "$code" <<'PY'
@@ -90,7 +103,7 @@ legacy_forbidden=(
   "signal rare"
 )
 
-for path in /faq /faq.html /legal /mentions-legales.html; do
+for path in /faq /legal; do
   out="$tmpdir/${path//\//_}.html"
   if fetch "$path" "$out"; then
     ok "$path fetch"
@@ -99,6 +112,11 @@ for path in /faq /faq.html /legal /mentions-legales.html; do
     bad "$path fetch" "curl failed"
   fi
 done
+
+redirects_to "legacy /dashboard.html redirects canonical" "/dashboard.html" "/"
+redirects_to "legacy /faq.html redirects canonical" "/faq.html" "/faq"
+redirects_to "legacy /mentions-legales redirects canonical" "/mentions-legales" "/legal"
+redirects_to "legacy /mentions-legales.html redirects canonical" "/mentions-legales.html" "/legal"
 
 for path in /methodology /methodology/app /methodology/mcp; do
   out="$tmpdir/${path//\//_}.html"

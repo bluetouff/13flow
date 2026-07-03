@@ -213,6 +213,16 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             assert r.status_code == 200, path
             assert needle in r.get_data(as_text=True), path
 
+        for path, target in (
+            ("/dashboard.html", "/"),
+            ("/faq.html", "/faq"),
+            ("/mentions-legales", "/legal"),
+            ("/mentions-legales.html", "/legal"),
+        ):
+            r = c.get(path, follow_redirects=False)
+            assert r.status_code == 301, path
+            assert r.headers["Location"] == target, path
+
         doc = c.get("/api/openapi.json").get_json()
         assert "/api/mcp" in doc["paths"]
         assert "/api/product-status" in doc["paths"]
