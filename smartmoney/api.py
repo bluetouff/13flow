@@ -609,6 +609,15 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                       "400": {"description": "Invalid ticker list"}},
                     }
                 },
+                "/api/watchlist/discover": {
+                    "get": {
+                        "summary": "Automatic trusted 13F watchlist discovery feed",
+                        "parameters": [{"name": "limit", "in": "query", "required": False,
+                                        "schema": {"type": "integer", "minimum": 1, "maximum": 50,
+                                                   "default": 25}}],
+                        "responses": {"200": {"description": "Ranked discovery watchlist"}},
+                    }
+                },
                 "/api/consensus/holdings": {"get": {"summary": "Consensus holdings by quarter",
                                                      "responses": {"200": {"description": "Holdings"}}}},
                 "/api/consensus/buys": {"get": {"summary": "Consensus buys/openings by quarter",
@@ -707,6 +716,18 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                              "schema": {"type": "string"}},
                         ],
                         "responses": {"200": {"description": "Watchlist trigger feed"}},
+                    }
+                },
+                "/api/pro/v1/watchlist/discover": {
+                    "get": {
+                        "security": security,
+                        "summary": "Automatic trusted 13F watchlist discovery feed",
+                        "parameters": [
+                            {"name": "limit", "in": "query", "required": False,
+                             "schema": {"type": "integer", "minimum": 1, "maximum": 100,
+                                        "default": 50}},
+                        ],
+                        "responses": {"200": {"description": "Ranked discovery watchlist"}},
                     }
                 },
                 "/api/pro/v1/openapi.json": {
@@ -1131,6 +1152,14 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 },
             },
             {
+                "name": "watchlist.discover",
+                "description": "Discover ranked watchlist candidates from the latest trusted 13F universe.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 50}},
+                },
+            },
+            {
                 "name": "signals.history",
                 "description": "Read append-only Confluence signal revisions.",
                 "inputSchema": {
@@ -1489,6 +1518,97 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "items": items,
         }
 
+    def _discover_watchlist_tickers(candidate_limit: int) -> tuple[list[dict], str | None, dict]:
+        s = store()
+        try:
+            trusted, gate = _trusted_active_ciks(s)
+            if not trusted:
+                return [], None, gate
+            latest = _latest_filings_date(s, "MAX", trusted)
+            if not latest:
+                return [], None, gate
+            values = tuple(sorted(trusted))
+            rows = s.conn.execute(
+                f"""
+                SELECT UPPER(TRIM(h.ticker)) AS ticker,
+                       MAX(h.issuer) AS issuer,
+                       COUNT(DISTINCT lf.cik) AS holder_count,
+                       SUM(h.value_usd) AS total_value_usd
+                FROM latest_filings lf
+                JOIN holdings h ON h.accession = lf.accession AND h.put_call = ''
+                WHERE lf.report_date = ?
+                  AND lf.cik IN ({_placeholders(values)})
+                  AND h.ticker IS NOT NULL
+                  AND TRIM(h.ticker) != ''
+                GROUP BY UPPER(TRIM(h.ticker))
+                ORDER BY holder_count DESC, total_value_usd DESC, ticker ASC
+                LIMIT ?
+                """,
+                (latest, *values, candidate_limit),
+            ).fetchall()
+            candidates = []
+            seen: set[str] = set()
+            for row in rows:
+                ticker = (row["ticker"] or "").upper()
+                if ticker in seen or not re.fullmatch(r"[A-Z0-9.\-]{1,12}", ticker):
+                    continue
+                seen.add(ticker)
+                candidates.append({
+                    "ticker": ticker,
+                    "issuer": row["issuer"],
+                    "holder_count": row["holder_count"],
+                    "total_value_usd": row["total_value_usd"],
+                })
+            return candidates, latest, gate
+        finally:
+            s.close()
+
+    def _watchlist_discovery_payload(limit: int = 25) -> dict:
+        safe_limit = max(1, min(100, int(limit or 25)))
+        candidate_limit = max(safe_limit, min(200, safe_limit * 3))
+        candidates, latest, gate = _discover_watchlist_tickers(candidate_limit)
+        if not candidates:
+            return {
+                "metadata": {
+                    "version": "watchlist_discovery_v1",
+                    "source": "trusted_ticker_flow",
+                    "selection": "latest trusted 13F holdings ranked by fund count, value and ticker flow score",
+                    "human_review_required_for_routine_publication": False,
+                    "latest_13f_quarter": latest,
+                    "candidate_count": 0,
+                    "candidate_scan_limit": candidate_limit,
+                    "returned_count": 0,
+                    "quality_gate": gate.get("summary", {}),
+                },
+                "summary": {"alerts": 0, "watch": 0, "monitor": 0, "blocked": 0},
+                "items": [],
+            }
+        payload = _watchlist_payload([c["ticker"] for c in candidates], limit=candidate_limit)
+        candidate_by_ticker = {c["ticker"]: c for c in candidates}
+        items = payload["items"][:safe_limit]
+        for item in items:
+            item["discovery"] = candidate_by_ticker.get(item["ticker"], {})
+        return {
+            "metadata": {
+                "version": "watchlist_discovery_v1",
+                "source": "trusted_ticker_flow",
+                "selection": "latest trusted 13F holdings ranked by fund count, value and ticker flow score",
+                "human_review_required_for_routine_publication": False,
+                "latest_13f_quarter": latest,
+                "candidate_count": len(candidates),
+                "candidate_scan_limit": candidate_limit,
+                "returned_count": len(items),
+                "quality_gate": gate.get("summary", {}),
+            },
+            "summary": {
+                "alerts": len([i for i in items if i["action"] == "alert"]),
+                "watch": len([i for i in items if i["action"] == "watch"]),
+                "monitor": len([i for i in items if i["action"] == "monitor"]),
+                "blocked": len([i for i in items if i["action"] == "blocked"]),
+            },
+            "items": items,
+        }
+
     @app.get("/api/stocks/<ticker>")
     def stock_ep(ticker):
         return jsonify(_stock_payload(ticker))
@@ -1496,6 +1616,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     @app.get("/api/watchlist/preview")
     def watchlist_preview_ep():
         return jsonify(_watchlist_payload(request.args.get("tickers") or "", limit=25))
+
+    @app.get("/api/watchlist/discover")
+    def watchlist_discover_ep():
+        return jsonify(_watchlist_discovery_payload(clean_int(request.args.get("limit"), 25, 1, 50)))
 
     def _mcp_call_tool(name: str, args: dict) -> dict:
         if name == "product.status":
@@ -1528,6 +1652,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             return _stock_payload(str(args.get("ticker") or ""))
         if name == "watchlist.preview":
             return _watchlist_payload(args.get("tickers") or [], limit=25)
+        if name == "watchlist.discover":
+            return _watchlist_discovery_payload(clean_int(args.get("limit"), 25, 1, 50))
         if name == "signals.history":
             from .research import HISTORY_FILENAME, read_signal_history
             rows = read_signal_history(
@@ -1773,6 +1899,15 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         @pro_required("funds:read")
         def pro_watchlist_ep():
             payload = _watchlist_payload(request.args.get("tickers") or "", limit=50)
+            return jsonify({
+                "meta": {"api": "13flow-pro", "version": "v1", "git_sha": _git_sha()},
+                "watchlist": payload,
+            })
+
+        @app.get("/api/pro/v1/watchlist/discover")
+        @pro_required("funds:read")
+        def pro_watchlist_discover_ep():
+            payload = _watchlist_discovery_payload(clean_int(request.args.get("limit"), 50, 1, 100))
             return jsonify({
                 "meta": {"api": "13flow-pro", "version": "v1", "git_sha": _git_sha()},
                 "watchlist": payload,

@@ -133,6 +133,7 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         assert doc["openapi"].startswith("3.")
         assert "/api/pro/v1/fund/{cik}" in doc["paths"]
         assert "/api/pro/v1/watchlist" in doc["paths"]
+        assert "/api/pro/v1/watchlist/discover" in doc["paths"]
 
 
 def test_pro_watchlist_feed_uses_ticker_flow(monkeypatch):
@@ -168,6 +169,16 @@ def test_pro_watchlist_feed_uses_ticker_flow(monkeypatch):
         assert payload["watchlist"]["summary"]["alerts"] >= 1
         tickers = {item["ticker"] for item in payload["watchlist"]["items"]}
         assert tickers == {"AAPL", "MSFT"}
+
+        r = c.get("/api/pro/v1/watchlist/discover?limit=5", headers={"Authorization": "Bearer " + token})
+        assert r.status_code == 200
+        payload = r.get_json()
+        assert payload["meta"]["api"] == "13flow-pro"
+        assert payload["watchlist"]["metadata"]["version"] == "watchlist_discovery_v1"
+        assert payload["watchlist"]["metadata"]["human_review_required_for_routine_publication"] is False
+        assert payload["watchlist"]["metadata"]["quality_gate"]["trusted_funds"] == 2
+        discovered = {item["ticker"] for item in payload["watchlist"]["items"]}
+        assert {"AAPL", "MSFT"} <= discovered
 
 
 def test_pro_api_rate_limit_is_persistent(monkeypatch):

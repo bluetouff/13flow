@@ -293,6 +293,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/api/methodology/app" in doc["paths"]
         assert "/api/methodology/mcp" in doc["paths"]
         assert "/api/stocks/{ticker}" in doc["paths"]
+        assert "/api/watchlist/discover" in doc["paths"]
 
         offer = c.get("/api/pro-offer").get_json()
         assert offer["offer"]["name"] == "13FLOW Pro API"
@@ -449,6 +450,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         }).get_json()
         assert any(t["name"] == "stocks.get" for t in mcp["result"]["tools"])
         assert any(t["name"] == "watchlist.preview" for t in mcp["result"]["tools"])
+        assert any(t["name"] == "watchlist.discover" for t in mcp["result"]["tools"])
         assert any(t["name"] == "product.status" for t in mcp["result"]["tools"])
         assert any(t["name"] == "pro.offer" for t in mcp["result"]["tools"])
 
@@ -466,6 +468,16 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         }).get_json()
         assert watchlist["result"]["structuredContent"]["metadata"]["version"] == "watchlist_preview_v1"
         assert watchlist["result"]["structuredContent"]["items"][0]["ticker"] == "AAPL"
+
+        discovery = c.post("/api/mcp", json={
+            "jsonrpc": "2.0", "id": 21, "method": "tools/call",
+            "params": {"name": "watchlist.discover", "arguments": {"limit": 5}},
+        }).get_json()
+        assert discovery["result"]["structuredContent"]["metadata"]["version"] == \
+            "watchlist_discovery_v1"
+        assert discovery["result"]["structuredContent"]["metadata"][
+            "human_review_required_for_routine_publication"
+        ] is False
 
         product = c.post("/api/mcp", json={
             "jsonrpc": "2.0", "id": 3, "method": "tools/call",
@@ -537,6 +549,16 @@ def test_ticker_flow_payload_explains_quarter_moves_and_confidence():
         assert by_ticker["AAPL"]["action"] in {"alert", "watch"}
         assert any(t["code"] in {"high_score", "accumulation", "new_position"}
                    for t in by_ticker["AAPL"]["triggers"])
+
+        discovery = c.get("/api/watchlist/discover?limit=5").get_json()
+        assert discovery["metadata"]["version"] == "watchlist_discovery_v1"
+        assert discovery["metadata"]["human_review_required_for_routine_publication"] is False
+        assert discovery["metadata"]["source"] == "trusted_ticker_flow"
+        assert discovery["metadata"]["returned_count"] <= 5
+        assert discovery["metadata"]["quality_gate"]["trusted_funds"] == 3
+        discovered = {item["ticker"] for item in discovery["items"]}
+        assert {"AAPL", "MSFT"} <= discovered
+        assert all("discovery" in item for item in discovery["items"])
 
 
 def test_ticker_flow_uses_trusted_universe_and_exposes_automatic_exclusions():
