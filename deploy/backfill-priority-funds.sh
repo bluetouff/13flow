@@ -7,6 +7,7 @@
 #   sudo /opt/13flow/deploy/backfill-priority-funds.sh
 #   sudo MAXQ=4 SMARTMONEY_SYNC_SLEEP_SEC=60 /opt/13flow/deploy/backfill-priority-funds.sh
 #   sudo FUND_LABELS="Renaissance Tech,Point72" /opt/13flow/deploy/backfill-priority-funds.sh
+#   sudo FUND_LABELS="D. E. Shaw" REPORT_DATE=2024-03-31 FORCE=1 /opt/13flow/deploy/backfill-priority-funds.sh
 set -euo pipefail
 
 APP_DIR=${APP_DIR:-/opt/13flow}
@@ -18,6 +19,8 @@ SERVICE=${SERVICE:-13flow}
 INGEST_USER=${INGEST_USER:-flowingest}
 WEB_USER=${WEB_USER:-flowapp}
 MAXQ=${MAXQ:-8}
+FORCE=${FORCE:-0}
+REPORT_DATE=${REPORT_DATE:-}
 SMARTMONEY_EDGAR_RATE_PER_SEC=${SMARTMONEY_EDGAR_RATE_PER_SEC:-0.5}
 SMARTMONEY_SYNC_SLEEP_SEC=${SMARTMONEY_SYNC_SLEEP_SEC:-45}
 FUND_LABELS=${FUND_LABELS:-"Renaissance Tech,Citadel Advisors,Millennium,AQR Capital,Two Sigma,D. E. Shaw,Point72,Farallon"}
@@ -43,12 +46,20 @@ sudo -u "$INGEST_USER" bash -c '
   set -a; . "'"$ENV_FILE"'"; set +a
   : "${SMARTMONEY_CACHE_DIR:='"$DATA_DIR"'}"; export SMARTMONEY_CACHE_DIR
   export SMARTMONEY_EDGAR_RATE_PER_SEC="'"$SMARTMONEY_EDGAR_RATE_PER_SEC"'"
+  force_arg=()
+  if [[ "'"$FORCE"'" == "1" || "'"$FORCE"'" == "true" || "'"$FORCE"'" == "yes" ]]; then
+    force_arg=(--force)
+  fi
+  report_date_arg=()
+  if [[ -n "'"$REPORT_DATE"'" ]]; then
+    report_date_arg=(--report-date "'"$REPORT_DATE"'")
+  fi
   IFS="," read -r -a labels <<< "'"$FUND_LABELS"'"
   for raw in "${labels[@]}"; do
     label=$(printf "%s" "$raw" | sed "s/^ *//;s/ *$//")
     [[ -n "$label" ]] || continue
     echo "    sync: $label"
-    "'"$VENV_PY"'" "'"$RUN"'" --db "'"$DB"'" --sync "$label" --enrich --max-quarters "'"$MAXQ"'"
+    "'"$VENV_PY"'" "'"$RUN"'" --db "'"$DB"'" --sync "$label" --enrich --max-quarters "'"$MAXQ"'" "${force_arg[@]}" "${report_date_arg[@]}"
     sleep "'"$SMARTMONEY_SYNC_SLEEP_SEC"'"
   done
 '

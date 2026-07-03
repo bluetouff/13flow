@@ -85,3 +85,8 @@ def by_label(label: str) -> Fund | None:
         if f.label.lower() == label.lower():
             return f
     return None
+
+
+def active_ciks() -> set[str]:
+    """CIKs that belong to the current public/product registry."""
+    return {f.cik.zfill(10) for f in SUPERINVESTORS if f.cik}

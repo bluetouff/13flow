@@ -178,6 +178,54 @@ def test_force_sync_replaces_existing_filing():
         assert store.load_portfolio("0000000001").total_value == 2000
 
 
+def test_sync_max_quarters_groups_by_report_date_and_prefers_original_filing():
+    class FakeClient:
+        def resolve_cik(self, _):
+            return "0000000001"
+
+        def list_13f_filings(self, cik, include_amendments=True):
+            return [
+                Filing(cik="0000000001", accession="A2A", form="13F-HR/A",
+                       filing_date="2024-11-14", report_date="2024-06-30",
+                       primary_doc="a2a.xml"),
+                Filing(cik="0000000001", accession="A2", form="13F-HR",
+                       filing_date="2024-08-14", report_date="2024-06-30",
+                       primary_doc="a2.xml"),
+                Filing(cik="0000000001", accession="A1", form="13F-HR",
+                       filing_date="2024-05-15", report_date="2024-03-31",
+                       primary_doc="a1.xml"),
+            ]
+
+        def fetch_info_table_xml(self, filing):
+            values = {
+                "A2A": [("APPLE INC", AAPL, 17, 1, "")],
+                "A2": [("APPLE INC", AAPL, 1000, 100, ""),
+                       ("MICROSOFT", MSFT, 500, 20, "")],
+                "A1": [("APPLE INC", AAPL, 900, 90, "")],
+            }
+            return _table(values[filing.accession])
+
+    with tempfile.TemporaryDirectory() as d:
+        store = Store(str(Path(d) / "maxq.db"))
+        client = FakeClient()
+        tracker = Tracker(client)
+        fund = type("FundLike", (), {
+            "cik": "0000000001", "label": "Fund One", "manager": "PM1",
+            "search_name": "Fund One",
+        })()
+
+        try:
+            assert tracker.sync_fund(store, fund, max_quarters=1) == 1
+            rows = store.conn.execute(
+                "SELECT accession, form, n_positions, total_value FROM filings"
+            ).fetchall()
+            assert [(r["accession"], r["form"], r["n_positions"], r["total_value"]) for r in rows] == [
+                ("A2", "13F-HR", 2, 1500.0),
+            ]
+        finally:
+            store.close()
+
+
 def test_writable_store_closes_as_read_only_snapshot():
     with tempfile.TemporaryDirectory() as d:
         path = Path(d) / "snapshot.db"

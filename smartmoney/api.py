@@ -45,7 +45,7 @@ from .billing import init_billing
 from .hibp import default_breach_checker
 from .channels import ConsoleChannel
 from .pwhash import PasswordHasher
-from .registry import Fund
+from .registry import Fund, active_ciks
 from .tracker import Tier, EntitlementError
 from .db import Store
 from .diff import Move, diff_portfolios
@@ -60,6 +60,57 @@ DASHBOARD = os.path.join(APP_ROOT, "dashboard.html")
 
 MAX_SUBSCRIPTIONS_PER_USER = 50
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _placeholders(values) -> str:
+    return ",".join("?" for _ in values)
+
+
+def _public_active_ciks(store: Store) -> set[str]:
+    """Current product universe, falling back to DB rows in tiny test DBs.
+
+    Historical/stale CIKs may remain in SQLite for auditability. Public surfaces
+    should count only the registry-backed universe when that registry intersects
+    the loaded DB. Offline tests often use synthetic CIKs, so no intersection
+    means "use what the test DB contains."
+    """
+    rows = store.conn.execute("SELECT cik FROM funds").fetchall()
+    db_ciks = {r["cik"] for r in rows}
+    active = active_ciks() & db_ciks
+    return active if active else db_ciks
+
+
+def _fund_rows(store: Store, ciks: set[str] | None = None) -> list[dict]:
+    if ciks:
+        values = tuple(sorted(ciks))
+        rows = store.conn.execute(
+            f"SELECT cik,label,manager FROM funds WHERE cik IN ({_placeholders(values)}) "
+            "ORDER BY label",
+            values,
+        ).fetchall()
+    else:
+        rows = store.conn.execute("SELECT cik,label,manager FROM funds ORDER BY label").fetchall()
+    return [dict(r) for r in rows]
+
+
+def _latest_filings_count(store: Store, ciks: set[str] | None = None) -> int:
+    if not ciks:
+        return store.conn.execute("SELECT COUNT(*) c FROM latest_filings").fetchone()["c"] or 0
+    values = tuple(sorted(ciks))
+    return store.conn.execute(
+        f"SELECT COUNT(*) c FROM latest_filings WHERE cik IN ({_placeholders(values)})",
+        values,
+    ).fetchone()["c"] or 0
+
+
+def _latest_filings_date(store: Store, fn: str, ciks: set[str] | None = None):
+    if not ciks:
+        return store.conn.execute(f"SELECT {fn}(report_date) d FROM latest_filings").fetchone()["d"]
+    values = tuple(sorted(ciks))
+    return store.conn.execute(
+        f"SELECT {fn}(report_date) d FROM latest_filings WHERE cik IN ({_placeholders(values)})",
+        values,
+    ).fetchone()["d"]
 
 
 def _git_sha() -> str:
@@ -121,7 +172,7 @@ class _StoreConfluence:
             rd = row["d"] if row else None
             if not rd:
                 return {}
-            ciks = [r["cik"] for r in s.conn.execute("SELECT cik FROM funds")]
+            ciks = list(_public_active_ciks(s))
             # Only scan Form 4s for tickers with meaningful institutional accumulation.
             # min_funds=1 means "any single fund bought" -> ~1000 tickers -> hours of Form 4
             # fetches. The conviction quadrant needs multiple funds anyway, so gate here.
@@ -719,7 +770,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     def funds():
         s = store()
         try:
-            rows = [dict(r) for r in s.conn.execute("SELECT cik,label,manager FROM funds ORDER BY label")]
+            rows = _fund_rows(s, _public_active_ciks(s))
             out = []
             for r in rows:
                 cik = r["cik"]
@@ -819,7 +870,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 # default to the most recent quarter present anywhere
                 r = s.conn.execute("SELECT MAX(report_date) m FROM filings").fetchone()
                 date = r["m"]
-            return jsonify({"date": date, "rows": s.consensus_holdings(date, min_funds)})
+            return jsonify({
+                "date": date,
+                "rows": s.consensus_holdings(date, min_funds, _public_active_ciks(s)),
+            })
         finally:
             s.close()
 
@@ -832,7 +886,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             if not date:
                 r = s.conn.execute("SELECT MAX(report_date) m FROM filings").fetchone()
                 date = r["m"]
-            ciks = [row["cik"] for row in s.conn.execute("SELECT cik FROM funds")]
+            ciks = list(_public_active_ciks(s))
             rows = consensus_moves(s, ciks, date, min_funds=min_funds)
             return jsonify({"date": date, "rows": [{
                 "cusip": m.cusip, "ticker": m.ticker, "issuer": m.issuer,
@@ -974,8 +1028,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         date = request.args.get("date") or None
         s = store()
         try:
-            return jsonify({"coverage": s.coverage(date),
-                            "tail": s.unresolved_holdings(date)[:25]})
+            active = _public_active_ciks(s)
+            return jsonify({"coverage": s.coverage(date, active),
+                            "tail": s.unresolved_holdings(date, active)[:25]})
         finally:
             s.close()
 
@@ -985,7 +1040,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         limit = clean_int(request.args.get("limit"), 100, 1, 500)
         s = store()
         try:
-            return jsonify(data_quality_report(s, aum_jump_threshold=threshold, limit=limit))
+            return jsonify(data_quality_report(
+                s, aum_jump_threshold=threshold, limit=limit,
+                active_ciks=_public_active_ciks(s),
+            ))
         finally:
             s.close()
 
@@ -1101,8 +1159,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         if name == "funds.list":
             s = store()
             try:
-                rows = [dict(r) for r in s.conn.execute(
-                    "SELECT cik,label,manager FROM funds ORDER BY label")]
+                rows = _fund_rows(s, _public_active_ciks(s))
                 return {"funds": rows}
             finally:
                 s.close()
@@ -1140,7 +1197,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             limit = int(args.get("limit") or 100)
             s = store()
             try:
-                return data_quality_report(s, aum_jump_threshold=threshold, limit=limit)
+                return data_quality_report(
+                    s, aum_jump_threshold=threshold, limit=limit,
+                    active_ciks=_public_active_ciks(s),
+                )
             finally:
                 s.close()
         return {"error": "unknown_tool"}
@@ -1198,9 +1258,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         def pro_funds_ep():
             s = store()
             try:
-                rows = [dict(r) for r in s.conn.execute(
-                    "SELECT cik,label,manager FROM funds ORDER BY label")]
-                quality = data_quality_report(s, limit=500)
+                active = _public_active_ciks(s)
+                rows = _fund_rows(s, active)
+                quality = data_quality_report(s, limit=500, active_ciks=active)
                 warnings_by_cik = {}
                 for w in quality["warnings"]:
                     warnings_by_cik.setdefault(w["fund"]["cik"], []).append(w)
@@ -1258,7 +1318,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     cik=cik, fund_label=pf.fund_label, report_date="", form="")
                 prev_filing = filing_row_for(s, cik, prev_q) if prev_q else None
                 diff = diff_portfolios(prev, pf)
-                quality = data_quality_report(s, limit=500)
+                quality = data_quality_report(s, limit=500, active_ciks=_public_active_ciks(s))
                 fund_warnings = [
                     w for w in quality["warnings"] if w["fund"]["cik"] == cik
                 ]
@@ -1340,7 +1400,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             try:
                 return jsonify({
                     "meta": {"api": "13flow-pro", "version": "v1", "git_sha": _git_sha()},
-                    "report": data_quality_report(s, aum_jump_threshold=threshold, limit=limit),
+                    "report": data_quality_report(
+                        s, aum_jump_threshold=threshold, limit=limit,
+                        active_ciks=_public_active_ciks(s),
+                    ),
                 })
             finally:
                 s.close()
@@ -1408,26 +1471,45 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         generated_at = _now_iso()
         s = store()
         try:
-            funds = s.conn.execute("SELECT COUNT(*) c FROM funds").fetchone()["c"] or 0
-            filings = s.conn.execute("SELECT COUNT(*) c FROM filings").fetchone()["c"] or 0
-            latest_rows = s.conn.execute("SELECT COUNT(*) c FROM latest_filings").fetchone()["c"] or 0
-            latest = s.conn.execute("SELECT MAX(report_date) d FROM latest_filings").fetchone()["d"]
-            earliest = s.conn.execute("SELECT MIN(report_date) d FROM latest_filings").fetchone()["d"]
-            latest_filing_date = s.conn.execute("SELECT MAX(filing_date) d FROM filings").fetchone()["d"]
+            active = _public_active_ciks(s)
+            active_values = tuple(sorted(active))
+            funds = len(active)
+            if active_values:
+                placeholders = _placeholders(active_values)
+                filings = s.conn.execute(
+                    f"SELECT COUNT(*) c FROM filings WHERE cik IN ({placeholders})",
+                    active_values,
+                ).fetchone()["c"] or 0
+                latest_filing_date = s.conn.execute(
+                    f"SELECT MAX(filing_date) d FROM filings WHERE cik IN ({placeholders})",
+                    active_values,
+                ).fetchone()["d"]
+                accession_filter = f"WHERE f.cik IN ({placeholders})"
+                accession_args = active_values
+            else:
+                filings = s.conn.execute("SELECT COUNT(*) c FROM filings").fetchone()["c"] or 0
+                latest_filing_date = s.conn.execute("SELECT MAX(filing_date) d FROM filings").fetchone()["d"]
+                accession_filter = ""
+                accession_args = ()
+            latest_rows = _latest_filings_count(s, active)
+            latest = _latest_filings_date(s, "MAX", active)
+            earliest = _latest_filings_date(s, "MIN", active)
             accession_rows = s.conn.execute(
-                """SELECT f.accession, f.cik, fn.label, f.form, f.report_date, f.filing_date
+                f"""SELECT f.accession, f.cik, fn.label, f.form, f.report_date, f.filing_date
                    FROM latest_filings lf
                    JOIN filings f ON f.accession=lf.accession
                    LEFT JOIN funds fn ON fn.cik=f.cik
+                   {accession_filter}
                    ORDER BY f.report_date DESC, f.filing_date DESC, f.accession DESC
-                   LIMIT 12"""
+                   LIMIT 12""",
+                accession_args,
             ).fetchall()
-            coverage = s.coverage(latest) if latest else {
+            coverage = s.coverage(latest, active) if latest else {
                 "overall_value_share": None,
                 "value_unresolved": None,
                 "per_fund": [],
             }
-            quality = data_quality_report(s, limit=1)["summary"]
+            quality = data_quality_report(s, limit=1, active_ciks=active)["summary"]
         finally:
             s.close()
         ready = bool(funds and filings and latest_rows)
@@ -2358,8 +2440,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     def static_funds():
         s = store()
         try:
-            rows = [dict(r) for r in s.conn.execute(
-                "SELECT cik,label,manager FROM funds ORDER BY label")]
+            rows = _fund_rows(s, _public_active_ciks(s))
             cards = []
             for r in rows:
                 series = s.fund_value_timeline(r["cik"])

@@ -111,6 +111,14 @@ SELECT cik, report_date, accession FROM (
 """
 
 
+def _cik_filter(ciks: set[str] | None, column: str = "lf.cik") -> tuple[str, tuple[str, ...]]:
+    if not ciks:
+        return "", ()
+    normalized = tuple(sorted(c.zfill(10) for c in ciks))
+    placeholders = ",".join("?" for _ in normalized)
+    return f" AND {column} IN ({placeholders})", normalized
+
+
 class Store:
     def __init__(self, path: str = "smartmoney.db", read_only: bool = False):
         self.read_only = read_only
@@ -259,10 +267,16 @@ class Store:
         return [p for p in out if p is not None]
 
     # --- SQL analytics -----------------------------------------------------
-    def consensus_holdings(self, report_date: str, min_funds: int = 3) -> list[dict]:
+    def consensus_holdings(
+        self,
+        report_date: str,
+        min_funds: int = 3,
+        ciks: set[str] | None = None,
+    ) -> list[dict]:
         """Stocks held by >= min_funds funds at a given quarter-end (long stock only)."""
+        cik_sql, cik_args = _cik_filter(ciks)
         cur = self.conn.execute(
-            """
+            f"""
             SELECT h.cusip                         AS cusip,
                    MAX(h.ticker)                   AS ticker,
                    MAX(h.issuer)                   AS issuer,
@@ -272,12 +286,12 @@ class Store:
             FROM latest_filings lf
             JOIN holdings h ON h.accession = lf.accession AND h.put_call = ''
             JOIN funds fn   ON fn.cik = lf.cik
-            WHERE lf.report_date = ?
+            WHERE lf.report_date = ? {cik_sql}
             GROUP BY h.cusip
             HAVING n_funds >= ?
             ORDER BY n_funds DESC, total_value DESC
             """,
-            (report_date, min_funds),
+            (report_date, *cik_args, min_funds),
         )
         return [dict(r) for r in cur.fetchall()]
 
@@ -313,10 +327,18 @@ class Store:
         return [dict(r) for r in cur.fetchall()]
 
     # --- resolution coverage / long tail ----------------------------------
-    def coverage(self, report_date: Optional[str] = None) -> dict:
+    def coverage(self, report_date: Optional[str] = None, ciks: set[str] | None = None) -> dict:
         """Ticker-resolution coverage by fund + overall (long stock only)."""
-        where = "WHERE lf.report_date = ?" if report_date else ""
-        args = (report_date,) if report_date else ()
+        conditions = []
+        args: list[str] = []
+        if report_date:
+            conditions.append("lf.report_date = ?")
+            args.append(report_date)
+        if ciks:
+            placeholders = ",".join("?" for _ in ciks)
+            conditions.append(f"lf.cik IN ({placeholders})")
+            args.extend(sorted(c.zfill(10) for c in ciks))
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         cur = self.conn.execute(
             f"""
             SELECT fn.label AS fund, lf.report_date AS report_date,
@@ -331,7 +353,7 @@ class Store:
             GROUP BY lf.cik
             ORDER BY (val - val_res) DESC
             """,
-            args,
+            tuple(args),
         )
         per_fund = [dict(r) for r in cur.fetchall()]
         tot = sum(r["val"] or 0 for r in per_fund) or 1.0
@@ -341,10 +363,22 @@ class Store:
         return {"overall_value_share": tot_res / tot, "value_unresolved": tot - tot_res,
                 "per_fund": per_fund}
 
-    def unresolved_holdings(self, report_date: Optional[str] = None) -> list[dict]:
+    def unresolved_holdings(
+        self,
+        report_date: Optional[str] = None,
+        ciks: set[str] | None = None,
+    ) -> list[dict]:
         """The tail: unresolved CUSIPs aggregated across funds, biggest dollar first."""
-        where = "AND lf.report_date = ?" if report_date else ""
-        args = (report_date,) if report_date else ()
+        filters = []
+        args: list[str] = []
+        if report_date:
+            filters.append("lf.report_date = ?")
+            args.append(report_date)
+        if ciks:
+            placeholders = ",".join("?" for _ in ciks)
+            filters.append(f"lf.cik IN ({placeholders})")
+            args.extend(sorted(c.zfill(10) for c in ciks))
+        where = f"AND {' AND '.join(filters)}" if filters else ""
         cur = self.conn.execute(
             f"""
             SELECT h.cusip AS cusip, MAX(h.issuer) AS issuer,
@@ -355,7 +389,7 @@ class Store:
             GROUP BY h.cusip
             ORDER BY value DESC
             """,
-            args,
+            tuple(args),
         )
         return [dict(r) for r in cur.fetchall()]
 

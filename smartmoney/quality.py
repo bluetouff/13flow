@@ -11,16 +11,27 @@ import math
 from typing import Any
 
 
-def _latest_rows_by_fund(store) -> dict[str, list[dict[str, Any]]]:
+def _active_clause(active_ciks: set[str] | None, prefix: str = "") -> tuple[str, tuple[str, ...]]:
+    if not active_ciks:
+        return "", ()
+    column = f"{prefix}cik" if prefix else "cik"
+    placeholders = ",".join("?" for _ in active_ciks)
+    return f" AND {column} IN ({placeholders})", tuple(sorted(active_ciks))
+
+
+def _latest_rows_by_fund(store, active_ciks: set[str] | None = None) -> dict[str, list[dict[str, Any]]]:
+    active_sql, active_args = _active_clause(active_ciks, "f.")
     rows = store.conn.execute(
-        """
+        f"""
         SELECT f.cik, fn.label, f.accession, f.report_date, f.filing_date,
                f.form, f.total_value, f.n_positions
         FROM latest_filings lf
         JOIN filings f ON f.accession = lf.accession
         JOIN funds fn ON fn.cik = f.cik
+        WHERE 1=1 {active_sql}
         ORDER BY fn.label, f.report_date
-        """
+        """,
+        active_args,
     ).fetchall()
     by_fund: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
@@ -40,16 +51,18 @@ def _filing_payload(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _fund_rows(store) -> list[dict[str, Any]]:
+def _fund_rows(store, active_ciks: set[str] | None = None) -> list[dict[str, Any]]:
+    active_sql, active_args = _active_clause(active_ciks)
     rows = store.conn.execute(
-        "SELECT cik, label, manager FROM funds ORDER BY label, cik"
+        f"SELECT cik, label, manager FROM funds WHERE 1=1 {active_sql} ORDER BY label, cik",
+        active_args,
     ).fetchall()
     return [dict(r) for r in rows]
 
 
-def _current_rows_by_fund(store) -> dict[str, dict[str, Any]]:
+def _current_rows_by_fund(store, active_ciks: set[str] | None = None) -> dict[str, dict[str, Any]]:
     current: dict[str, dict[str, Any]] = {}
-    for cik, seq in _latest_rows_by_fund(store).items():
+    for cik, seq in _latest_rows_by_fund(store, active_ciks).items():
         if seq:
             current[cik] = seq[-1]
     return current
@@ -63,7 +76,11 @@ def _severity(ratio: float) -> str:
     return "review"
 
 
-def aum_jump_warnings(store, threshold: float = 100.0) -> list[dict[str, Any]]:
+def aum_jump_warnings(
+    store,
+    threshold: float = 100.0,
+    active_ciks: set[str] | None = None,
+) -> list[dict[str, Any]]:
     """Adjacent-quarter AUM discontinuities above ``threshold``.
 
     A warning is not a correction candidate by itself. It can be a partial
@@ -72,7 +89,7 @@ def aum_jump_warnings(store, threshold: float = 100.0) -> list[dict[str, Any]]:
     """
     threshold = max(float(threshold), 1.0)
     warnings: list[dict[str, Any]] = []
-    for cik, seq in _latest_rows_by_fund(store).items():
+    for cik, seq in _latest_rows_by_fund(store, active_ciks).items():
         if len(seq) < 2:
             continue
         for prev, curr in zip(seq, seq[1:]):
@@ -97,7 +114,7 @@ def aum_jump_warnings(store, threshold: float = 100.0) -> list[dict[str, Any]]:
     return warnings
 
 
-def stale_fund_warnings(store) -> list[dict[str, Any]]:
+def stale_fund_warnings(store, active_ciks: set[str] | None = None) -> list[dict[str, Any]]:
     """Funds whose latest selected filing lags the dataset's latest 13F quarter."""
     dates = [
         r["report_date"] for r in store.conn.execute(
@@ -108,9 +125,9 @@ def stale_fund_warnings(store) -> list[dict[str, Any]]:
         return []
     latest_date = dates[-1]
     date_rank = {d: i for i, d in enumerate(dates)}
-    current = _current_rows_by_fund(store)
+    current = _current_rows_by_fund(store, active_ciks)
     warnings: list[dict[str, Any]] = []
-    for fund in _fund_rows(store):
+    for fund in _fund_rows(store, active_ciks):
         row = current.get(fund["cik"])
         if row is None:
             warnings.append({
@@ -147,11 +164,11 @@ def stale_fund_warnings(store) -> list[dict[str, Any]]:
     return warnings
 
 
-def duplicate_label_warnings(store) -> list[dict[str, Any]]:
+def duplicate_label_warnings(store, active_ciks: set[str] | None = None) -> list[dict[str, Any]]:
     """Labels that map to several CIKs on the public surface."""
-    current = _current_rows_by_fund(store)
+    current = _current_rows_by_fund(store, active_ciks)
     groups: dict[str, list[dict[str, Any]]] = {}
-    for fund in _fund_rows(store):
+    for fund in _fund_rows(store, active_ciks):
         key = " ".join(str(fund["label"] or "").lower().split())
         if not key:
             continue
@@ -193,6 +210,7 @@ def unit_scale_candidates(
     low: float = 800.0,
     high: float = 1200.0,
     max_neighbor_ratio: float = 5.0,
+    active_ciks: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Strict +/-1000 unit candidates with comparable neighbors.
 
@@ -201,7 +219,7 @@ def unit_scale_candidates(
     about 1000x away from their geometric mean.
     """
     candidates: list[dict[str, Any]] = []
-    for cik, seq in _latest_rows_by_fund(store).items():
+    for cik, seq in _latest_rows_by_fund(store, active_ciks).items():
         if len(seq) < 3:
             continue
         for i in range(1, len(seq) - 1):
@@ -241,12 +259,13 @@ def data_quality_report(
     store,
     aum_jump_threshold: float = 100.0,
     limit: int = 100,
+    active_ciks: set[str] | None = None,
 ) -> dict[str, Any]:
-    by_fund = _latest_rows_by_fund(store)
-    warnings = aum_jump_warnings(store, threshold=aum_jump_threshold)
-    stale = stale_fund_warnings(store)
-    duplicates = duplicate_label_warnings(store)
-    candidates = unit_scale_candidates(store)
+    by_fund = _latest_rows_by_fund(store, active_ciks)
+    warnings = aum_jump_warnings(store, threshold=aum_jump_threshold, active_ciks=active_ciks)
+    stale = stale_fund_warnings(store, active_ciks=active_ciks)
+    duplicates = duplicate_label_warnings(store, active_ciks=active_ciks)
+    candidates = unit_scale_candidates(store, active_ciks=active_ciks)
     limit = max(1, min(int(limit), 500))
     review_items = len(warnings) + len(stale) + len(duplicates) + len(candidates)
     return {

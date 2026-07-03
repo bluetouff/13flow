@@ -95,3 +95,28 @@ def test_data_quality_endpoint_is_public_read_only_and_validates_params():
 
         bad = client.get("/api/data-quality?threshold=abc")
         assert bad.status_code == 400 and bad.is_json
+
+
+def test_public_quality_surface_filters_legacy_ciks_when_registry_is_present():
+    with tempfile.TemporaryDirectory() as d:
+        db = str(Path(d) / "active-surface.db")
+        store = Store(db)
+        try:
+            _save(store, "0001079114", "Greenlight", "David Einhorn", "OLD", "13F-HR",
+                  "2024-02-14", "2023-12-31",
+                  [("APPLE INC", AAPL, 1_000, 100, "")])
+            _save(store, "0001489933", "Greenlight", "David Einhorn", "NEW", "13F-HR",
+                  "2024-08-14", "2024-06-30",
+                  [("MICROSOFT", MSFT, 2_000, 50, "")])
+        finally:
+            store.close()
+
+        client = create_app(db, secure_cookies=False, open_mode=True).test_client()
+
+        funds = client.get("/api/funds").get_json()
+        assert [f["cik"] for f in funds] == ["0001489933"]
+
+        quality = client.get("/api/data-quality").get_json()
+        assert quality["summary"]["funds_scanned"] == 1
+        assert quality["summary"]["stale_funds"] == 0
+        assert quality["summary"]["duplicate_labels"] == 0
