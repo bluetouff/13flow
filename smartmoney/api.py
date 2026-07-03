@@ -761,6 +761,55 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                         "responses": {"200": {"description": "Ranked discovery watchlist"}},
                     }
                 },
+                "/api/pro/v1/workspace/watchlists": {
+                    "get": {
+                        "security": security,
+                        "summary": "List saved workspace watchlists",
+                        "responses": {"200": {"description": "Saved watchlists"}},
+                    },
+                    "post": {
+                        "security": security,
+                        "summary": "Create a saved workspace watchlist",
+                        "responses": {"201": {"description": "Saved watchlist created"},
+                                      "400": {"description": "Invalid watchlist payload"}},
+                    },
+                },
+                "/api/pro/v1/workspace/watchlists/{watchlist_id}": {
+                    "get": {
+                        "security": security,
+                        "summary": "Get a saved workspace watchlist",
+                        "parameters": [{"name": "watchlist_id", "in": "path", "required": True,
+                                        "schema": {"type": "string"}}],
+                        "responses": {"200": {"description": "Saved watchlist"},
+                                      "404": {"description": "Not found"}},
+                    },
+                    "put": {
+                        "security": security,
+                        "summary": "Replace a saved workspace watchlist",
+                        "parameters": [{"name": "watchlist_id", "in": "path", "required": True,
+                                        "schema": {"type": "string"}}],
+                        "responses": {"200": {"description": "Saved watchlist updated"},
+                                      "404": {"description": "Not found"}},
+                    },
+                    "delete": {
+                        "security": security,
+                        "summary": "Delete a saved workspace watchlist",
+                        "parameters": [{"name": "watchlist_id", "in": "path", "required": True,
+                                        "schema": {"type": "string"}}],
+                        "responses": {"200": {"description": "Saved watchlist deleted"},
+                                      "404": {"description": "Not found"}},
+                    },
+                },
+                "/api/pro/v1/workspace/watchlists/{watchlist_id}/preview": {
+                    "get": {
+                        "security": security,
+                        "summary": "Preview ticker-flow triggers for a saved workspace watchlist",
+                        "parameters": [{"name": "watchlist_id", "in": "path", "required": True,
+                                        "schema": {"type": "string"}}],
+                        "responses": {"200": {"description": "Saved watchlist trigger preview"},
+                                      "404": {"description": "Not found"}},
+                    },
+                },
                 "/api/pro/v1/openapi.json": {
                     "get": {"summary": "OpenAPI document for the Pro API",
                             "responses": {"200": {"description": "OpenAPI JSON"}}}
@@ -1952,6 +2001,57 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             _watchlist_discovery_filters(request.args),
         ))
 
+    def _clean_watchlist_name(raw) -> str:
+        from werkzeug.exceptions import BadRequest
+        name = str(raw or "").strip()
+        if not name:
+            raise BadRequest("watchlist name required")
+        if len(name) > 80:
+            raise BadRequest("watchlist name is limited to 80 characters")
+        return name
+
+    def _clean_watchlist_notes(raw) -> str:
+        from werkzeug.exceptions import BadRequest
+        notes = str(raw or "").strip()
+        if len(notes) > 1000:
+            raise BadRequest("watchlist notes are limited to 1000 characters")
+        return notes
+
+    def _clean_alert_policy(raw) -> dict:
+        from werkzeug.exceptions import BadRequest
+        if raw in (None, ""):
+            return {}
+        if not isinstance(raw, dict):
+            raise BadRequest("alert_policy must be an object")
+        frequency = str(raw.get("frequency") or "manual").strip().lower()
+        if frequency not in {"manual", "daily", "weekly"}:
+            raise BadRequest("invalid alert_policy.frequency")
+        return {
+            "frequency": frequency,
+            "enabled": bool(raw.get("enabled", False)),
+        }
+
+    def _clean_saved_watchlist_payload(raw: dict) -> dict:
+        from werkzeug.exceptions import BadRequest
+        if not isinstance(raw, dict):
+            raise BadRequest("JSON object required")
+        tickers = _clean_watchlist_tickers(raw.get("tickers") or [], limit=50)
+        filters = _discovery_filters_payload(_watchlist_discovery_filters(raw.get("filters") or {}))
+        return {
+            "name": _clean_watchlist_name(raw.get("name")),
+            "tickers": tickers,
+            "filters": filters,
+            "alert_policy": _clean_alert_policy(raw.get("alert_policy") or {}),
+            "notes": _clean_watchlist_notes(raw.get("notes")),
+        }
+
+    def _pro_store_call(fn):
+        ps = ProAPIStore(pro_db_path)
+        try:
+            return fn(ps)
+        finally:
+            ps.close()
+
     def _mcp_call_tool(name: str, args: dict) -> dict:
         if name == "product.status":
             return product_status_payload()
@@ -2247,6 +2347,105 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             )
             return jsonify({
                 "meta": {"api": "13flow-pro", "version": "v1", "git_sha": _git_sha()},
+                "watchlist": payload,
+            })
+
+        @app.get("/api/pro/v1/workspace/watchlists")
+        @pro_required("workspace:write")
+        def pro_workspace_watchlists_list_ep():
+            key = request.pro_api_key
+            items = _pro_store_call(lambda ps: ps.list_watchlists(key.key_id))
+            return jsonify({
+                "meta": {
+                    "api": "13flow-pro",
+                    "version": "v1",
+                    "git_sha": _git_sha(),
+                    "workspace_scope": "api_key",
+                    "ui_exposed": False,
+                },
+                "watchlists": items,
+            })
+
+        @app.post("/api/pro/v1/workspace/watchlists")
+        @pro_required("workspace:write")
+        def pro_workspace_watchlists_create_ep():
+            key = request.pro_api_key
+            payload = _clean_saved_watchlist_payload(request.get_json(silent=True) or {})
+            item = _pro_store_call(lambda ps: ps.create_watchlist(
+                key.key_id,
+                payload["name"],
+                payload["tickers"],
+                filters=payload["filters"],
+                alert_policy=payload["alert_policy"],
+                notes=payload["notes"],
+            ))
+            return jsonify({
+                "meta": {"api": "13flow-pro", "version": "v1", "git_sha": _git_sha()},
+                "watchlist": item,
+            }), 201
+
+        @app.get("/api/pro/v1/workspace/watchlists/<watchlist_id>")
+        @pro_required("workspace:write")
+        def pro_workspace_watchlists_get_ep(watchlist_id):
+            key = request.pro_api_key
+            item = _pro_store_call(lambda ps: ps.get_watchlist(key.key_id, watchlist_id))
+            if item is None:
+                return jsonify({"error": "not_found"}), 404
+            return jsonify({
+                "meta": {"api": "13flow-pro", "version": "v1", "git_sha": _git_sha()},
+                "watchlist": item,
+            })
+
+        @app.put("/api/pro/v1/workspace/watchlists/<watchlist_id>")
+        @pro_required("workspace:write")
+        def pro_workspace_watchlists_put_ep(watchlist_id):
+            key = request.pro_api_key
+            payload = _clean_saved_watchlist_payload(request.get_json(silent=True) or {})
+            item = _pro_store_call(lambda ps: ps.update_watchlist(
+                key.key_id,
+                watchlist_id,
+                payload["name"],
+                payload["tickers"],
+                filters=payload["filters"],
+                alert_policy=payload["alert_policy"],
+                notes=payload["notes"],
+            ))
+            if item is None:
+                return jsonify({"error": "not_found"}), 404
+            return jsonify({
+                "meta": {"api": "13flow-pro", "version": "v1", "git_sha": _git_sha()},
+                "watchlist": item,
+            })
+
+        @app.delete("/api/pro/v1/workspace/watchlists/<watchlist_id>")
+        @pro_required("workspace:write")
+        def pro_workspace_watchlists_delete_ep(watchlist_id):
+            key = request.pro_api_key
+            deleted = _pro_store_call(lambda ps: ps.delete_watchlist(key.key_id, watchlist_id))
+            if not deleted:
+                return jsonify({"error": "not_found"}), 404
+            return jsonify({
+                "meta": {"api": "13flow-pro", "version": "v1", "git_sha": _git_sha()},
+                "deleted": True,
+                "id": watchlist_id,
+            })
+
+        @app.get("/api/pro/v1/workspace/watchlists/<watchlist_id>/preview")
+        @pro_required("workspace:write")
+        def pro_workspace_watchlists_preview_ep(watchlist_id):
+            key = request.pro_api_key
+            item = _pro_store_call(lambda ps: ps.get_watchlist(key.key_id, watchlist_id))
+            if item is None:
+                return jsonify({"error": "not_found"}), 404
+            payload = _watchlist_payload(item["tickers"], limit=50)
+            return jsonify({
+                "meta": {
+                    "api": "13flow-pro",
+                    "version": "v1",
+                    "git_sha": _git_sha(),
+                    "saved_watchlist_id": watchlist_id,
+                    "saved_watchlist_name": item["name"],
+                },
                 "watchlist": payload,
             })
 

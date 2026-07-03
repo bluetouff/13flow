@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import secrets
 import sqlite3
 from dataclasses import dataclass
@@ -53,6 +54,20 @@ CREATE TABLE IF NOT EXISTS api_audit (
     at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_api_audit_key_at ON api_audit(key_id, at);
+
+CREATE TABLE IF NOT EXISTS saved_watchlists (
+    id                TEXT PRIMARY KEY,
+    key_id            TEXT NOT NULL,
+    name              TEXT NOT NULL,
+    tickers_json      TEXT NOT NULL,
+    filters_json      TEXT NOT NULL DEFAULT '{}',
+    alert_policy_json TEXT NOT NULL DEFAULT '{}',
+    notes             TEXT NOT NULL DEFAULT '',
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_saved_watchlists_key_updated
+    ON saved_watchlists(key_id, updated_at DESC);
 """
 
 
@@ -247,6 +262,99 @@ class ProAPIStore:
                 (key_id, method, route, int(status), (ip or "")[:80],
                  (user_agent or "")[:300], _iso(_now())),
             )
+
+    def _watchlist_row(self, row) -> dict:
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "tickers": json.loads(row["tickers_json"] or "[]"),
+            "filters": json.loads(row["filters_json"] or "{}"),
+            "alert_policy": json.loads(row["alert_policy_json"] or "{}"),
+            "notes": row["notes"] or "",
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def list_watchlists(self, key_id: str) -> list[dict]:
+        rows = self.conn.execute(
+            """SELECT * FROM saved_watchlists
+               WHERE key_id=?
+               ORDER BY updated_at DESC, name ASC""",
+            (key_id,),
+        ).fetchall()
+        return [self._watchlist_row(r) for r in rows]
+
+    def get_watchlist(self, key_id: str, watchlist_id: str) -> Optional[dict]:
+        row = self.conn.execute(
+            "SELECT * FROM saved_watchlists WHERE key_id=? AND id=?",
+            (key_id, watchlist_id),
+        ).fetchone()
+        return self._watchlist_row(row) if row else None
+
+    def create_watchlist(
+        self,
+        key_id: str,
+        name: str,
+        tickers: list[str],
+        filters: Optional[dict] = None,
+        alert_policy: Optional[dict] = None,
+        notes: str = "",
+    ) -> dict:
+        now = _iso(_now())
+        watchlist_id = secrets.token_hex(8)
+        with self.conn:
+            self.conn.execute(
+                """INSERT INTO saved_watchlists(
+                       id,key_id,name,tickers_json,filters_json,alert_policy_json,
+                       notes,created_at,updated_at
+                   ) VALUES (?,?,?,?,?,?,?,?,?)""",
+                (
+                    watchlist_id, key_id, name, json.dumps(tickers, separators=(",", ":")),
+                    json.dumps(filters or {}, sort_keys=True, separators=(",", ":")),
+                    json.dumps(alert_policy or {}, sort_keys=True, separators=(",", ":")),
+                    notes, now, now,
+                ),
+            )
+        item = self.get_watchlist(key_id, watchlist_id)
+        if item is None:
+            raise RuntimeError("saved watchlist was not persisted")
+        return item
+
+    def update_watchlist(
+        self,
+        key_id: str,
+        watchlist_id: str,
+        name: str,
+        tickers: list[str],
+        filters: Optional[dict] = None,
+        alert_policy: Optional[dict] = None,
+        notes: str = "",
+    ) -> Optional[dict]:
+        now = _iso(_now())
+        with self.conn:
+            cur = self.conn.execute(
+                """UPDATE saved_watchlists
+                   SET name=?, tickers_json=?, filters_json=?, alert_policy_json=?,
+                       notes=?, updated_at=?
+                   WHERE key_id=? AND id=?""",
+                (
+                    name, json.dumps(tickers, separators=(",", ":")),
+                    json.dumps(filters or {}, sort_keys=True, separators=(",", ":")),
+                    json.dumps(alert_policy or {}, sort_keys=True, separators=(",", ":")),
+                    notes, now, key_id, watchlist_id,
+                ),
+            )
+        if cur.rowcount == 0:
+            return None
+        return self.get_watchlist(key_id, watchlist_id)
+
+    def delete_watchlist(self, key_id: str, watchlist_id: str) -> bool:
+        with self.conn:
+            cur = self.conn.execute(
+                "DELETE FROM saved_watchlists WHERE key_id=? AND id=?",
+                (key_id, watchlist_id),
+            )
+        return cur.rowcount > 0
 
     def prune_audit(self, retention_days: int) -> dict:
         days = int(retention_days)

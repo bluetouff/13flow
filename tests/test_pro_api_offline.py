@@ -134,6 +134,9 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         assert "/api/pro/v1/fund/{cik}" in doc["paths"]
         assert "/api/pro/v1/watchlist" in doc["paths"]
         assert "/api/pro/v1/watchlist/discover" in doc["paths"]
+        assert "/api/pro/v1/workspace/watchlists" in doc["paths"]
+        assert "/api/pro/v1/workspace/watchlists/{watchlist_id}" in doc["paths"]
+        assert "/api/pro/v1/workspace/watchlists/{watchlist_id}/preview" in doc["paths"]
 
 
 def test_pro_watchlist_feed_uses_ticker_flow(monkeypatch):
@@ -193,6 +196,114 @@ def test_pro_watchlist_feed_uses_ticker_flow(monkeypatch):
         assert payload["watchlist"]["items"]
         assert all(item["action"] == "alert" for item in payload["watchlist"]["items"])
         assert all("NEW" in item["movement_codes"] for item in payload["watchlist"]["items"])
+
+
+def test_pro_workspace_watchlists_are_saved_per_api_key(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        data_db = str(Path(d) / "workspace-data.db")
+        pro_db = str(Path(d) / "workspace-pro.db")
+        s = Store(data_db)
+        _save(s, "0001067983", "Berkshire Hathaway", "Warren Buffett",
+              "BRK-Q1", "13F-HR", "2026-02-14", "2025-12-31",
+              [("APPLE INC", AAPL, 1_000, 100, "")])
+        _save(s, "0001067983", "Berkshire Hathaway", "Warren Buffett",
+              "BRK-Q2", "13F-HR", "2026-05-15", "2026-03-31",
+              [("APPLE INC", AAPL, 1_300, 120, ""), ("MICROSOFT", MSFT, 500, 10, "")])
+        _save(s, "0001336528", "Pershing Square", "Bill Ackman",
+              "PS-Q2", "13F-HR", "2026-05-15", "2026-03-31",
+              [("APPLE INC", AAPL, 700, 35, "")])
+        s.conn.execute("UPDATE holdings SET ticker='AAPL' WHERE cusip=?", (AAPL,))
+        s.conn.execute("UPDATE holdings SET ticker='MSFT' WHERE cusip=?", (MSFT,))
+        s.conn.commit()
+        s.close()
+        with ProAPIStore(pro_db) as pro:
+            token, key = pro.create_key("Workspace Institution",
+                                        scopes=("funds:read", "workspace:write"),
+                                        rate_per_min=120, rate_per_day=10000)
+            other_token, other_key = pro.create_key("Other Workspace",
+                                                    scopes=("funds:read", "workspace:write"),
+                                                    rate_per_min=120, rate_per_day=10000)
+            readonly_token, _ = pro.create_key("Read Only Institution", scopes=("funds:read",),
+                                               rate_per_min=120, rate_per_day=10000)
+        monkeypatch.setenv("SMARTMONEY_PRO_API", "1")
+        monkeypatch.setenv("SMARTMONEY_PRO_DB", pro_db)
+        c = create_app(data_db, secure_cookies=False, open_mode=True).test_client()
+
+        readonly = c.get(
+            "/api/pro/v1/workspace/watchlists",
+            headers={"Authorization": "Bearer " + readonly_token},
+        )
+        assert readonly.status_code == 403
+
+        create = c.post(
+            "/api/pro/v1/workspace/watchlists",
+            headers={"Authorization": "Bearer " + token},
+            json={
+                "name": "Core tech monitor",
+                "tickers": ["AAPL", "MSFT"],
+                "filters": {"action": "alert", "min_score": 30, "move": "NEW"},
+                "alert_policy": {"enabled": True, "frequency": "daily"},
+                "notes": "Pilot desk watchlist",
+            },
+        )
+        assert create.status_code == 201
+        created = create.get_json()["watchlist"]
+        watchlist_id = created["id"]
+        assert created["tickers"] == ["AAPL", "MSFT"]
+        assert created["filters"]["action"] == ["alert"]
+        assert created["alert_policy"] == {"enabled": True, "frequency": "daily"}
+
+        listed = c.get(
+            "/api/pro/v1/workspace/watchlists",
+            headers={"Authorization": "Bearer " + token},
+        ).get_json()
+        assert listed["meta"]["ui_exposed"] is False
+        assert [w["id"] for w in listed["watchlists"]] == [watchlist_id]
+
+        other_get = c.get(
+            f"/api/pro/v1/workspace/watchlists/{watchlist_id}",
+            headers={"Authorization": "Bearer " + other_token},
+        )
+        assert other_get.status_code == 404
+
+        preview = c.get(
+            f"/api/pro/v1/workspace/watchlists/{watchlist_id}/preview",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert preview.status_code == 200
+        payload = preview.get_json()
+        assert payload["meta"]["saved_watchlist_id"] == watchlist_id
+        assert payload["watchlist"]["metadata"]["version"] == "watchlist_preview_v1"
+        assert {item["ticker"] for item in payload["watchlist"]["items"]} == {"AAPL", "MSFT"}
+
+        update = c.put(
+            f"/api/pro/v1/workspace/watchlists/{watchlist_id}",
+            headers={"Authorization": "Bearer " + token},
+            json={
+                "name": "MSFT only",
+                "tickers": ["MSFT"],
+                "filters": {"action": "watch"},
+                "alert_policy": {"enabled": False, "frequency": "weekly"},
+                "notes": "",
+            },
+        )
+        assert update.status_code == 200
+        updated = update.get_json()["watchlist"]
+        assert updated["name"] == "MSFT only"
+        assert updated["tickers"] == ["MSFT"]
+        assert updated["alert_policy"] == {"enabled": False, "frequency": "weekly"}
+
+        deleted = c.delete(
+            f"/api/pro/v1/workspace/watchlists/{watchlist_id}",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert deleted.status_code == 200
+        assert deleted.get_json()["deleted"] is True
+        gone = c.get(
+            f"/api/pro/v1/workspace/watchlists/{watchlist_id}",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert gone.status_code == 404
 
 
 def test_pro_api_rate_limit_is_persistent(monkeypatch):
