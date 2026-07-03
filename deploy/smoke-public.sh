@@ -110,6 +110,31 @@ for path in /methodology /methodology/app /methodology/mcp; do
   fi
 done
 
+developers_page="$tmpdir/developers.html"
+if fetch "/developers" "$developers_page"; then
+  grep -q "MCP tools/list" "$developers_page" \
+    && grep -q "/api/openapi.json" "$developers_page" \
+    && grep -q "/api/pro/v1/openapi.json" "$developers_page" \
+    && grep -q "Pro tools are intentionally visible" "$developers_page" \
+    && ok "/developers page" \
+    || bad "/developers page" "missing developer contract copy"
+  contains_none "/developers has no legacy/auth/checkout copy" "$developers_page" "${legacy_forbidden[@]}"
+else
+  bad "/developers page" "curl failed"
+fi
+
+pro_terms_page="$tmpdir/legal-pro-api.html"
+if fetch "/legal/pro-api" "$pro_terms_page"; then
+  grep -q "Pro API, MCP and x402 terms" "$pro_terms_page" \
+    && grep -q "Self-serve checkout is disabled" "$pro_terms_page" \
+    && grep -q "No resale, redistribution" "$pro_terms_page" \
+    && ok "/legal/pro-api terms" \
+    || bad "/legal/pro-api terms" "missing Pro API terms copy"
+  contains_none "/legal/pro-api has no legacy/auth/checkout copy" "$pro_terms_page" "${legacy_forbidden[@]}"
+else
+  bad "/legal/pro-api terms" "curl failed"
+fi
+
 pro_page="$tmpdir/pro.html"
 if fetch "/pro" "$pro_page"; then
   grep -q "13FLOW Pro API" "$pro_page" \

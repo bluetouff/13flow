@@ -1983,7 +1983,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             '<nav><a class="brand" href="/">13<span>FL</span><b>OW</b></a>'
             '<a href="/funds">Funds</a><a href="/stocks">Stocks</a>'
             '<a href="/signals">Signals</a><a href="/methodology/app">Methodology</a>'
-            '<a href="/pro">Pro API</a><a href="/faq">FAQ</a>'
+            '<a href="/developers">Developers</a><a href="/pro">Pro API</a><a href="/faq">FAQ</a>'
             '<a href="/legal">Legal</a></nav>'
         )
         html = f"""<!doctype html>
@@ -2328,6 +2328,94 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     @app.get("/methodology/mcp")
     def mcp_methodology_page():
         return _methodology_page("MCP methodology", mcp_methodology_payload(), "/api/methodology/mcp")
+
+    @app.get("/developers")
+    def developers_page():
+        offer = pro_offer_payload()
+        limits = offer["default_limits"]
+        tools = [
+            ("get_live_status", "Public dataset state, counts, latest 13F quarter and quality summary."),
+            ("get_product_status", "Commercial readiness, validation boundary and disabled-claim list."),
+            ("get_pro_offer", "Machine-readable Pro packaging, buyer checklist and pricing model."),
+            ("list_funds", "Public tracked fund list."),
+            ("pro.list_funds", "Pro-only fund list; fails closed without a valid key or paid access."),
+        ]
+        tool_rows = "".join(
+            f"<tr><td><code>{html_escape(name)}</code></td><td>{html_escape(desc)}</td></tr>"
+            for name, desc in tools
+        )
+        curl_status = (
+            "curl -fsS https://13flow.eu/api/live-status\n"
+            "curl -fsS https://13flow.eu/api/product-status\n"
+            "curl -fsS https://13flow.eu/api/pro-offer"
+        )
+        curl_mcp = (
+            "curl -fsS https://13flow.eu/api/mcp \\\n"
+            "  -H 'Content-Type: application/json' \\\n"
+            "  -H 'Accept: application/json, text/event-stream' \\\n"
+            "  --data '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}'"
+        )
+        body = (
+            "<h1>Developers</h1>"
+            "<p class=\"lede\">Public read-only API and MCP entry points for source-linked SEC 13F context. "
+            "Pro access is operator-issued and must fail closed without a valid credential or paid settlement.</p>"
+            "<div class=\"grid\">"
+            "<div class=\"card\"><h3>Public API</h3><p><a href=\"/api/openapi.json\">/api/openapi.json</a></p>"
+            "<p class=\"meta\">No browser account, no cookies, no checkout required for open endpoints.</p></div>"
+            "<div class=\"card\"><h3>Pro API</h3><p><a href=\"/api/pro/v1/openapi.json\">/api/pro/v1/openapi.json</a></p>"
+            f"<p class=\"meta\">Default pilot limits: {limits['rate_per_min']} / min, {limits['rate_per_day']} / day.</p></div>"
+            "<div class=\"card\"><h3>MCP</h3><p><a href=\"/api/mcp\">/api/mcp</a></p>"
+            "<p class=\"meta\">Streamable HTTP, public tools plus Pro tools gated by key or payment path.</p></div>"
+            "</div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Quick checks</h2>"
+            f"<pre><code>{html_escape(curl_status)}</code></pre></div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>MCP tools/list</h2>"
+            f"<pre><code>{html_escape(curl_mcp)}</code></pre></div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Tool boundary</h2>"
+            f"<table><thead><tr><th>Tool</th><th>Contract</th></tr></thead><tbody>{tool_rows}</tbody></table>"
+            "<p class=\"meta\">Pro tools are intentionally visible in tools/list so agents can discover the capability, "
+            "then receive a 402/401 fail-closed response without payment or key.</p></div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Use policy</h2>"
+            "<ul><li>13FLOW is a research screen, not investment advice.</li>"
+            "<li>13F filings are delayed regulatory disclosures and are not real-time portfolios.</li>"
+            "<li>Do not market tool output as validated alpha, expected return or trading recommendation.</li>"
+            "<li>Redistribution, bulk resale, custom limits and automated high-volume use require operator approval.</li></ul>"
+            "<p><a class=\"pill\" href=\"/legal/pro-api\">Pro API terms</a> "
+            "<a class=\"pill\" href=\"/methodology/mcp\">MCP methodology</a> "
+            "<a class=\"pill\" href=\"/pro\">Request Pro access</a></p></div>"
+        )
+        return _html_response("Developers", body)
+
+    @app.get("/legal/pro-api")
+    def pro_api_terms_page():
+        body = (
+            "<h1>Pro API, MCP and x402 terms</h1>"
+            "<p class=\"lede\">Operational terms for evaluated Pro access. These terms are intentionally strict until "
+            "validation, billing, support and redistribution policies are expanded in a signed agreement.</p>"
+            "<div class=\"grid\">"
+            "<div class=\"card\"><h3>Access model</h3><p>Pro access is operator-reviewed and issued through scoped API keys. "
+            "Self-serve checkout is disabled on the open build.</p></div>"
+            "<div class=\"card\"><h3>Payment model</h3><p>x402 support is implemented as a gated path but remains disabled "
+            "until production payment details are configured and verified.</p></div>"
+            "<div class=\"card\"><h3>Audit model</h3><p>Accepted, denied and rate-limited Pro requests may be logged with "
+            "key id, scope, endpoint, status and request metadata needed for security review.</p></div>"
+            "</div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Allowed use</h2>"
+            "<ul><li>Internal research, dashboards, notebooks, data-quality checks and agent workflows.</li>"
+            "<li>Source-linked review of SEC EDGAR-derived 13F holdings and quality warnings.</li>"
+            "<li>MCP use where Pro tools fail closed without a valid key or paid access.</li></ul></div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Restricted use</h2>"
+            "<ul><li>No resale, redistribution, bulk republishing or public embedding of Pro data without written approval.</li>"
+            "<li>No representation that 13FLOW provides investment advice, validated alpha, probabilities or expected returns.</li>"
+            "<li>No attempts to bypass rate limits, auth, audit logging, payment checks or credential isolation.</li>"
+            "<li>No storage of API keys in client-side code, public repositories or shared prompts.</li></ul></div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Data and proof boundary</h2>"
+            "<p>13FLOW structures public SEC filing data and adds quality metadata, source links and research-screen contracts. "
+            "It does not own the underlying SEC filings and does not sell raw SEC access as proprietary data.</p>"
+            "<p class=\"meta\">Current methodology references: <a href=\"/methodology/app\">application</a>, "
+            "<a href=\"/methodology/mcp\">MCP</a>, <a href=\"/api/product-status\">product status</a>.</p></div>"
+        )
+        return _html_response("Pro API terms", body)
 
     @app.get("/pro")
     def static_pro_offer():

@@ -201,11 +201,13 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             ("/signals", "test signal"),
             ("/signals/AAPL", "Latest 13F holders"),
             ("/pro", "13FLOW Pro API"),
+            ("/developers", "MCP tools/list"),
             ("/methodology", "Application methodology"),
             ("/methodology/app", "13F filings are delayed regulatory disclosures"),
             ("/methodology/mcp", "Pro tools must fail closed"),
             ("/faq", "Frequently asked questions"),
             ("/legal", "Legal, privacy and data terms"),
+            ("/legal/pro-api", "Pro API, MCP and x402 terms"),
         ):
             r = c.get(path)
             assert r.status_code == 200, path
@@ -259,6 +261,17 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Operator lead kit" in pro_page
         assert "490 EUR / month" in pro_page
         assert "Pilot access" in pro_page
+
+        developers = c.get("/developers").get_data(as_text=True)
+        assert "/api/openapi.json" in developers
+        assert "/api/pro/v1/openapi.json" in developers
+        assert "Pro tools are intentionally visible" in developers
+        assert "Redistribution" in developers
+
+        pro_terms = c.get("/legal/pro-api").get_data(as_text=True)
+        assert "Self-serve checkout is disabled" in pro_terms
+        assert "No resale, redistribution" in pro_terms
+        assert "does not sell raw SEC access as proprietary data" in pro_terms
 
         api_stock = c.get("/api/stocks/AAPL").get_json()
         assert api_stock["ticker"] == "AAPL"
