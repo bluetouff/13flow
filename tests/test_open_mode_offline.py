@@ -11,7 +11,7 @@ from pathlib import Path
 
 from smartmoney.db import Store
 from smartmoney.api import create_app
-from tests.test_db_offline import AAPL, _save
+from tests.test_db_offline import AAPL, MSFT, _save
 
 
 def _seed(path):
@@ -440,6 +440,9 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         api_stock = c.get("/api/stocks/AAPL").get_json()
         assert api_stock["ticker"] == "AAPL"
         assert api_stock["holder_count"] == 1
+        assert api_stock["confidence"]["status"] == "ok"
+        assert api_stock["score"]["version"] == "ticker_flow_v1"
+        assert "movements" in api_stock
 
         mcp = c.post("/api/mcp", json={
             "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}
@@ -454,6 +457,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         }).get_json()
         assert stock["result"]["structuredContent"]["ticker"] == "AAPL"
         assert stock["result"]["structuredContent"]["holder_count"] == 1
+        assert stock["result"]["structuredContent"]["score"]["version"] == "ticker_flow_v1"
 
         product = c.post("/api/mcp", json={
             "jsonrpc": "2.0", "id": 3, "method": "tools/call",
@@ -468,6 +472,54 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             "params": {"name": "pro.offer", "arguments": {}},
         }).get_json()
         assert pro_offer["result"]["structuredContent"]["offer"]["self_serve_checkout"] is False
+
+
+def test_ticker_flow_payload_explains_quarter_moves_and_confidence():
+    with tempfile.TemporaryDirectory() as d:
+        db = str(Path(d) / "ticker-flow.db")
+        s = Store(db)
+        # Q1: Berkshire and Greenlight hold AAPL.
+        _save(s, "0001067983", "Berkshire Hathaway", "Warren Buffett",
+              "BRK-Q1", "13F-HR", "2026-02-14", "2025-12-31",
+              [("APPLE INC", AAPL, 1000, 100, "")])
+        _save(s, "0001489933", "Greenlight", "David Einhorn",
+              "GL-Q1", "13F-HR", "2026-02-14", "2025-12-31",
+              [("APPLE INC", AAPL, 800, 80, "")])
+        # Q2: Berkshire adds, Pershing opens, Greenlight exits AAPL.
+        _save(s, "0001067983", "Berkshire Hathaway", "Warren Buffett",
+              "BRK-Q2", "13F-HR", "2026-05-15", "2026-03-31",
+              [("APPLE INC", AAPL, 1500, 130, "")])
+        _save(s, "0001336528", "Pershing Square", "Bill Ackman",
+              "PS-Q2", "13F-HR", "2026-05-15", "2026-03-31",
+              [("APPLE INC", AAPL, 700, 35, "")])
+        _save(s, "0001489933", "Greenlight", "David Einhorn",
+              "GL-Q2", "13F-HR", "2026-05-15", "2026-03-31",
+              [("MICROSOFT", MSFT, 900, 20, "")])
+        s.conn.execute("UPDATE holdings SET ticker='AAPL' WHERE cusip=?", (AAPL,))
+        s.conn.execute("UPDATE holdings SET ticker='MSFT' WHERE cusip=?", (MSFT,))
+        s.conn.commit()
+        s.close()
+
+        c = create_app(db, secure_cookies=False, open_mode=True).test_client()
+        payload = c.get("/api/stocks/AAPL").get_json()
+
+        assert payload["latest_13f_quarter"] == "2026-03-31"
+        assert payload["movement_summary"]["holder_count"] == 2
+        assert payload["movement_summary"]["buyers_count"] == 2
+        assert payload["movement_summary"]["sellers_count"] == 1
+        assert payload["movement_summary"]["new_positions"] == 1
+        assert payload["movement_summary"]["exits"] == 1
+        assert payload["confidence"]["status"] == "ok"
+        assert payload["score"]["score"] > 0
+        moves = {(m["label"], m["move"]) for m in payload["movements"]}
+        assert ("Berkshire Hathaway", "ADD") in moves
+        assert ("Pershing Square", "NEW") in moves
+        assert ("Greenlight", "EXIT") in moves
+
+        html = c.get("/stocks/AAPL").get_data(as_text=True)
+        assert "Ticker Flow Score" in html
+        assert "Quarter Moves" in html
+        assert "Data Confidence" in html
 
 
 if __name__ == "__main__":

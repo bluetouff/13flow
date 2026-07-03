@@ -585,10 +585,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 },
                 "/api/stocks/{ticker}": {
                     "get": {
-                        "summary": "Latest holders for one ticker",
+                        "summary": "Ticker flow intelligence with holders, moves, score and data confidence",
                         "parameters": [{"name": "ticker", "in": "path", "required": True,
                                         "schema": {"type": "string", "pattern": "^[A-Z0-9.\\-]{1,12}$"}}],
-                        "responses": {"200": {"description": "Ticker holder detail"},
+                        "responses": {"200": {"description": "Ticker flow detail"},
                                       "400": {"description": "Invalid ticker"}},
                     }
                 },
@@ -1079,7 +1079,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             },
             {
                 "name": "stocks.get",
-                "description": "Get latest holders for one ticker.",
+                "description": "Get ticker flow intelligence: latest holders, quarter moves, score and data confidence.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {"ticker": {"type": "string"}},
@@ -1116,6 +1116,90 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             },
         ]
 
+    def _portfolio_ticker_position(pf: Portfolio | None, ticker: str):
+        if pf is None:
+            return None
+        ticker = ticker.upper()
+        for p in pf.positions.values():
+            if p.put_call:
+                continue
+            if (p.ticker or "").upper() == ticker:
+                return p
+        return None
+
+    def _stock_move(prev_pos, curr_pos) -> str:
+        if curr_pos is not None and prev_pos is None:
+            return Move.NEW.value
+        if curr_pos is None and prev_pos is not None:
+            return Move.EXIT.value
+        if curr_pos is None or prev_pos is None:
+            return "NONE"
+        prev_shares = float(prev_pos.shares or 0)
+        curr_shares = float(curr_pos.shares or 0)
+        if prev_shares <= 0:
+            return Move.NEW.value if curr_shares > 0 else Move.HOLD.value
+        change = (curr_shares - prev_shares) / prev_shares
+        if change > 0.005:
+            return Move.ADD.value
+        if change < -0.005:
+            return Move.TRIM.value
+        return Move.HOLD.value
+
+    def _stock_confidence_status(holders: list[dict], movements: list[dict],
+                                 quality_flags: list[dict]) -> dict:
+        reasons: list[str] = []
+        status = "ok"
+        if not holders:
+            status = "thin"
+            reasons.append("No active-registry holder in the latest selected 13F quarter.")
+        if quality_flags:
+            status = "review"
+            reasons.append("At least one involved fund has an active data-quality warning.")
+        partials = [
+            h for h in holders
+            if str(h.get("form") or "").endswith("/A") and int(h.get("n_positions") or 0) <= 3
+        ]
+        if partials:
+            status = "review"
+            reasons.append("One or more latest holder rows come from a tiny 13F amendment.")
+        if not reasons:
+            reasons.append("Latest holders come from active-registry 13F rows with no ticker-level quality warning.")
+        return {
+            "status": status,
+            "reasons": reasons,
+            "quality_flag_count": len(quality_flags),
+            "movement_count": len([m for m in movements if m["move"] != "NONE"]),
+        }
+
+    def _stock_score(summary: dict, confidence: dict) -> dict:
+        holders = int(summary.get("holder_count") or 0)
+        buyers = int(summary.get("buyers_count") or 0)
+        new_positions = int(summary.get("new_positions") or 0)
+        conviction = int(summary.get("conviction_funds") or 0)
+        avg_weight = float(summary.get("avg_weight_pct") or 0.0)
+        raw = (
+            min(holders, 8) * 6
+            + min(buyers, 5) * 10
+            + min(new_positions, 4) * 8
+            + min(conviction, 5) * 7
+            + min(avg_weight, 8.0) * 2.0
+        )
+        penalty = 15 if confidence["status"] == "review" else (6 if confidence["status"] == "thin" else 0)
+        score = max(0.0, min(100.0, raw - penalty))
+        return {
+            "score": round(score, 1),
+            "version": "ticker_flow_v1",
+            "interpretation": "ordinal research screen, not a probability or price target",
+            "components": {
+                "holders": holders,
+                "buyers": buyers,
+                "new_positions": new_positions,
+                "conviction_funds": conviction,
+                "avg_weight_pct": round(avg_weight, 4),
+                "data_quality_penalty": penalty,
+            },
+        }
+
     def _stock_payload(ticker: str) -> dict:
         t = (ticker or "").strip().upper()
         if not re.fullmatch(r"[A-Z0-9.\-]{1,12}", t):
@@ -1123,27 +1207,108 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             raise BadRequest("invalid ticker")
         s = store()
         try:
-            latest = s.conn.execute("SELECT MAX(report_date) d FROM latest_filings").fetchone()["d"]
+            active = _public_active_ciks(s)
+            latest = _latest_filings_date(s, "MAX", active)
+            active_values = tuple(sorted(active))
+            active_sql = ""
+            active_args: tuple[str, ...] = ()
+            if active_values:
+                active_sql = f" AND lf.cik IN ({_placeholders(active_values)})"
+                active_args = active_values
             rows = [dict(r) for r in s.conn.execute(
-                """SELECT fn.label, lf.cik, lf.report_date, f.accession, f.filing_date,
+                f"""SELECT fn.label, lf.cik, lf.report_date, f.accession, f.filing_date,
+                          f.form, f.n_positions,
                           h.cusip, h.ticker, h.issuer, h.title_of_class, h.value_usd,
                           h.shares, h.weight
                    FROM latest_filings lf
                    JOIN filings f ON f.accession=lf.accession
                    JOIN holdings h ON h.accession=lf.accession AND h.put_call=''
                    JOIN funds fn ON fn.cik=lf.cik
-                   WHERE lf.report_date=? AND UPPER(h.ticker)=?
+                   WHERE lf.report_date=? AND UPPER(h.ticker)=? {active_sql}
                    ORDER BY h.value_usd DESC""",
-                (latest, t),
+                (latest, t, *active_args),
             )]
+
+            movements: list[dict] = []
+            labels = {r["cik"]: r["label"] for r in _fund_rows(s, active)}
+            for cik in sorted(active):
+                curr = s.load_portfolio(cik, latest)
+                prev_q = s.previous_quarter(cik, latest) if latest else None
+                prev = s.load_portfolio(cik, prev_q) if prev_q else None
+                curr_pos = _portfolio_ticker_position(curr, t)
+                prev_pos = _portfolio_ticker_position(prev, t)
+                if curr_pos is None and prev_pos is None:
+                    continue
+                move = _stock_move(prev_pos, curr_pos)
+                filing = filing_row_for(s, cik, latest) if curr_pos is not None else None
+                movements.append({
+                    "cik": cik,
+                    "label": labels.get(cik, cik),
+                    "move": move,
+                    "previous_quarter": prev_q,
+                    "current_quarter": latest,
+                    "prev_value_usd": prev_pos.value_usd if prev_pos is not None else 0.0,
+                    "curr_value_usd": curr_pos.value_usd if curr_pos is not None else 0.0,
+                    "prev_shares": prev_pos.shares if prev_pos is not None else 0.0,
+                    "curr_shares": curr_pos.shares if curr_pos is not None else 0.0,
+                    "curr_weight": curr_pos.weight if curr_pos is not None else 0.0,
+                    "filing": filing_payload(filing),
+                    "sec_filing_url": (
+                        sec_accession_url(cik, filing["accession"])
+                        if filing and filing.get("accession") else None
+                    ),
+                })
+            movements.sort(
+                key=lambda m: (
+                    m["move"] not in (Move.NEW.value, Move.ADD.value),
+                    -float(m["curr_value_usd"] or m["prev_value_usd"] or 0),
+                    m["label"],
+                )
+            )
+
+            quality = data_quality_report(s, limit=500, active_ciks=active)
+            involved_ciks = {r["cik"] for r in rows} | {m["cik"] for m in movements}
+            quality_flags: list[dict] = []
+            for bucket in ("warnings", "freshness_warnings"):
+                for w in quality.get(bucket, []):
+                    if (w.get("fund") or {}).get("cik") in involved_ciks:
+                        quality_flags.append(w)
+            for w in quality.get("duplicate_label_warnings", []):
+                if any(f.get("cik") in involved_ciks for f in w.get("funds", [])):
+                    quality_flags.append(w)
+
+            buyers = [m for m in movements if m["move"] in (Move.NEW.value, Move.ADD.value)]
+            sellers = [m for m in movements if m["move"] in (Move.TRIM.value, Move.EXIT.value)]
+            conviction_funds = [
+                m for m in movements
+                if m["move"] == Move.NEW.value or float(m.get("curr_weight") or 0.0) >= 0.05
+            ]
+            holder_weights = [float(r["weight"] or 0.0) for r in rows]
+            summary = {
+                "holder_count": len(rows),
+                "buyers_count": len(buyers),
+                "sellers_count": len(sellers),
+                "new_positions": len([m for m in movements if m["move"] == Move.NEW.value]),
+                "exits": len([m for m in movements if m["move"] == Move.EXIT.value]),
+                "conviction_funds": len(conviction_funds),
+                "avg_weight_pct": (sum(holder_weights) / len(holder_weights) * 100.0) if holder_weights else 0.0,
+                "total_value_usd": sum(r["value_usd"] or 0 for r in rows),
+            }
+            confidence = _stock_confidence_status(rows, movements, quality_flags)
+            score = _stock_score(summary, confidence)
         finally:
             s.close()
         return {
             "ticker": t,
             "latest_13f_quarter": latest,
             "holders": rows,
-            "holder_count": len(rows),
-            "total_value_usd": sum(r["value_usd"] or 0 for r in rows),
+            "holder_count": summary["holder_count"],
+            "total_value_usd": summary["total_value_usd"],
+            "movement_summary": summary,
+            "movements": movements,
+            "confidence": confidence,
+            "score": score,
+            "quality_flags": quality_flags[:25],
             "sec_company_search": f"https://www.sec.gov/edgar/search/#/q={t}",
         }
 
@@ -2534,16 +2699,24 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     def static_stocks():
         s = store()
         try:
-            latest = s.conn.execute("SELECT MAX(report_date) d FROM latest_filings").fetchone()["d"]
+            active = _public_active_ciks(s)
+            latest = _latest_filings_date(s, "MAX", active)
+            active_values = tuple(sorted(active))
+            active_sql = ""
+            active_args: tuple[str, ...] = ()
+            if active_values:
+                active_sql = f" AND lf.cik IN ({_placeholders(active_values)})"
+                active_args = active_values
             rows = [dict(r) for r in s.conn.execute(
-                """SELECT UPPER(h.ticker) ticker, MAX(h.issuer) issuer,
+                f"""SELECT UPPER(h.ticker) ticker, MAX(h.issuer) issuer,
                           COUNT(DISTINCT lf.cik) holders, SUM(h.value_usd) value_usd
                    FROM latest_filings lf
                    JOIN holdings h ON h.accession=lf.accession AND h.put_call=''
                    WHERE lf.report_date=? AND h.ticker IS NOT NULL AND h.ticker<>''
+                   {active_sql}
                    GROUP BY UPPER(h.ticker)
                    ORDER BY value_usd DESC LIMIT 300""",
-                (latest,),
+                (latest, *active_args),
             )]
         finally:
             s.close()
@@ -2559,18 +2732,55 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     @app.get("/stocks/<ticker>")
     def static_stock_detail(ticker):
         payload = _stock_payload(ticker)
-        rows = "".join(
+        score = payload.get("score") or {}
+        confidence = payload.get("confidence") or {}
+        summary = payload.get("movement_summary") or {}
+        holder_rows = "".join(
             f"<tr><td><a href=\"/funds/{html_escape(r['cik'])}\">{html_escape(r['label'])}</a></td>"
             f"<td class=\"num\">{r['weight'] * 100:.2f}%</td><td class=\"num\">{_fmt_usd_html(r['value_usd'])}</td>"
             f"<td><a class=\"sec\" href=\"{html_escape(sec_accession_url(r['cik'], r['accession']))}\" rel=\"noopener\" target=\"_blank\">{html_escape(r['accession'])}</a></td></tr>"
             for r in payload["holders"]
         )
+        movement_rows = "".join(
+            f"<tr><td><a href=\"/funds/{html_escape(m['cik'])}\">{html_escape(m['label'])}</a>"
+            f"<div class=\"meta\">prev {html_escape(str(m.get('previous_quarter') or '-'))}</div></td>"
+            f"<td><span class=\"pill\">{html_escape(m['move'])}</span></td>"
+            f"<td class=\"num\">{_fmt_usd_html(m.get('prev_value_usd'))}</td>"
+            f"<td class=\"num\">{_fmt_usd_html(m.get('curr_value_usd'))}</td>"
+            f"<td class=\"num\">{float(m.get('curr_weight') or 0) * 100:.2f}%</td>"
+            f"<td>{('<a class=\"sec\" href=\"' + html_escape(m['sec_filing_url']) + '\" rel=\"noopener\" target=\"_blank\">SEC</a>') if m.get('sec_filing_url') else '-'}</td></tr>"
+            for m in payload.get("movements", [])[:40]
+        )
+        quality_pills = "".join(
+            f"<span class=\"pill\">{html_escape(str(w.get('type') or 'quality'))}: "
+            f"{html_escape(str((w.get('fund') or {}).get('label') or w.get('label') or 'review'))}</span>"
+            for w in payload.get("quality_flags", [])[:8]
+        ) or '<span class="pill">no active ticker-level quality warning</span>'
+        reasons = "".join(
+            f"<li>{html_escape(str(reason))}</li>"
+            for reason in confidence.get("reasons", [])
+        )
         body = (
             f"<h1>{html_escape(payload['ticker'])}</h1>"
-            f"<p class=\"lede\">{payload['holder_count']} tracked funds held {html_escape(payload['ticker'])} "
-            f"at {html_escape(payload['latest_13f_quarter'] or '-')}; aggregate reported value {_fmt_usd_html(payload['total_value_usd'])}. "
+            f"<p class=\"lede\">Ticker intelligence from active-registry 13F rows at {html_escape(payload['latest_13f_quarter'] or '-')}. "
             f"<a href=\"{html_escape(payload['sec_company_search'])}\" rel=\"noopener\" target=\"_blank\">SEC company search</a></p>"
-            f"<table><thead><tr><th>Fund</th><th>Weight</th><th>Value</th><th>SEC filing</th></tr></thead><tbody>{rows}</tbody></table>"
+            f"<div class=\"doc-metrics\">"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(score.get('score', 0)))}</b><span>Ticker Flow Score</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(payload['holder_count']))}</b><span>latest holders</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(summary.get('buyers_count') or 0))}</b><span>buyers/adders</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(confidence.get('status') or 'unknown')}</b><span>data confidence</span></div>"
+            f"</div>"
+            f"<div class=\"split\"><section class=\"panel\"><h2>Signal Components</h2>"
+            f"<p>{html_escape(score.get('interpretation') or '')}</p>"
+            f"<p><span class=\"pill\">new={html_escape(str(summary.get('new_positions') or 0))}</span>"
+            f"<span class=\"pill\">trims/exits={html_escape(str(summary.get('sellers_count') or 0))}</span>"
+            f"<span class=\"pill\">conviction funds={html_escape(str(summary.get('conviction_funds') or 0))}</span>"
+            f"<span class=\"pill\">avg weight={float(summary.get('avg_weight_pct') or 0):.2f}%</span></p></section>"
+            f"<section class=\"panel\"><h2>Data Confidence</h2><ul>{reasons}</ul><p>{quality_pills}</p></section></div>"
+            f"<h2>Quarter Moves</h2>"
+            f"<table><thead><tr><th>Fund</th><th>Move</th><th>Previous value</th><th>Current value</th><th>Weight</th><th>Source</th></tr></thead><tbody>{movement_rows}</tbody></table>"
+            f"<h2>Latest Holders</h2>"
+            f"<table><thead><tr><th>Fund</th><th>Weight</th><th>Value</th><th>SEC filing</th></tr></thead><tbody>{holder_rows}</tbody></table>"
         )
         return _html_response(payload["ticker"], body)
 
