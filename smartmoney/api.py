@@ -4609,6 +4609,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 .workspace-form .actions{grid-column:1/-1;margin:0}
 .workspace-form-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
 .workspace-form-head h2{margin:0}
+.workspace-toggle{display:flex!important;align-items:center;gap:8px;text-transform:none!important;letter-spacing:0!important;font-family:var(--sans)!important;font-size:13px!important;color:var(--muted)!important}
+.workspace-toggle input{width:auto!important}
 @media(max-width:980px){.workspace-grid,.workspace-bar{grid-template-columns:1fr}.workspace-kpis{grid-template-columns:1fr 1fr}.workspace-form{grid-template-columns:1fr}}
 @media(max-width:700px){.workspace-kpis{grid-template-columns:1fr}}
 </style>
@@ -4646,6 +4648,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
           <label>Action <select name="action"><option value="">Any</option><option value="alert">Alert</option><option value="watch">Watch</option><option value="monitor">Monitor</option></select></label>
           <label>Min score <input name="min_score" inputmode="decimal" min="0" max="100" placeholder="30"></label>
           <label class="wide">Move filters <input name="move" placeholder="NEW, ADD"></label>
+          <label class="workspace-toggle wide"><input name="alert_enabled" type="checkbox" value="1"> Scheduled alerts</label>
+          <label class="wide">Alert frequency <select name="alert_frequency"><option value="manual">Manual</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select></label>
           <label class="wide">Notes <textarea name="notes" maxlength="1000"></textarea></label>
           <div class="actions"><button id="workspaceSave" class="workspace-button primary" type="submit">Create</button></div>
         </form>
@@ -4726,6 +4730,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         .concat((filters.action || []).map((x) => "action:" + x))
         .concat((filters.move || []).map((x) => "move:" + x));
       if (filters.min_score !== null && filters.min_score !== undefined) chips.push("score>=" + filters.min_score);
+      const policy = w.alert_policy || {};
+      chips.push(policy.enabled ? ("alerts:" + (policy.frequency || "daily")) : "alerts:manual");
       return `<article class="workspace-row${active}" data-watchlist-id="${esc(w.id)}">
         <div class="workspace-row-top"><h3>${esc(w.name)}</h3><span class="workspace-mini">${esc(w.tickers.length)} tickers</span></div>
         <p>${esc(w.tickers.join(", "))}</p>
@@ -4849,11 +4855,16 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
       filters.min_score = minScore;
     }
     if (move.length) filters.move = move;
+    const alertEnabled = Boolean(data.get("alert_enabled"));
+    const alertFrequency = String(data.get("alert_frequency") || "manual").trim().toLowerCase();
+    if (alertEnabled && !["daily", "weekly"].includes(alertFrequency)) {
+      throw new Error("Scheduled alerts require daily or weekly frequency");
+    }
     return {
       name: String(data.get("name") || "").trim(),
       tickers: splitValues(data.get("tickers")),
       filters,
-      alert_policy: {enabled: false, frequency: "manual"},
+      alert_policy: {enabled: alertEnabled, frequency: alertEnabled ? alertFrequency : "manual"},
       notes: String(data.get("notes") || "").trim(),
     };
   }
@@ -4862,12 +4873,15 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     if (!item) return;
     const form = $("workspaceCreate");
     const filters = item.filters || {};
+    const policy = item.alert_policy || {};
     state.editingId = id;
     field(form, "name").value = item.name || "";
     field(form, "tickers").value = (item.tickers || []).join(", ");
     field(form, "action").value = (filters.action || [])[0] || "";
     field(form, "min_score").value = filters.min_score ?? "";
     field(form, "move").value = (filters.move || []).join(", ");
+    field(form, "alert_enabled").checked = Boolean(policy.enabled);
+    field(form, "alert_frequency").value = policy.frequency || "manual";
     field(form, "notes").value = item.notes || "";
     $("workspaceFormTitle").textContent = "Edit Watchlist";
     $("workspaceSave").textContent = "Save changes";

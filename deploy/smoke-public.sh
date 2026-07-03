@@ -205,6 +205,8 @@ if fetch "/pro/workspace" "$pro_workspace_page"; then
     && grep -q "sessionStorage" "$pro_workspace_page" \
     && grep -q "Edit Watchlist" "$pro_workspace_page" \
     && grep -q "Save changes" "$pro_workspace_page" \
+    && grep -q "Scheduled alerts" "$pro_workspace_page" \
+    && grep -q "alert_policy: {enabled: alertEnabled" "$pro_workspace_page" \
     && grep -q "workspace/overview" "$pro_workspace_page" \
     && grep -q "workspace/alerts?status=all&limit=50" "$pro_workspace_page" \
     && grep -q 'method: "PUT"' "$pro_workspace_page" \
