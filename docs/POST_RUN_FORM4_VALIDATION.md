@@ -61,24 +61,14 @@ test "$(git rev-parse HEAD)" = "$SHA"
 sudo tar -C /opt --exclude=13flow/.venv --exclude=13flow/mcp-server/node_modules \
   -czf /var/lib/13flow/13flow-code.bak-before-$SHA-$(date +%Y%m%d-%H%M%S).tgz 13flow
 
-sudo rsync -a --delete --exclude .git --exclude .venv --exclude mcp-server/node_modules "$TMP"/ /opt/13flow/
-sudo chown -R root:flowapp /opt/13flow
-sudo find /opt/13flow -type d -exec chmod 750 {} \;
-sudo find /opt/13flow -type f -exec chmod 640 {} \;
-sudo find /opt/13flow/.venv/bin -maxdepth 1 -type f -exec chmod 750 {} \;
-sudo find /opt/13flow/deploy -maxdepth 1 -name '*.sh' -type f -exec chmod 750 {} \;
-
-printf '[Service]\nEnvironment=SMARTMONEY_GIT_SHA=%s\n' "$SHA" | sudo tee /etc/systemd/system/13flow.service.d/version.conf
-sudo sed -i "s/^MCP_GIT_SHA=.*/MCP_GIT_SHA=$SHA/" /etc/13flow/13flow-mcp.env
-
-sudo systemctl daemon-reload
-sudo systemctl restart 13flow
-sudo systemctl restart 13flow-pro
-sudo systemctl restart 13flow-mcp
-
-curl -fsS https://13flow.eu/api/version
+sudo SHA="$SHA" SRC="$TMP" /opt/13flow/deploy/deploy-code-safe.sh
 EXPECTED_SHA="$SHA" sudo /opt/13flow/deploy/smoke-public.sh
 ```
+
+Do not use a raw `rsync --delete` followed by recursive `chown` / `chmod` on
+all of `/opt/13flow`. `.venv` and `mcp-server/node_modules` are host-built
+runtime dependencies, not Git artifacts; clobbering either one takes production
+down even if the application code itself is valid.
 
 ## 4. Validate the Form 4 CSV offline
 
