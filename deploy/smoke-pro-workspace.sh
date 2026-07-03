@@ -174,6 +174,27 @@ msg = str(data)[:1000]
     bad "workspace overview" "curl failed"
   fi
 
+  report="$tmpdir/workspace-report.json"
+  if curl_pro GET "/api/pro/v1/workspace/report?watchlist_id=$watchlist_id" "$report"; then
+    json_check "workspace report" "$report" "
+meta = data.get('meta') or {}
+items = data.get('watchlists') or []
+first = items[0] if items else {}
+ok = (
+    meta.get('deterministic') is True
+    and meta.get('watchlist_id') == '$watchlist_id'
+    and data.get('executive_summary')
+    and first.get('watchlist', {}).get('id') == '$watchlist_id'
+    and isinstance(first.get('summary_lines'), list)
+    and isinstance(first.get('delta'), dict)
+    and 'signals' not in (first.get('latest_snapshot') or {})
+)
+msg = str(data)[:1000]
+"
+  else
+    bad "workspace report" "curl failed"
+  fi
+
   export_json="$tmpdir/workspace-export.json"
   if curl_pro GET "/api/pro/v1/workspace/export" "$export_json"; then
     json_check "workspace export JSON" "$export_json" "

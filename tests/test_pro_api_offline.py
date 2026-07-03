@@ -142,6 +142,7 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         assert "/api/pro/v1/watchlist/discover" in doc["paths"]
         assert "/api/pro/v1/workspace/overview" in doc["paths"]
         assert "/api/pro/v1/workspace/export" in doc["paths"]
+        assert "/api/pro/v1/workspace/report" in doc["paths"]
         assert "/api/pro/v1/workspace/activity" in doc["paths"]
         assert "/api/pro/v1/workspace/alerts" in doc["paths"]
         assert "/api/pro/v1/workspace/alerts/{alert_id}" in doc["paths"]
@@ -254,6 +255,11 @@ def test_pro_workspace_watchlists_are_saved_per_api_key(monkeypatch):
             headers={"Authorization": "Bearer " + readonly_token},
         )
         assert readonly_export.status_code == 403
+        readonly_report = c.get(
+            "/api/pro/v1/workspace/report",
+            headers={"Authorization": "Bearer " + readonly_token},
+        )
+        assert readonly_report.status_code == 403
 
         create = c.post(
             "/api/pro/v1/workspace/watchlists",
@@ -415,6 +421,40 @@ def test_pro_workspace_watchlists_are_saved_per_api_key(monkeypatch):
         assert payload["summary"]["activity_events"] >= 4
         assert payload["recent_activity"]
         assert payload["watchlists"][0]["id"] == watchlist_id
+
+        workspace_report = c.get(
+            "/api/pro/v1/workspace/report",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert workspace_report.status_code == 200
+        payload = workspace_report.get_json()
+        assert payload["meta"]["deterministic"] is True
+        assert payload["meta"]["watchlist_id"] is None
+        assert payload["executive_summary"]
+        assert payload["summary"]["watchlists"] == 1
+        assert payload["top_open_alerts"] == []
+        assert payload["watchlists"][0]["watchlist"]["id"] == watchlist_id
+        assert payload["watchlists"][0]["latest_snapshot"]["id"] == second_snapshot.get_json()["snapshot"]["id"]
+        assert "signals" not in payload["watchlists"][0]["latest_snapshot"]
+        assert payload["watchlists"][0]["delta"]["baseline_snapshot_id"] == snapshot.get_json()["snapshot"]["id"]
+        assert payload["watchlists"][0]["summary_lines"]
+        assert payload["watchlists"][0]["top_alerts"][0]["ticker"] == first_alert["ticker"]
+        assert payload["watchlists"][0]["top_signals"]
+
+        scoped_report = c.get(
+            f"/api/pro/v1/workspace/report?watchlist_id={watchlist_id}",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert scoped_report.status_code == 200
+        payload = scoped_report.get_json()
+        assert payload["meta"]["watchlist_id"] == watchlist_id
+        assert len(payload["watchlists"]) == 1
+
+        other_report = c.get(
+            f"/api/pro/v1/workspace/report?watchlist_id={watchlist_id}",
+            headers={"Authorization": "Bearer " + other_token},
+        )
+        assert other_report.status_code == 404
 
         workspace_export = c.get(
             "/api/pro/v1/workspace/export",

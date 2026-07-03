@@ -13,6 +13,7 @@ Endpoints (all under /api):
   GET /pro/v1/fund/<cik>?basis=       -> Pro fund detail + moves + quality (API key)
   GET /pro/v1/data-quality            -> Pro data-quality report (API key)
   GET /pro/v1/workspace/export        -> Pro workspace export JSON/CSV (API key)
+  GET /pro/v1/workspace/report        -> Pro workspace readable report (API key)
   GET /pro/v1/openapi.json            -> Pro API OpenAPI document
   GET /subscriptions
   GET /alerts/preview/<cik>
@@ -792,6 +793,20 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                         "responses": {
                             "200": {"description": "Workspace export"},
                             "400": {"description": "Invalid export format"},
+                        },
+                    },
+                },
+                "/api/pro/v1/workspace/report": {
+                    "get": {
+                        "security": security,
+                        "summary": "Human-readable deterministic workspace report",
+                        "parameters": [
+                            {"name": "watchlist_id", "in": "query", "required": False,
+                             "schema": {"type": "string"}},
+                        ],
+                        "responses": {
+                            "200": {"description": "Workspace report"},
+                            "404": {"description": "Watchlist not found"},
                         },
                     },
                 },
@@ -2329,6 +2344,155 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 })
         return out.getvalue()
 
+    def _alert_score_value(alert: dict) -> float:
+        raw = (alert.get("reason") or {}).get("score")
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return -1.0
+
+    def _alert_status_counts(alerts: list[dict]) -> dict:
+        return {
+            "open": len([a for a in alerts if a.get("status") == "open"]),
+            "acknowledged": len([a for a in alerts if a.get("status") == "acknowledged"]),
+            "dismissed": len([a for a in alerts if a.get("status") == "dismissed"]),
+            "total": len(alerts),
+        }
+
+    def _workspace_signal_digest(snapshot: dict | None, limit: int = 5) -> list[dict]:
+        items = list(((snapshot or {}).get("signals") or {}).get("items") or [])
+        digest = []
+        for item in items[:max(1, min(10, int(limit or 5)))]:
+            digest.append({
+                "ticker": item.get("ticker"),
+                "action": item.get("action"),
+                "score": (item.get("score") or {}).get("score"),
+                "movement_codes": list(item.get("movement_codes") or [])[:5],
+                "trigger_codes": [
+                    t.get("code") or t.get("severity")
+                    for t in list(item.get("triggers") or [])[:3]
+                ],
+            })
+        return digest
+
+    def _snapshot_without_signals(snapshot: dict | None) -> dict | None:
+        if not snapshot:
+            return None
+        out = dict(snapshot)
+        out.pop("signals", None)
+        return out
+
+    def _workspace_report_payload(
+        ps: ProAPIStore,
+        key_id: str,
+        *,
+        watchlist_id: str | None = None,
+    ) -> dict | None:
+        if watchlist_id:
+            item = ps.get_watchlist(key_id, watchlist_id)
+            if item is None:
+                return None
+            watchlists = [item]
+        else:
+            watchlists = ps.list_watchlists(key_id)[:50]
+        alerts = ps.list_workspace_alerts(
+            key_id, status=None, limit=100, watchlist_id=watchlist_id,
+        )
+        alerts_by_watchlist: dict[str, list[dict]] = {}
+        for alert in alerts:
+            alerts_by_watchlist.setdefault(alert["watchlist_id"], []).append(alert)
+        reports = []
+        for item in watchlists:
+            history = ps.list_signal_snapshots(
+                key_id, item["id"], limit=2, include_signals=True,
+            )
+            latest = history[0] if history else None
+            previous = history[1] if len(history) > 1 else None
+            delta = _saved_watchlist_signal_delta((latest or {}).get("signals") or {}, previous) if latest else {
+                "baseline_snapshot_id": None,
+                "previous_count": 0,
+                "current_count": 0,
+                "added_tickers": [],
+                "removed_tickers": [],
+                "changed_actions": [],
+                "changed_scores": [],
+            }
+            watch_alerts = sorted(
+                alerts_by_watchlist.get(item["id"], []),
+                key=lambda a: (-int(a.get("severity") or 0), -_alert_score_value(a),
+                               str(a.get("last_seen_at") or ""), str(a.get("ticker") or "")),
+            )
+            status_counts = _alert_status_counts(watch_alerts)
+            top_alert = watch_alerts[0] if watch_alerts else None
+            sentences = []
+            if latest:
+                sentences.append(
+                    f"{item['name']}: {delta['current_count']} ticker(s) in latest snapshot; "
+                    f"{len(delta['added_tickers'])} added, {len(delta['removed_tickers'])} removed, "
+                    f"{len(delta['changed_actions'])} action change(s)."
+                )
+            else:
+                sentences.append(f"{item['name']}: no saved signal snapshot yet.")
+            if top_alert:
+                score = _alert_score_value(top_alert)
+                score_label = f"{score:g}" if score >= 0 else "n/a"
+                sentences.append(
+                    f"Top alert: {top_alert['ticker']} is {top_alert['action']} "
+                    f"with priority {top_alert['severity']} and score {score_label}."
+                )
+            else:
+                sentences.append("No saved alert for this watchlist.")
+            reports.append({
+                "watchlist": item,
+                "latest_snapshot": _snapshot_without_signals(latest),
+                "previous_snapshot": _snapshot_without_signals(previous),
+                "delta": delta,
+                "alert_counts": status_counts,
+                "top_alerts": watch_alerts[:5],
+                "top_signals": _workspace_signal_digest(latest, limit=5),
+                "summary_lines": sentences,
+            })
+        summary = ps.workspace_summary(key_id)
+        top_open_alerts = sorted(
+            [a for a in alerts if a.get("status") == "open"],
+            key=lambda a: (-int(a.get("severity") or 0), -_alert_score_value(a),
+                           str(a.get("last_seen_at") or ""), str(a.get("ticker") or "")),
+        )[:5]
+        lines = [
+            f"{summary['watchlists']} watchlist(s), "
+            f"{summary['alerts']['by_status'].get('open', 0)} open alert(s), "
+            f"{summary['signal_snapshots']} saved snapshot(s)."
+        ]
+        if top_open_alerts:
+            lines.append(
+                "Highest-priority open alert: "
+                f"{top_open_alerts[0]['ticker']} on {top_open_alerts[0]['action']}."
+            )
+        else:
+            lines.append("No open alert in the current workspace scope.")
+        return {
+            "meta": {
+                "api": "13flow-pro",
+                "version": "v1",
+                "git_sha": _git_sha(),
+                "generated_at": _now_iso(),
+                "workspace_scope": "api_key",
+                "watchlist_id": watchlist_id,
+                "deterministic": True,
+                "limits": {
+                    "watchlists": 50,
+                    "alerts": 100,
+                    "snapshots_per_watchlist": 2,
+                    "top_alerts_per_watchlist": 5,
+                    "top_signals_per_watchlist": 5,
+                },
+            },
+            "executive_summary": lines,
+            "summary": summary,
+            "top_open_alerts": top_open_alerts,
+            "watchlists": reports,
+        }
+
     def _clean_workspace_alert_status(raw, *, allow_all: bool = False) -> str | None:
         from werkzeug.exceptions import BadRequest
         value = str(raw or "open").strip().lower()
@@ -2718,6 +2882,22 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 mimetype="text/csv",
                 headers={"Content-Disposition": f'attachment; filename="{filename}"'},
             )
+
+        @app.get("/api/pro/v1/workspace/report")
+        @pro_required("workspace:write")
+        def pro_workspace_report_ep():
+            key = request.pro_api_key
+            watchlist_id = (
+                _clean_workspace_id(request.args.get("watchlist_id"))
+                if request.args.get("watchlist_id") else None
+            )
+            with ProAPIStore(pro_db_path) as ps:
+                payload = _workspace_report_payload(
+                    ps, key.key_id, watchlist_id=watchlist_id,
+                )
+            if payload is None:
+                return jsonify({"error": "not_found"}), 404
+            return jsonify(payload)
 
         @app.get("/api/pro/v1/workspace/activity")
         @pro_required("workspace:write")
@@ -4790,11 +4970,16 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
       <section class="workspace-panel">
         <div class="workspace-row-top"><h2 id="workspaceSelectedTitle">Signals</h2><div class="workspace-actions">
           <button id="workspaceSnapshot" class="workspace-button primary" type="button" disabled>Snapshot</button>
+          <button id="workspaceReportRefresh" class="workspace-button" type="button">Report</button>
           <button id="workspaceExportJson" class="workspace-button" type="button">Export JSON</button>
           <button id="workspaceExportCsv" class="workspace-button" type="button">Export CSV</button>
           <button id="workspaceRefresh" class="workspace-button" type="button">Refresh</button>
         </div></div>
         <div id="workspaceSignals" class="workspace-table"><p class="workspace-empty">Select a watchlist.</p></div>
+      </section>
+      <section class="workspace-panel">
+        <h2>Workspace Report</h2>
+        <div id="workspaceReport" class="workspace-list"><p class="workspace-empty">No report loaded.</p></div>
       </section>
       <section class="workspace-panel">
         <div class="workspace-toolbar"><h2>Alerts</h2><div class="workspace-actions">
@@ -4995,16 +5180,46 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
       return `<tr><td class="workspace-mini">${esc(s.created_at)}</td><td>${esc((s.tickers || []).join(", "))}</td><td class="num">${esc(number(summary.alerts))}</td><td class="num">${esc(number(summary.watch))}</td></tr>`;
     }).join("")}</tbody></table>`;
   }
+  function renderWorkspaceReport(payload={}) {
+    const reports = payload.watchlists || [];
+    if (!reports.length) {
+      $("workspaceReport").innerHTML = '<p class="workspace-empty">No report available.</p>';
+      return;
+    }
+    const summary = (payload.executive_summary || []).map((line) => `<p>${esc(line)}</p>`).join("");
+    const sections = reports.slice(0, 5).map((entry) => {
+      const watchlist = entry.watchlist || {};
+      const delta = entry.delta || {};
+      const lines = (entry.summary_lines || []).map((line) => `<p>${esc(line)}</p>`).join("");
+      const alerts = (entry.top_alerts || []).slice(0, 3).map((a) => `<span class="pill">${esc(a.ticker)} ${esc(a.action)} p${esc(a.severity)}</span>`).join("") || '<span class="pill">no alert</span>';
+      const signals = (entry.top_signals || []).slice(0, 5).map((s) => `<span class="pill">${esc(s.ticker)} ${esc(s.action)} ${esc(s.score ?? "-")}</span>`).join("") || '<span class="pill">no signal</span>';
+      return `<article class="workspace-row">
+        <div class="workspace-row-top"><h3>${esc(watchlist.name || "Watchlist")}</h3><span class="workspace-mini">${esc((watchlist.tickers || []).length)} tickers</span></div>
+        ${lines}
+        <p><span class="pill">added:${esc((delta.added_tickers || []).length)}</span><span class="pill">removed:${esc((delta.removed_tickers || []).length)}</span><span class="pill">action changes:${esc((delta.changed_actions || []).length)}</span></p>
+        <p>${alerts}</p>
+        <p>${signals}</p>
+      </article>`;
+    }).join("");
+    $("workspaceReport").innerHTML = `<article class="workspace-row"><h3>Executive Summary</h3>${summary}</article>${sections}`;
+  }
+  async function loadWorkspaceReport() {
+    const path = state.selectedId ? `/workspace/report?watchlist_id=${encodeURIComponent(state.selectedId)}` : "/workspace/report";
+    const report = await api(path);
+    renderWorkspaceReport(report);
+  }
   async function loadSelected() {
     if (!state.selectedId) {
       renderSignals({items: []});
       renderHistory([]);
+      await loadWorkspaceReport();
       return;
     }
     const signals = await api(`/workspace/watchlists/${state.selectedId}/signals`);
     renderSignals(signals.signals);
     const history = await api(`/workspace/watchlists/${state.selectedId}/signals/history?limit=10`);
     renderHistory(history.history || []);
+    await loadWorkspaceReport();
   }
   async function refreshAll() {
     setStatus("Loading workspace...");
@@ -5133,12 +5348,14 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     renderSignals({items: []});
     renderAlerts([]);
     renderAlertDetail(null);
+    renderWorkspaceReport({});
     renderActivity([]);
     renderHistory([]);
     setStatus("Disconnected");
   });
   $("workspaceRefresh").addEventListener("click", () => refreshAll().catch((e) => setStatus(e.message, true)));
   $("workspaceSnapshot").addEventListener("click", () => snapshot().catch((e) => setStatus(e.message, true)));
+  $("workspaceReportRefresh").addEventListener("click", () => loadWorkspaceReport().catch((e) => setStatus(e.message, true)));
   $("workspaceExportJson").addEventListener("click", () => downloadWorkspaceExport("json").catch((e) => setStatus(e.message, true)));
   $("workspaceExportCsv").addEventListener("click", () => downloadWorkspaceExport("csv").catch((e) => setStatus(e.message, true)));
   $("workspaceCancelEdit").addEventListener("click", resetForm);
