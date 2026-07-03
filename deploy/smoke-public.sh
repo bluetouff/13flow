@@ -374,6 +374,7 @@ ok = (
     meta.get('version') == 'watchlist_discovery_v1'
     and meta.get('source') == 'trusted_ticker_flow'
     and meta.get('human_review_required_for_routine_publication') is False
+    and isinstance(meta.get('filters'), dict)
     and int(meta.get('returned_count') or 0) <= 10
     and isinstance(items, list)
     and set(summary.keys()) >= {'alerts', 'watch', 'monitor', 'blocked'}
@@ -388,6 +389,26 @@ msg = str(data)[:1000]
 "
 else
   bad "/api/watchlist/discover fetch" "curl failed"
+fi
+
+watchlist_filtered="$tmpdir/watchlist-discover-filtered.json"
+if fetch "/api/watchlist/discover?limit=10&action=alert&min_score=50" "$watchlist_filtered"; then
+  json_check "/api/watchlist/discover filtered contract" "$watchlist_filtered" "
+meta = data.get('metadata') or {}
+items = data.get('items') or []
+filters = meta.get('filters') or {}
+ok = (
+    meta.get('version') == 'watchlist_discovery_v1'
+    and filters.get('action') == ['alert']
+    and float(filters.get('min_score') or 0) == 50.0
+    and int(meta.get('returned_count') or 0) <= 10
+    and int(meta.get('filtered_count') or 0) >= int(meta.get('returned_count') or 0)
+    and all((item.get('action') == 'alert' and float((item.get('score') or {}).get('score') or 0) >= 50) for item in items)
+)
+msg = str(data)[:1000]
+"
+else
+  bad "/api/watchlist/discover filtered fetch" "curl failed"
 fi
 
 for path in /api/data-quality /api/methodology/confluence-v1 /api/openapi.json; do

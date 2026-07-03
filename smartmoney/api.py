@@ -613,9 +613,25 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "/api/watchlist/discover": {
                     "get": {
                         "summary": "Automatic trusted 13F watchlist discovery feed",
-                        "parameters": [{"name": "limit", "in": "query", "required": False,
-                                        "schema": {"type": "integer", "minimum": 1, "maximum": 50,
-                                                   "default": 25}}],
+                        "parameters": [
+                            {"name": "limit", "in": "query", "required": False,
+                             "schema": {"type": "integer", "minimum": 1, "maximum": 50,
+                                        "default": 25}},
+                            {"name": "action", "in": "query", "required": False,
+                             "schema": {"type": "string", "description": "Comma-separated alert, watch, monitor, blocked"}},
+                            {"name": "min_score", "in": "query", "required": False,
+                             "schema": {"type": "number", "minimum": 0, "maximum": 100}},
+                            {"name": "move", "in": "query", "required": False,
+                             "schema": {"type": "string", "description": "Comma-separated NEW, ADD, TRIM, EXIT"}},
+                            {"name": "min_holders", "in": "query", "required": False,
+                             "schema": {"type": "integer", "minimum": 1, "maximum": 100}},
+                            {"name": "min_buyers", "in": "query", "required": False,
+                             "schema": {"type": "integer", "minimum": 1, "maximum": 100}},
+                            {"name": "max_13f_value_usd", "in": "query", "required": False,
+                             "schema": {"type": "number", "minimum": 0}},
+                            {"name": "exclude_mega_cap", "in": "query", "required": False,
+                             "schema": {"type": "boolean", "description": "Uses aggregated latest 13F value as a proxy, not market cap"}},
+                        ],
                         "responses": {"200": {"description": "Ranked discovery watchlist"}},
                     }
                 },
@@ -727,6 +743,20 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                             {"name": "limit", "in": "query", "required": False,
                              "schema": {"type": "integer", "minimum": 1, "maximum": 100,
                                         "default": 50}},
+                            {"name": "action", "in": "query", "required": False,
+                             "schema": {"type": "string", "description": "Comma-separated alert, watch, monitor, blocked"}},
+                            {"name": "min_score", "in": "query", "required": False,
+                             "schema": {"type": "number", "minimum": 0, "maximum": 100}},
+                            {"name": "move", "in": "query", "required": False,
+                             "schema": {"type": "string", "description": "Comma-separated NEW, ADD, TRIM, EXIT"}},
+                            {"name": "min_holders", "in": "query", "required": False,
+                             "schema": {"type": "integer", "minimum": 1, "maximum": 100}},
+                            {"name": "min_buyers", "in": "query", "required": False,
+                             "schema": {"type": "integer", "minimum": 1, "maximum": 100}},
+                            {"name": "max_13f_value_usd", "in": "query", "required": False,
+                             "schema": {"type": "number", "minimum": 0}},
+                            {"name": "exclude_mega_cap", "in": "query", "required": False,
+                             "schema": {"type": "boolean", "description": "Uses aggregated latest 13F value as a proxy, not market cap"}},
                         ],
                         "responses": {"200": {"description": "Ranked discovery watchlist"}},
                     }
@@ -1157,7 +1187,16 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "description": "Discover ranked watchlist candidates from the latest trusted 13F universe.",
                 "inputSchema": {
                     "type": "object",
-                    "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 50}},
+                    "properties": {
+                        "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+                        "action": {"type": "string", "description": "Comma-separated alert, watch, monitor, blocked"},
+                        "min_score": {"type": "number", "minimum": 0, "maximum": 100},
+                        "move": {"type": "string", "description": "Comma-separated NEW, ADD, TRIM, EXIT"},
+                        "min_holders": {"type": "integer", "minimum": 1, "maximum": 100},
+                        "min_buyers": {"type": "integer", "minimum": 1, "maximum": 100},
+                        "max_13f_value_usd": {"type": "number", "minimum": 0},
+                        "exclude_mega_cap": {"type": "boolean"},
+                    },
                 },
             },
             {
@@ -1564,9 +1603,107 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         finally:
             s.close()
 
-    def _watchlist_discovery_payload(limit: int = 25) -> dict:
+    def _split_filter_values(raw, allowed: set[str], label: str, upper: bool = False) -> set[str]:
+        from werkzeug.exceptions import BadRequest
+        if raw is None or raw == "":
+            return set()
+        if isinstance(raw, str):
+            parts = re.split(r"[\s,;]+", raw.strip())
+        elif isinstance(raw, (list, tuple, set)):
+            parts = [str(x).strip() for x in raw]
+        else:
+            parts = [str(raw).strip()]
+        values = {(p.upper() if upper else p.lower()) for p in parts if p}
+        invalid = sorted(values - allowed)
+        if invalid:
+            raise BadRequest(f"invalid {label}: {', '.join(invalid)}")
+        return values
+
+    def _watchlist_discovery_filters(args) -> dict:
+        actions = _split_filter_values(
+            args.get("action"), {"alert", "watch", "monitor", "blocked"}, "action"
+        )
+        moves = _split_filter_values(
+            args.get("move"), {m.value for m in Move}, "move", upper=True
+        )
+        min_score = (
+            clean_float(args.get("min_score"), 0.0, 0.0, 100.0)
+            if args.get("min_score") is not None else None
+        )
+        min_holders = (
+            clean_int(args.get("min_holders"), 1, 1, 100)
+            if args.get("min_holders") is not None else None
+        )
+        min_buyers = (
+            clean_int(args.get("min_buyers"), 1, 1, 100)
+            if args.get("min_buyers") is not None else None
+        )
+        exclude_mega_cap = clean_bool(args.get("exclude_mega_cap"), False)
+        max_13f_value = (
+            clean_float(args.get("max_13f_value_usd"), 0.0, 0.0, 10_000_000_000_000.0)
+            if args.get("max_13f_value_usd") is not None else None
+        )
+        if exclude_mega_cap and max_13f_value is None:
+            max_13f_value = 50_000_000_000.0
+        return {
+            "actions": actions,
+            "moves": moves,
+            "min_score": min_score,
+            "min_holders": min_holders,
+            "min_buyers": min_buyers,
+            "max_13f_value_usd": max_13f_value,
+            "exclude_mega_cap": exclude_mega_cap,
+        }
+
+    def _discovery_filters_payload(filters: dict) -> dict:
+        return {
+            "action": sorted(filters.get("actions") or []),
+            "move": sorted(filters.get("moves") or []),
+            "min_score": filters.get("min_score"),
+            "min_holders": filters.get("min_holders"),
+            "min_buyers": filters.get("min_buyers"),
+            "max_13f_value_usd": filters.get("max_13f_value_usd"),
+            "exclude_mega_cap": bool(filters.get("exclude_mega_cap")),
+            "exclude_mega_cap_basis": (
+                "aggregated latest-quarter trusted 13F reported value, not issuer market capitalization"
+                if filters.get("exclude_mega_cap") else None
+            ),
+        }
+
+    def _discovery_filter_active(filters: dict) -> bool:
+        return bool(
+            filters.get("actions") or filters.get("moves")
+            or filters.get("min_score") is not None
+            or filters.get("min_holders") is not None
+            or filters.get("min_buyers") is not None
+            or filters.get("max_13f_value_usd") is not None
+            or filters.get("exclude_mega_cap")
+        )
+
+    def _discovery_item_matches_filters(item: dict, filters: dict) -> bool:
+        summary = item.get("movement_summary") or {}
+        discovery = item.get("discovery") or {}
+        score = float((item.get("score") or {}).get("score") or 0.0)
+        if filters.get("actions") and item.get("action") not in filters["actions"]:
+            return False
+        if filters.get("moves") and not (set(item.get("movement_codes") or []) & filters["moves"]):
+            return False
+        if filters.get("min_score") is not None and score < float(filters["min_score"]):
+            return False
+        if filters.get("min_holders") is not None and int(summary.get("holder_count") or 0) < int(filters["min_holders"]):
+            return False
+        if filters.get("min_buyers") is not None and int(summary.get("buyers_count") or 0) < int(filters["min_buyers"]):
+            return False
+        if filters.get("max_13f_value_usd") is not None:
+            value = float(discovery.get("total_value_usd") or summary.get("total_value_usd") or 0.0)
+            if value > float(filters["max_13f_value_usd"]):
+                return False
+        return True
+
+    def _watchlist_discovery_payload(limit: int = 25, filters: dict | None = None) -> dict:
+        filters = filters or _watchlist_discovery_filters({})
         safe_limit = max(1, min(100, int(limit or 25)))
-        candidate_limit = max(safe_limit, min(200, safe_limit * 3))
+        candidate_limit = 200 if _discovery_filter_active(filters) else max(safe_limit, min(200, safe_limit * 3))
         candidates, latest, gate = _discover_watchlist_tickers(candidate_limit)
         if not candidates:
             return {
@@ -1579,6 +1716,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "candidate_count": 0,
                     "candidate_scan_limit": candidate_limit,
                     "returned_count": 0,
+                    "filtered_count": 0,
+                    "filters": _discovery_filters_payload(filters),
                     "quality_gate": gate.get("summary", {}),
                     "quality_gate_detail": {
                         "policy": gate.get("policy", {}),
@@ -1722,10 +1861,12 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             stock = {"movement_summary": summary, "confidence": confidence, "score": score}
             triggers = _watchlist_triggers(stock)
             action = _watchlist_action(triggers)
+            movement_codes = sorted({m["move"] for m in movements})
             items.append({
                 "ticker": ticker,
                 "action": action,
                 "triggers": triggers,
+                "movement_codes": movement_codes,
                 "score": score,
                 "confidence": confidence,
                 "latest_13f_quarter": latest,
@@ -1740,12 +1881,15 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "discovery": candidate,
             })
 
+        if _discovery_filter_active(filters):
+            items = [item for item in items if _discovery_item_matches_filters(item, filters)]
         rank = {"alert": 0, "watch": 1, "monitor": 2, "blocked": 3}
         items.sort(key=lambda i: (
             rank.get(i["action"], 9),
             -float((i.get("score") or {}).get("score") or 0.0),
             i["ticker"],
         ))
+        filtered_count = len(items)
         items = items[:safe_limit]
         return {
             "metadata": {
@@ -1757,6 +1901,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "candidate_count": len(candidates),
                 "candidate_scan_limit": candidate_limit,
                 "returned_count": len(items),
+                "filtered_count": filtered_count,
+                "filters": _discovery_filters_payload(filters),
                 "quality_gate": gate_summary,
                 "quality_gate_detail": {
                     "policy": gate.get("policy", {}),
@@ -1782,7 +1928,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 
     @app.get("/api/watchlist/discover")
     def watchlist_discover_ep():
-        return jsonify(_watchlist_discovery_payload(clean_int(request.args.get("limit"), 25, 1, 50)))
+        return jsonify(_watchlist_discovery_payload(
+            clean_int(request.args.get("limit"), 25, 1, 50),
+            _watchlist_discovery_filters(request.args),
+        ))
 
     def _mcp_call_tool(name: str, args: dict) -> dict:
         if name == "product.status":
@@ -1816,7 +1965,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         if name == "watchlist.preview":
             return _watchlist_payload(args.get("tickers") or [], limit=25)
         if name == "watchlist.discover":
-            return _watchlist_discovery_payload(clean_int(args.get("limit"), 25, 1, 50))
+            return _watchlist_discovery_payload(
+                clean_int(args.get("limit"), 25, 1, 50),
+                _watchlist_discovery_filters(args),
+            )
         if name == "signals.history":
             from .research import HISTORY_FILENAME, read_signal_history
             rows = read_signal_history(
@@ -2070,7 +2222,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         @app.get("/api/pro/v1/watchlist/discover")
         @pro_required("funds:read")
         def pro_watchlist_discover_ep():
-            payload = _watchlist_discovery_payload(clean_int(request.args.get("limit"), 50, 1, 100))
+            payload = _watchlist_discovery_payload(
+                clean_int(request.args.get("limit"), 50, 1, 100),
+                _watchlist_discovery_filters(request.args),
+            )
             return jsonify({
                 "meta": {"api": "13flow-pro", "version": "v1", "git_sha": _git_sha()},
                 "watchlist": payload,

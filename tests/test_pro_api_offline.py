@@ -182,6 +182,18 @@ def test_pro_watchlist_feed_uses_ticker_flow(monkeypatch):
         assert {"AAPL", "MSFT"} <= discovered
         assert all("excluded_funds" not in item["quality_gate"] for item in payload["watchlist"]["items"])
 
+        r = c.get(
+            "/api/pro/v1/watchlist/discover?limit=5&action=alert&min_score=30&move=NEW&min_buyers=1",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert r.status_code == 200
+        payload = r.get_json()
+        assert payload["watchlist"]["metadata"]["filters"]["action"] == ["alert"]
+        assert payload["watchlist"]["metadata"]["filters"]["move"] == ["NEW"]
+        assert payload["watchlist"]["items"]
+        assert all(item["action"] == "alert" for item in payload["watchlist"]["items"])
+        assert all("NEW" in item["movement_codes"] for item in payload["watchlist"]["items"])
+
 
 def test_pro_api_rate_limit_is_persistent(monkeypatch):
     with tempfile.TemporaryDirectory() as d:

@@ -471,13 +471,17 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
 
         discovery = c.post("/api/mcp", json={
             "jsonrpc": "2.0", "id": 21, "method": "tools/call",
-            "params": {"name": "watchlist.discover", "arguments": {"limit": 5}},
+            "params": {
+                "name": "watchlist.discover",
+                "arguments": {"limit": 5, "action": "alert", "min_score": 80, "move": "NEW"},
+            },
         }).get_json()
         assert discovery["result"]["structuredContent"]["metadata"]["version"] == \
             "watchlist_discovery_v1"
         assert discovery["result"]["structuredContent"]["metadata"][
             "human_review_required_for_routine_publication"
         ] is False
+        assert discovery["result"]["structuredContent"]["metadata"]["filters"]["action"] == ["alert"]
 
         product = c.post("/api/mcp", json={
             "jsonrpc": "2.0", "id": 3, "method": "tools/call",
@@ -561,6 +565,20 @@ def test_ticker_flow_payload_explains_quarter_moves_and_confidence():
         assert {"AAPL", "MSFT"} <= discovered
         assert all("discovery" in item for item in discovery["items"])
         assert all("excluded_funds" not in item["quality_gate"] for item in discovery["items"])
+
+        filtered = c.get(
+            "/api/watchlist/discover?limit=5&action=alert&min_score=30&move=NEW"
+            "&min_holders=1&min_buyers=1&exclude_mega_cap=1"
+        ).get_json()
+        assert filtered["metadata"]["filters"]["action"] == ["alert"]
+        assert filtered["metadata"]["filters"]["move"] == ["NEW"]
+        assert filtered["metadata"]["filters"]["min_score"] == 30.0
+        assert filtered["metadata"]["filters"]["exclude_mega_cap"] is True
+        assert filtered["metadata"]["filtered_count"] >= len(filtered["items"])
+        assert filtered["items"]
+        assert all(item["action"] == "alert" for item in filtered["items"])
+        assert all(item["score"]["score"] >= 30 for item in filtered["items"])
+        assert all("NEW" in item["movement_codes"] for item in filtered["items"])
 
 
 def test_ticker_flow_uses_trusted_universe_and_exposes_automatic_exclusions():
