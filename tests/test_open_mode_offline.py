@@ -171,8 +171,22 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
             "separate_service_expected_on_/api/pro/v1_with_api_key"
         assert product["commercial_readiness"]["mcp"] == "available_read_only"
         assert product["commercial_readiness"]["x402"] == "not_enabled"
+        assert product["validation"]["status"] == \
+            "mechanical_evidence_ready_for_review_metrics_unreviewed"
+        artifact = product["validation"]["current_artifact"]
+        assert artifact["scope"] == "25-ticker mature 13F + Form 4 joined validation artifact"
+        assert artifact["schema_status"] == "valid_minimum_schema"
+        assert artifact["metrics_status"] == "minimum_schema_valid_metrics_unreviewed"
+        assert artifact["evidence_review_status"] == "mechanical_evidence_ready_for_review"
+        assert artifact["row_count"] == 125
+        assert artifact["ticker_count"] == 25
+        assert artifact["row_error_count"] == 0
+        assert artifact["forward_return_coverage"]["forward_return_120d"] == 1.0
+        assert artifact["public_validation_claim"] is False
         assert product["validation"]["current_artifact"]["publishable_as_full_validation"] is False
         assert "validated alpha" in product["offer_boundary"]["do_not_claim_yet"]
+        assert "25-ticker mature Form 4 joined mechanical evidence pack ready for human review" \
+            in product["offer_boundary"]["sell_now"]
         assert "verifiable SEC EDGAR-derived 13F data" in product["offer_boundary"]["sell_now"]
 
 
@@ -296,7 +310,11 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "13F filings are delayed regulatory disclosures" in app_method["user_interpretation"][0]
         assert any("open public build has no browser account" in item
                    for item in app_method["verified_now"])
+        assert any("25-ticker mature 13F + Form 4 joined validation artifact" in item
+                   for item in app_method["verified_now"])
         assert any("Confluence v1 is not validated as alpha" in item
+                   for item in app_method["not_verified_yet"])
+        assert any("metrics remain unreviewed" in item
                    for item in app_method["not_verified_yet"])
         assert "verifiable SEC EDGAR-derived 13F data" in app_method["sellable_now"]
         assert "validated alpha" in app_method["not_claimed"]
@@ -307,6 +325,9 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Sellable now" in app_method_page
         assert "Do not claim" in app_method_page
         assert "Current validation artifact" in app_method_page
+        assert "mechanical_evidence_ready_for_review" in app_method_page
+        assert "minimum_schema_valid_metrics_unreviewed" in app_method_page
+        assert "Public validation claim" in app_method_page
         assert "Publishable as full validation" in app_method_page
 
         mcp_method = c.get("/api/methodology/mcp").get_json()
@@ -334,6 +355,10 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Berkshire Hathaway" not in status_page
         assert "/api/live-status" in status_page
         assert "/api/product-status" in status_page
+        assert "mechanical_evidence_ready_for_review" in status_page
+        assert "minimum_schema_valid_metrics_unreviewed" in status_page
+        assert "rows=125" in status_page
+        assert "Public validation claim" in status_page
         assert "Publishable as full validation" in status_page
         assert "validated alpha" in status_page
         assert "Public filings research. Not investment advice." in status_page

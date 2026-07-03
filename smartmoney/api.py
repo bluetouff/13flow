@@ -1491,23 +1491,45 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "alerts": "implemented_operator_runbook_required",
             },
             "validation": {
-                "status": "pipeline_smoke_validated_full_quant_blocked",
+                "status": "mechanical_evidence_ready_for_review_metrics_unreviewed",
                 "score_claim": "ordinal_heuristic_not_probability_not_expected_return",
                 "current_artifact": {
-                    "scope": "25-ticker price/sample validation smoke",
-                    "features_sha256": "4ecceb420a466b138de6d4672844158705c0da4ed5425bc661e97df8ecfc8592",
-                    "prices_sha256": "2e35a5713c3e0654134d8d05d6f50b7013729ce6634d31db4e5e2e534ba57c9e",
+                    "scope": "25-ticker mature 13F + Form 4 joined validation artifact",
+                    "path": "/var/lib/13flow/confluence_features_liquid25_v2_mature.csv",
+                    "feature_scope": "13f_form4_joined",
+                    "features_sha256": "3ab0cebaf893520580d5dc9ae338dbcb5c8344efdb6aeb990dc4af7936f456b9",
+                    "dataset_sha256": "3ab0cebaf893520580d5dc9ae338dbcb5c8344efdb6aeb990dc4af7936f456b9",
+                    "prices_sha256": "not_embedded_in_status_payload",
+                    "price_source": "local_csv:validation_prices_liquid25_massive.csv",
+                    "form4_source": "local_csv:validation_form4_liquid25_v2.csv",
+                    "schema_status": "valid_minimum_schema",
+                    "metrics_status": "minimum_schema_valid_metrics_unreviewed",
+                    "evidence_review_status": "mechanical_evidence_ready_for_review",
+                    "date_range": {"from": "2024-11-13", "to": "2025-12-29"},
+                    "row_count": 125,
+                    "ticker_count": 25,
+                    "row_error_count": 0,
+                    "forward_return_coverage": {
+                        "forward_return_20d": 1.0,
+                        "forward_return_60d": 1.0,
+                        "forward_return_120d": 1.0,
+                    },
+                    "rows_with_form4_accessions": 101,
+                    "rows_with_open_market_buyers": 14,
+                    "tickers_with_open_market_buyers": 9,
+                    "metrics_reviewed": False,
+                    "public_validation_claim": False,
                     "publishable_as_full_validation": False,
                 },
                 "blocked_by": (
-                    "No full 2013-2026 adjusted-price CSV or reviewed normalized Form 4 "
-                    "transaction artifact is installed on production. Do not relaunch "
-                    "external historical-price or Form 4 fan-out from zen; import vetted "
-                    "local files, then validate them offline."
+                    "A 25-ticker mature 13F + Form 4 joined artifact is mechanically "
+                    "schema-valid and ready for human review, but metrics remain "
+                    "unreviewed and are not a public alpha or validation claim."
                 ),
                 "required_next_artifact": (
-                    "/var/lib/13flow/validation_prices_full.csv plus "
-                    "/var/lib/13flow/validation_form4_full.csv"
+                    "broader/full-universe adjusted-price and normalized Form 4 artifacts "
+                    "with reviewed price source, delisting treatment, costs, liquidity and "
+                    "no-lookahead controls"
                 ),
             },
             "offer_boundary": {
@@ -1517,6 +1539,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "scoped Pro API keys with audit and rate limits",
                     "MCP read-only integration with Pro tools failing closed",
                     "data-quality warnings and methodology contracts",
+                    "25-ticker mature Form 4 joined mechanical evidence pack ready for human review",
                 ],
                 "do_not_claim_yet": [
                     "validated alpha",
@@ -1606,9 +1629,17 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "</div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Validation artifact</h2>"
             f"<p class=\"meta\">scope={html_escape(artifact['scope'])}</p>"
+            f"<p class=\"meta\">path={html_escape(str(artifact.get('path') or ''))}</p>"
+            f"<p class=\"meta\">schema_status={html_escape(str(artifact.get('schema_status') or 'unknown'))}</p>"
+            f"<p class=\"meta\">evidence_review_status={html_escape(str(artifact.get('evidence_review_status') or 'unknown'))}</p>"
+            f"<p class=\"meta\">metrics_status={html_escape(str(artifact.get('metrics_status') or 'unknown'))}</p>"
+            f"<p class=\"meta\">rows={html_escape(str(artifact.get('row_count') or 'unknown'))}; "
+            f"tickers={html_escape(str(artifact.get('ticker_count') or 'unknown'))}; "
+            f"row_errors={html_escape(str(artifact.get('row_error_count') if artifact.get('row_error_count') is not None else 'unknown'))}</p>"
             f"<p><code>features_sha256={html_escape(artifact['features_sha256'])}</code></p>"
             f"<p><code>prices_sha256={html_escape(artifact['prices_sha256'])}</code></p>"
             f"<p>Publishable as full validation: <code>{str(artifact['publishable_as_full_validation']).lower()}</code></p>"
+            f"<p>Public validation claim: <code>{str(artifact.get('public_validation_claim')).lower()}</code></p>"
             f"<p>{html_escape(validation['blocked_by'])}</p>"
             "</div>"
             "<div class=\"grid\" style=\"margin-top:18px\">"
@@ -2367,9 +2398,11 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "source accessions and SEC filing links remain inspectable from fund and stock pages",
                 "data-quality warnings are surfaced instead of silently corrected away",
                 "open public build has no browser account, retail checkout or alert upsell chrome",
+                "a 25-ticker mature 13F + Form 4 joined validation artifact is mechanically schema-valid and ready for human review",
             ],
             "not_verified_yet": [
                 "Confluence v1 is not validated as alpha, probability or expected-return model",
+                "current Confluence validation metrics remain unreviewed and are not a public validation claim",
                 "full point-in-time Form 4 plus adjusted-price validation is not yet published",
                 "x402 paid production access is not enabled",
                 "complete insider-only/distribution universe is not claimed",
@@ -2486,7 +2519,14 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             artifact_panel = (
                 "<div class=\"panel\" style=\"margin-top:18px\"><h2>Current validation artifact</h2>"
                 f"<p class=\"meta\">scope={html_escape(str(artifact.get('scope') or 'unknown'))}</p>"
+                f"<p class=\"meta\">schema_status={html_escape(str(artifact.get('schema_status') or 'unknown'))}</p>"
+                f"<p class=\"meta\">evidence_review_status={html_escape(str(artifact.get('evidence_review_status') or 'unknown'))}</p>"
+                f"<p class=\"meta\">metrics_status={html_escape(str(artifact.get('metrics_status') or 'unknown'))}</p>"
+                f"<p class=\"meta\">rows={html_escape(str(artifact.get('row_count') or 'unknown'))}; "
+                f"tickers={html_escape(str(artifact.get('ticker_count') or 'unknown'))}; "
+                f"row_errors={html_escape(str(artifact.get('row_error_count') if artifact.get('row_error_count') is not None else 'unknown'))}</p>"
                 f"<p>Publishable as full validation: <code>{str(artifact.get('publishable_as_full_validation')).lower()}</code></p>"
+                f"<p>Public validation claim: <code>{str(artifact.get('public_validation_claim')).lower()}</code></p>"
                 f"<p class=\"meta\">features_sha256={html_escape(str(artifact.get('features_sha256') or ''))}</p>"
                 f"<p class=\"meta\">prices_sha256={html_escape(str(artifact.get('prices_sha256') or ''))}</p></div>"
             )
@@ -2769,9 +2809,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             f"<ol>{onboarding}</ol></div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Validation boundary</h2>"
             f"<p>{html_escape(offer['truth_boundary']['blocked_by'])}</p>"
-            f"<p class=\"meta\">Current sample feature hash: "
+            f"<p class=\"meta\">Current validation artifact hash: "
             f"{html_escape(offer['truth_boundary']['current_artifact']['features_sha256'])}</p>"
-            f"<p class=\"meta\">Current sample price hash: "
+            f"<p class=\"meta\">Current validation price hash: "
             f"{html_escape(offer['truth_boundary']['current_artifact']['prices_sha256'])}</p></div>"
         )
         return _html_response("Pro API", body)

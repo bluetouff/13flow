@@ -51,15 +51,19 @@ The current Confluence score is an ordinal heuristic rank. The correct wording i
 Current milestone:
 
 - price pipeline: validated on a 25-ticker sample;
-- feature pipeline: validated on a 25-ticker sample;
-- sample price artifact SHA256:
-  `2e35a5713c3e0654134d8d05d6f50b7013729ce6634d31db4e5e2e534ba57c9e`;
-- sample feature artifact SHA256:
-  `4ecceb420a466b138de6d4672844158705c0da4ed5425bc661e97df8ecfc8592`;
-- Form 4 join: supported in the offline validation builder through a reviewed
-  normalized CSV/JSONL artifact;
-- full validation: blocked until vetted adjusted-price and Form 4 artifacts
-  covering the full required universe and history are imported.
+- Form 4 artifact: validated on a 25-ticker sample with one issuer CIK per
+  ticker and zero duplicate/invalid transaction rows;
+- mature joined feature artifact:
+  `/var/lib/13flow/confluence_features_liquid25_v2_mature.csv`;
+- mature joined feature artifact SHA256:
+  `3ab0cebaf893520580d5dc9ae338dbcb5c8344efdb6aeb990dc4af7936f456b9`;
+- artifact status: `minimum_schema_valid_metrics_unreviewed`;
+- evidence review: `mechanical_evidence_ready_for_review`;
+- artifact scope: 25 tickers, 125 rows, `13f_form4_joined`, 100% forward-return
+  coverage for 20d/60d/120d, zero row errors;
+- full validation: blocked until broader/full-universe adjusted-price and Form 4
+  artifacts are reviewed for price source, delisting treatment, costs,
+  liquidity and no-lookahead controls.
 
 Do not relaunch external historical-price scraping or Form 4 fan-out loops from
 production. Use bulk vendor exports or locally prepared files.
@@ -95,7 +99,9 @@ AAPL,0000320193-26-000004,2026-05-04,2026-05-02,0000000001,Example CEO,Chief Exe
 ```
 
 Only after that validation passes should the full point-in-time feature dataset
-be rebuilt and evaluated.
+be rebuilt and evaluated. A 25-ticker mature artifact can be described as
+mechanically schema-valid and ready for human review, but it is still not a
+public validation or alpha claim.
 
 For the post-run operator sequence after a long Form 4 export, use
 `docs/POST_RUN_FORM4_VALIDATION.md` before building or publishing the joined
@@ -125,5 +131,8 @@ curl -fsS https://13flow.eu/api/product-status | python3 -m json.tool
 ```
 
 The product status endpoint is part of the commercial truth surface. If it says
-`pipeline_smoke_validated_full_quant_blocked`, sales and documentation must not
-describe Confluence as fully validated.
+`mechanical_evidence_ready_for_review_metrics_unreviewed`, sales and
+documentation must not describe Confluence as fully validated. The correct
+wording is: 25-ticker mature 13F + Form 4 joined validation artifact is
+mechanically schema-valid and ready for human review; metrics remain unreviewed
+and are not an alpha claim.

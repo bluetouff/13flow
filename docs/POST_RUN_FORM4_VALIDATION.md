@@ -117,20 +117,30 @@ SHA=$(curl -fsS https://13flow.eu/api/version | /opt/13flow/.venv/bin/python -c 
 
 sudo /opt/13flow/.venv/bin/python /opt/13flow/run.py \
   --db /var/lib/13flow/13flow.db \
-  --build-validation-dataset /var/lib/13flow/confluence_features_liquid25_v2.csv \
+  --build-validation-dataset /var/lib/13flow/confluence_features_liquid25_v2_mature.csv \
   --validation-prices /var/lib/13flow/validation_prices_liquid25_massive.csv \
   --validation-form4 /var/lib/13flow/validation_form4_liquid25_v2.csv \
   --validation-tickers /var/lib/13flow/validation_tickers_liquid25.txt \
   --validation-start 2024-07-03 \
-  --validation-end 2026-07-02 \
+  --validation-end 2025-09-30 \
   --validation-code-commit "$SHA" \
   --validation-json
 ```
 
-Review the gate output before using the file in product or sales material.
+The mature end date intentionally excludes the latest 13F quarter when the local
+price file cannot yet provide complete 120-trading-day forward returns. Review
+the gate output before using the file in product or sales material.
 Complete Confluence validation still requires broader coverage, price-source
 review, delisting treatment, costs, no-lookahead checks and out-of-sample
 metrics.
+
+Expected mature-artifact milestone:
+
+- `status=minimum_schema_valid_metrics_unreviewed`;
+- `evidence_review.status=mechanical_evidence_ready_for_review`;
+- `row_error_count=0`;
+- forward-return coverage is 1.0 for 20d, 60d and 120d;
+- the artifact is ready for human review, not a public alpha claim.
 
 ## 6. Archive evidence
 
