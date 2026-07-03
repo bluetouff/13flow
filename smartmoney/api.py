@@ -1539,6 +1539,89 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     def product_status_ep():
         return jsonify(product_status_payload())
 
+    @app.get("/status")
+    def status_page():
+        live = live_status_payload()
+        product = product_status_payload()
+        validation = product["validation"]
+        artifact = validation["current_artifact"]
+        boundary = product["offer_boundary"]
+        counts = live["counts"]
+        quality = live["quality_summary"]
+        period = live["period_13f"]
+        status_class = "pill"
+        rows = [
+            ("Runtime state", live["public_state"]),
+            ("Source", live["source"]),
+            ("Git SHA", live["git_sha"]),
+            ("Generated at", live["generated_at"]),
+            ("Data as of", live.get("data_as_of") or "unknown"),
+            ("13F period", f"{period.get('from') or 'unknown'} -> {period.get('to') or 'unknown'}"),
+            ("Funds", str(counts.get("funds") or 0)),
+            ("Filings", str(counts.get("filings") or 0)),
+            ("Latest filing rows", str(counts.get("latest_filings") or 0)),
+            ("Quality status", quality.get("status") or "unknown"),
+            ("AUM jump warnings", str(quality.get("aum_jump_warnings") or 0)),
+            ("Unit-scale candidates", str(quality.get("unit_scale_candidates") or 0)),
+        ]
+        rows_html = "".join(
+            f"<tr><td>{html_escape(k)}</td><td><code>{html_escape(v)}</code></td></tr>"
+            for k, v in rows
+        )
+        endpoints = [
+            ("/api/version", "deployed SHA and open/demo flags"),
+            ("/api/live-status", "current SEC EDGAR data state and counts"),
+            ("/api/product-status", "commercial readiness and validation boundary"),
+            ("/api/data-quality", "operator-visible data-quality warnings"),
+            ("/api/openapi.json", "public API contract"),
+            ("/api/methodology/confluence-v1", "frozen Confluence v1 method contract"),
+        ]
+        endpoint_rows = "".join(
+            f"<tr><td><a href=\"{html_escape(path)}\"><code>{html_escape(path)}</code></a></td>"
+            f"<td>{html_escape(desc)}</td></tr>"
+            for path, desc in endpoints
+        )
+        sell_now = "".join(f"<li>{html_escape(item)}</li>" for item in boundary["sell_now"])
+        do_not_claim = "".join(f"<li>{html_escape(item)}</li>" for item in boundary["do_not_claim_yet"])
+        body = (
+            "<h1>Status</h1>"
+            "<p class=\"lede\">Human-readable evidence page for the currently served 13FLOW build. "
+            "Use this page to distinguish deployed production state from stale local audits or screenshots.</p>"
+            "<div class=\"grid\">"
+            f"<div class=\"card\"><h3>Evidence status</h3><p><span class=\"{status_class}\">"
+            f"{html_escape(live['public_state'])}</span></p>"
+            f"<p class=\"meta\">uses_synthetic_data={str(live['uses_synthetic_data']).lower()}</p></div>"
+            "<div class=\"card\"><h3>Deployed commit</h3>"
+            f"<p><code>{html_escape(live['git_sha'])}</code></p>"
+            f"<p class=\"meta\">generated {html_escape(live['generated_at'])}</p></div>"
+            "<div class=\"card\"><h3>Validation boundary</h3>"
+            f"<p>{html_escape(validation['score_claim'])}</p>"
+            f"<p class=\"meta\">status={html_escape(validation['status'])}</p></div>"
+            "</div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Runtime proof</h2>"
+            f"<table><thead><tr><th>Field</th><th>Current value</th></tr></thead><tbody>{rows_html}</tbody></table>"
+            "</div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Verification endpoints</h2>"
+            f"<table><thead><tr><th>Endpoint</th><th>Use</th></tr></thead><tbody>{endpoint_rows}</tbody></table>"
+            "</div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Validation artifact</h2>"
+            f"<p class=\"meta\">scope={html_escape(artifact['scope'])}</p>"
+            f"<p><code>features_sha256={html_escape(artifact['features_sha256'])}</code></p>"
+            f"<p><code>prices_sha256={html_escape(artifact['prices_sha256'])}</code></p>"
+            f"<p>Publishable as full validation: <code>{str(artifact['publishable_as_full_validation']).lower()}</code></p>"
+            f"<p>{html_escape(validation['blocked_by'])}</p>"
+            "</div>"
+            "<div class=\"grid\" style=\"margin-top:18px\">"
+            "<div class=\"card\"><h3>Sell now</h3><ul>" + sell_now + "</ul></div>"
+            "<div class=\"card\"><h3>Do not claim yet</h3><ul>" + do_not_claim + "</ul></div>"
+            "</div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Operator gate</h2>"
+            f"<p>{html_escape(product['operator_policy']['deployment_gate'])}</p>"
+            f"<p class=\"meta\">{html_escape(product['operator_policy']['external_api_safety'])}</p>"
+            "</div>"
+        )
+        return _html_response("Status", body)
+
     def pro_offer_payload() -> dict:
         status = product_status_payload()
         return {
@@ -1988,7 +2071,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         nav = (
             '<nav class="topnav"><a class="brand" href="/">13<span>FL</span><b>OW</b></a>'
             '<div class="navlinks"><a href="/funds">Funds</a><a href="/stocks">Stocks</a>'
-            '<a href="/signals">Signals</a><a href="/methodology">Methodology</a>'
+            '<a href="/signals">Signals</a><a href="/status">Status</a><a href="/methodology">Methodology</a>'
             '<a href="/developers">Developers</a><a href="/pro">Pro API</a><a href="/faq">FAQ</a>'
             '<a href="/legal">Legal</a></div></nav>'
         )
@@ -2001,7 +2084,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             '<div><h4>Method</h4><a href="/methodology">Overview</a>'
             '<a href="/methodology/app">Application</a><a href="/methodology/mcp">MCP</a>'
             '<a href="/api/methodology/confluence-v1">Confluence v1</a></div>'
-            '<div><h4>Trust</h4><a href="/developers">Developers</a>'
+            '<div><h4>Trust</h4><a href="/status">Status</a><a href="/developers">Developers</a>'
             '<a href="/api/openapi.json">OpenAPI</a><a href="/api/live-status">Live status</a>'
             '<a href="/legal">Legal</a></div>'
             '</div><div class="fine"><span>Public filings research. Not investment advice.</span>'

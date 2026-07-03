@@ -118,6 +118,19 @@ redirects_to "legacy /faq.html redirects canonical" "/faq.html" "/faq"
 redirects_to "legacy /mentions-legales redirects canonical" "/mentions-legales" "/legal"
 redirects_to "legacy /mentions-legales.html redirects canonical" "/mentions-legales.html" "/legal"
 
+status_page="$tmpdir/status.html"
+if fetch "/status" "$status_page"; then
+  grep -q "Evidence status" "$status_page" \
+    && grep -q "/api/live-status" "$status_page" \
+    && grep -q "/api/product-status" "$status_page" \
+    && grep -q "Publishable as full validation" "$status_page" \
+    && ok "/status evidence page" \
+    || bad "/status evidence page" "missing public evidence copy"
+  contains_none "/status has no legacy/auth/checkout copy" "$status_page" "${legacy_forbidden[@]}"
+else
+  bad "/status evidence page" "curl failed"
+fi
+
 for path in /methodology /methodology/app /methodology/mcp; do
   out="$tmpdir/${path//\//_}.html"
   if fetch "$path" "$out"; then

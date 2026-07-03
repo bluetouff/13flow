@@ -139,6 +139,7 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
         assert 'href="/developers"' in html
         assert 'href="/methodology"' in html
         assert 'href="/pro"' in html
+        assert 'href="/status"' in html
         assert 'href="/faq"' in html
         assert 'href="faq.html"' not in html
         assert "Public filings research. Not investment advice." in html
@@ -224,6 +225,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             ("/stocks/AAPL", "SEC company search"),
             ("/signals", "test signal"),
             ("/signals/AAPL", "Latest 13F holders"),
+            ("/status", "Evidence status"),
             ("/pro", "13FLOW Pro API"),
             ("/developers", "MCP tools/list"),
             ("/methodology", "Application methodology"),
@@ -298,6 +300,16 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Public filings research. Not investment advice." in pro_page
         assert 'href="/developers"' in pro_page
         assert 'href="/api/live-status"' in pro_page
+
+        status_page = c.get("/status").get_data(as_text=True)
+        assert "Use this page to distinguish deployed production state" in status_page
+        assert "uses_synthetic_data=false" in status_page
+        assert "Berkshire Hathaway" not in status_page
+        assert "/api/live-status" in status_page
+        assert "/api/product-status" in status_page
+        assert "Publishable as full validation" in status_page
+        assert "validated alpha" in status_page
+        assert "Public filings research. Not investment advice." in status_page
 
         developers = c.get("/developers").get_data(as_text=True)
         assert "/api/openapi.json" in developers
