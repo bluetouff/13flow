@@ -607,6 +607,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                                        "responses": {"200": {"description": "Commercial readiness"}}}},
                 "/api/security-posture": {"get": {"summary": "Controlled-pilot security posture and evidence links",
                                                    "responses": {"200": {"description": "Security posture"}}}},
+                "/api/pilot-intake": {"get": {"summary": "Controlled-pilot intake checklist and operator note template",
+                                               "responses": {"200": {"description": "Pilot intake pack"}}}},
+                "/api/pilot-intake.md": {"get": {"summary": "Controlled-pilot intake checklist in Markdown",
+                                                  "responses": {"200": {"description": "Markdown pilot intake pack"}}}},
                 "/api/buyer-pack": {"get": {"summary": "Shareable buyer review pack",
                                              "responses": {"200": {"description": "Buyer review pack"}}}},
                 "/api/buyer-pack.md": {"get": {"summary": "Shareable buyer review pack in Markdown",
@@ -4155,10 +4159,193 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     def security_posture_ep():
         return jsonify(security_posture_payload())
 
+    def pilot_intake_payload() -> dict:
+        readiness = commercial_readiness_payload()
+        security = security_posture_payload()
+        offer = pro_offer_payload()
+        defaults = offer.get("default_limits") or {}
+        package_names = [p.get("name") for p in (offer.get("plans") or []) if p.get("name")]
+        required_fields = [
+            {
+                "id": "organization",
+                "label": "Organization name",
+                "required": True,
+                "sensitive": False,
+                "purpose": "commercial qualification and contract/admin record",
+            },
+            {
+                "id": "billing_contact",
+                "label": "Billing/security contact",
+                "required": True,
+                "sensitive": "business_contact",
+                "purpose": "manual pilot coordination, token delivery and rotation planning",
+            },
+            {
+                "id": "workflow",
+                "label": "Intended workflow",
+                "required": True,
+                "allowed_values": ["research desk", "data pipeline", "MCP agent", "monitoring", "internal dashboard"],
+                "purpose": "scope the pilot and avoid unused permissions",
+            },
+            {
+                "id": "requested_scopes",
+                "label": "Requested scopes",
+                "required": True,
+                "allowed_values": ["funds:read", "quality:read", "workspace:write", "admin:read"],
+                "purpose": "least-privilege key issuance",
+            },
+            {
+                "id": "expected_volume",
+                "label": "Expected request volume",
+                "required": True,
+                "default_limits": defaults,
+                "purpose": "quota sizing before any recurring access",
+            },
+            {
+                "id": "token_custody",
+                "label": "Token custody owner",
+                "required": True,
+                "purpose": "rotation, revocation and incident response",
+            },
+            {
+                "id": "legal_acknowledgement",
+                "label": "Research-screen acknowledgement",
+                "required": True,
+                "must_acknowledge": "13FLOW is a research screen, not investment advice, not a performance claim and not a public price quote.",
+            },
+        ]
+        return {
+            "app": "13flow",
+            "generated_at": _now_iso(),
+            "git_sha": _git_sha(),
+            "status": "operator_review_required",
+            "sales_motion": readiness.get("sales_motion"),
+            "self_serve_checkout": False,
+            "public_submission_endpoint": None,
+            "public_form_submission": False,
+            "privacy": {
+                "server_side_pii_storage": False,
+                "browser_storage": "none required; the public page renders a copyable template only",
+                "token_collection": False,
+                "secret_collection": False,
+                "recommended_channel": "operator-selected secure channel outside the public site",
+                "retention_note": "archive only the final operator note needed for pilot administration and legal evidence",
+            },
+            "pilot_packages": package_names,
+            "default_limits": defaults,
+            "required_fields": required_fields,
+            "operator_note_schema": {
+                "package": " | ".join(package_names),
+                "organization": "required",
+                "billing_contact": "required business contact",
+                "workflow": "research desk | data pipeline | MCP agent | monitoring | internal dashboard",
+                "requested_scopes": "least privilege; no admin:read for customers",
+                "expected_volume": "requests per minute, requests per day, burst profile",
+                "token_delivery_channel": "secure channel selected by operator",
+                "rotation_due_at": "set before key delivery",
+                "security_requirements": "IP allow-listing, DPA, retention or custom terms if needed",
+                "boundary_ack": "research screen; no investment advice; no public price quote; no SLA unless custom contract",
+            },
+            "operator_note_template": [
+                "13FLOW PILOT INTAKE",
+                "package: <Technical pilot review | API integration review | MCP integration review>",
+                "organization: <legal or operating name>",
+                "billing_contact: <business contact>",
+                "security_contact: <optional business contact>",
+                "workflow: <research desk | data pipeline | MCP agent | monitoring | internal dashboard>",
+                "requested_scopes: <funds:read quality:read workspace:write>",
+                "expected_volume: <per minute / per day / burst profile>",
+                "token_delivery_channel: <secure channel>",
+                "rotation_due_at: <YYYY-MM-DD>",
+                "security_requirements: <IP allow-listing / DPA / retention / none>",
+                "boundary_ack: research screen; not investment advice; no public price quote; no SLA unless custom contract",
+                "operator_decision: <decline | issue bounded pilot key | request more info>",
+            ],
+            "pre_issue_checks": [
+                "Run public smoke and Pro workspace smoke on the deployed SHA.",
+                "Confirm /api/security-posture status is controlled_pilot_security_ready.",
+                "Confirm requested scopes are least-privilege and exclude admin:read for customers.",
+                "Set expiry and rotation_due_at before token delivery.",
+                "Record key id after the first successful /api/pro/v1/status call.",
+            ],
+            "evidence_links": [
+                {"label": "Pilot intake page", "href": "/pilot"},
+                {"label": "Pilot intake Markdown", "href": "/api/pilot-intake.md"},
+                {"label": "Buyer pack", "href": "/buyer-pack"},
+                {"label": "Security posture", "href": "/security"},
+                {"label": "Commercial readiness", "href": "/readiness"},
+                {"label": "Pro terms", "href": "/legal/pro-api"},
+            ],
+        }
+
+    @app.get("/api/pilot-intake")
+    def pilot_intake_ep():
+        return jsonify(pilot_intake_payload())
+
+    def pilot_intake_markdown(payload: dict) -> str:
+        def bullets(items) -> str:
+            return "\n".join(f"- {str(item)}" for item in (items or [])) or "- None"
+        field_lines = []
+        for field in payload.get("required_fields") or []:
+            req = "required" if field.get("required") else "optional"
+            sensitive = field.get("sensitive")
+            suffix = f"; sensitive={sensitive}" if sensitive else ""
+            field_lines.append(f"- {field.get('id')}: {field.get('label')} ({req}{suffix})")
+        link_lines = [
+            f"- [{item.get('label')}]({item.get('href')})"
+            for item in (payload.get("evidence_links") or [])
+        ]
+        return "\n".join([
+            "# 13FLOW Pilot Intake",
+            "",
+            f"Generated: {payload.get('generated_at')}",
+            f"Git SHA: {payload.get('git_sha')}",
+            f"Status: {payload.get('status')}",
+            f"Sales motion: {payload.get('sales_motion')}",
+            f"Self-serve checkout: {str(payload.get('self_serve_checkout')).lower()}",
+            f"Public form submission: {str(payload.get('public_form_submission')).lower()}",
+            "",
+            "## Privacy Boundary",
+            "",
+            f"- Server-side PII storage: {str((payload.get('privacy') or {}).get('server_side_pii_storage')).lower()}",
+            f"- Token collection: {str((payload.get('privacy') or {}).get('token_collection')).lower()}",
+            f"- Secret collection: {str((payload.get('privacy') or {}).get('secret_collection')).lower()}",
+            f"- Recommended channel: {(payload.get('privacy') or {}).get('recommended_channel')}",
+            "",
+            "## Required Fields",
+            "",
+            "\n".join(field_lines) or "- None",
+            "",
+            "## Operator Note Template",
+            "",
+            "```text",
+            "\n".join(str(x) for x in (payload.get("operator_note_template") or [])),
+            "```",
+            "",
+            "## Pre-Issue Checks",
+            "",
+            bullets(payload.get("pre_issue_checks")),
+            "",
+            "## Evidence Links",
+            "",
+            "\n".join(link_lines) or "- None",
+            "",
+        ])
+
+    @app.get("/api/pilot-intake.md")
+    def pilot_intake_markdown_ep():
+        body = pilot_intake_markdown(pilot_intake_payload())
+        return Response(
+            body,
+            content_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": 'inline; filename="13flow-pilot-intake.md"'},
+        )
+
     def buyer_pack_payload() -> dict:
         product = product_status_payload()
         readiness = commercial_readiness_payload()
         security = security_posture_payload()
+        intake = pilot_intake_payload()
         offer = pro_offer_payload()
         snapshot = readiness.get("snapshot") or {}
         quality = snapshot.get("quality_gate") or {}
@@ -4208,6 +4395,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "pilot_handoff": offer["sales_packet"]["pilot_handoff"],
             "evidence_links": [
                 {"label": "Commercial readiness", "href": "/api/commercial-readiness"},
+                {"label": "Pilot intake", "href": "/pilot"},
                 {"label": "Security posture", "href": "/security"},
                 {"label": "Product status", "href": "/api/product-status"},
                 {"label": "Coverage and quality", "href": "/coverage"},
@@ -4222,6 +4410,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "do_not_claim_yet": readiness.get("do_not_claim_yet") or [],
             "next_steps": [
                 "Review the evidence links and current validation boundary.",
+                "Complete the pilot intake operator note before issuing any key.",
                 "Answer the qualification questions and confirm expected request volume.",
                 "Run the public readiness and Pro OpenAPI checks.",
                 "Use /pro/onboarding with the issued key before wiring production code.",
@@ -4238,6 +4427,12 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "status": security.get("status"),
                 "scope": security.get("scope"),
                 "non_claims": security.get("non_claims"),
+            },
+            "pilot_intake": {
+                "status": intake.get("status"),
+                "public_form_submission": intake.get("public_form_submission"),
+                "server_side_pii_storage": (intake.get("privacy") or {}).get("server_side_pii_storage"),
+                "required_fields": [f.get("id") for f in (intake.get("required_fields") or [])],
             },
         }
 
@@ -4698,6 +4893,63 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<a class=\"pill\" href=\"/legal/pro-api\">Pro terms</a></p>"
         )
         return _html_response("Security Posture", body)
+
+    @app.get("/pilot")
+    def pilot_intake_page():
+        payload = pilot_intake_payload()
+        privacy = payload["privacy"]
+        fields = "".join(
+            "<tr>"
+            f"<td><code>{html_escape(field.get('id') or '-')}</code></td>"
+            f"<td>{html_escape(field.get('label') or '-')}</td>"
+            f"<td><span class=\"pill\">required:{str(field.get('required')).lower()}</span></td>"
+            f"<td>{html_escape(str(field.get('purpose') or field.get('must_acknowledge') or '-'))}</td>"
+            "</tr>"
+            for field in payload.get("required_fields") or []
+        )
+        checks = "".join(f"<li>{html_escape(item)}</li>" for item in payload.get("pre_issue_checks") or [])
+        links = "".join(
+            f"<li><a href=\"{html_escape(item['href'], quote=True)}\">{html_escape(item['label'])}</a></li>"
+            for item in payload.get("evidence_links") or []
+        )
+        note = "\n".join(str(x) for x in payload.get("operator_note_template") or [])
+        packages = "".join(
+            f"<span class=\"pill\">{html_escape(str(pkg))}</span>"
+            for pkg in payload.get("pilot_packages") or []
+        )
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Pilot intake</div>"
+            "<h1>Controlled Pilot Intake</h1>"
+            "<p class=\"doc-lede\">Qualification pack for issuing a bounded Pro pilot key. "
+            "The public site does not submit this data, store buyer PII, collect tokens or create self-serve checkout.</p></div>"
+            f"<aside class=\"doc-panel\"><h3>Status</h3><p><span class=\"pill\">{html_escape(payload['status'])}</span></p>"
+            f"<p class=\"meta\">public_form_submission={str(payload['public_form_submission']).lower()}</p>"
+            f"<p class=\"meta\">server_side_pii_storage={str(privacy['server_side_pii_storage']).lower()}</p></aside></section>"
+            "<section class=\"doc-metrics\">"
+            f"<div class=\"doc-metric\"><b>{str(payload['self_serve_checkout']).lower()}</b><span>self-serve checkout</span></div>"
+            f"<div class=\"doc-metric\"><b>{str(payload['public_form_submission']).lower()}</b><span>public submit</span></div>"
+            f"<div class=\"doc-metric\"><b>{str(privacy['token_collection']).lower()}</b><span>token collection</span></div>"
+            f"<div class=\"doc-metric\"><b>{str(privacy['secret_collection']).lower()}</b><span>secret collection</span></div>"
+            "</section>"
+            "<section class=\"doc-section\"><h2>Pilot Packages</h2><p>" + packages + "</p></section>"
+            "<section class=\"doc-section\"><h2>Required Fields</h2>"
+            f"<table><thead><tr><th>ID</th><th>Field</th><th>Required</th><th>Purpose</th></tr></thead><tbody>{fields}</tbody></table></section>"
+            "<div class=\"split\"><section class=\"panel\"><h2>Pre-Issue Checks</h2><ul>" + checks + "</ul></section>"
+            "<section class=\"panel\"><h2>Privacy Boundary</h2>"
+            f"<p><span class=\"pill\">storage:{html_escape(str(privacy['browser_storage']))}</span></p>"
+            f"<p>{html_escape(privacy['retention_note'])}</p>"
+            f"<p class=\"meta\">recommended_channel={html_escape(privacy['recommended_channel'])}</p></section></div>"
+            "<section class=\"doc-section\"><h2>Operator Note Template</h2>"
+            f"<pre><code>{html_escape(note)}</code></pre></section>"
+            "<div class=\"split\"><section class=\"panel\"><h2>Evidence Links</h2><ul>" + links + "</ul></section>"
+            "<section class=\"panel\"><h2>Boundary</h2>"
+            "<p>Operator review is required before any key is issued. This page is not a contract, not investment advice and not a public price quote.</p></section></div>"
+            "<p class=\"lede\"><a class=\"pill\" href=\"/api/pilot-intake\">Machine-readable pilot intake</a> "
+            "<a class=\"pill\" href=\"/api/pilot-intake.md\">Markdown export</a> "
+            "<a class=\"pill\" href=\"/buyer-pack\">Buyer pack</a> "
+            "<a class=\"pill\" href=\"/security\">Security posture</a></p>"
+        )
+        return _html_response("Pilot Intake", body)
 
     @app.get("/buyer-pack")
     def buyer_pack_page():
@@ -5427,14 +5679,14 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             '<div class="navlinks"><a class="primary" href="/app">Cockpit</a><a href="/confluence">Confluence</a>'
             '<a href="/funds">Funds</a><a href="/stocks">Stocks</a><a href="/signals">Signals</a>'
             '<a href="/status">Status</a><a href="/coverage">Coverage</a><a href="/security">Security</a><a href="/validation">Validation</a><a href="/methodology">Methodology</a>'
-            '<a href="/developers">API</a><a href="/pro">Pro</a><a href="/about">About</a></div></nav>'
+            '<a href="/developers">API</a><a href="/pro">Pro</a><a href="/pilot">Pilot</a><a href="/about">About</a></div></nav>'
         )
         footer = (
             '<footer class="site-footer"><div class="foot-grid">'
             '<div><h4>13FLOW</h4><p>SEC EDGAR-derived 13F and Form 4 research surfaces '
             'for analysts, APIs and agent workflows.</p></div>'
             '<div><h4>Product</h4><a href="/confluence">Confluence</a><a href="/funds">Funds</a><a href="/stocks">Stocks</a>'
-            '<a href="/signals">Signals</a><a href="/validation">Validation</a><a href="/pro">Pro API</a></div>'
+            '<a href="/signals">Signals</a><a href="/validation">Validation</a><a href="/pro">Pro API</a><a href="/pilot">Pilot intake</a></div>'
             '<div><h4>Method</h4><a href="/methodology">Overview</a>'
             '<a href="/methodology/app">Application</a><a href="/methodology/mcp">MCP</a>'
             '<a href="/api/methodology/confluence-v1">Confluence v1</a></div>'

@@ -48,6 +48,9 @@ def test_open_mode_hides_private_surface_and_keeps_public():
                      "/api/coverage", "/api/data-quality",
                      "/api/live-status", "/api/product-status",
                      "/api/commercial-readiness",
+                     "/api/security-posture",
+                     "/api/pilot-intake",
+                     "/api/pilot-intake.md",
                      "/api/buyer-pack",
                      "/api/buyer-pack.md",
                      "/api/version", "/healthz", "/", "/coverage"):
@@ -304,6 +307,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             ("/status", "Evidence status"),
             ("/coverage", "Trusted Fund Coverage"),
             ("/security", "Controlled Pilot Security"),
+            ("/pilot", "Controlled Pilot Intake"),
             ("/readiness", "Readiness Checklist"),
             ("/buyer-pack", "13FLOW Buyer Review Pack"),
             ("/buyer-pack/print", "PDF-ready printable view"),
@@ -338,6 +342,8 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/api/product-status" in doc["paths"]
         assert "/api/commercial-readiness" in doc["paths"]
         assert "/api/security-posture" in doc["paths"]
+        assert "/api/pilot-intake" in doc["paths"]
+        assert "/api/pilot-intake.md" in doc["paths"]
         assert "/api/buyer-pack" in doc["paths"]
         assert "/api/buyer-pack.md" in doc["paths"]
         assert "/api/pro-offer" in doc["paths"]
@@ -577,6 +583,37 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "secrets_in_payloads:false" in security_page
         assert "third-party penetration test" in security_page
 
+        pilot = c.get("/api/pilot-intake").get_json()
+        assert pilot["status"] == "operator_review_required"
+        assert pilot["self_serve_checkout"] is False
+        assert pilot["public_form_submission"] is False
+        assert pilot["public_submission_endpoint"] is None
+        assert pilot["privacy"]["server_side_pii_storage"] is False
+        assert pilot["privacy"]["token_collection"] is False
+        assert pilot["privacy"]["secret_collection"] is False
+        assert "organization" in [x["id"] for x in pilot["required_fields"]]
+        assert "requested_scopes" in [x["id"] for x in pilot["required_fields"]]
+        assert "13FLOW PILOT INTAKE" in pilot["operator_note_template"][0]
+
+        pilot_page = c.get("/pilot").get_data(as_text=True)
+        assert "Controlled Pilot Intake" in pilot_page
+        assert "Operator Note Template" in pilot_page
+        assert "Required Fields" in pilot_page
+        assert "public_form_submission=false" in pilot_page
+        assert "server_side_pii_storage=false" in pilot_page
+        assert "/api/pilot-intake" in pilot_page
+        assert "/api/pilot-intake.md" in pilot_page
+
+        pilot_md_resp = c.get("/api/pilot-intake.md")
+        assert pilot_md_resp.status_code == 200
+        assert pilot_md_resp.mimetype == "text/markdown"
+        pilot_md = pilot_md_resp.get_data(as_text=True)
+        assert "# 13FLOW Pilot Intake" in pilot_md
+        assert "Public form submission: false" in pilot_md
+        assert "## Operator Note Template" in pilot_md
+        assert "requested_scopes" in pilot_md
+        assert "/security" in pilot_md
+
         buyer_pack_page = c.get("/buyer-pack").get_data(as_text=True)
         assert "13FLOW Buyer Review Pack" in buyer_pack_page
         assert "Proof Points" in buyer_pack_page
@@ -588,6 +625,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/api/buyer-pack.md" in buyer_pack_page
         assert "/buyer-pack/print" in buyer_pack_page
         assert "/coverage" in buyer_pack_page
+        assert "/pilot" in buyer_pack_page
         assert "/security" in buyer_pack_page
         assert "/pro/onboarding" in buyer_pack_page
         assert "not a performance claim" in buyer_pack_page
@@ -611,6 +649,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "## Evidence Links" in buyer_pack_md
         assert "not investment advice" in buyer_pack_md
         assert "/coverage" in buyer_pack_md
+        assert "/pilot" in buyer_pack_md
         assert "/security" in buyer_pack_md
 
         coverage_page = c.get("/coverage").get_data(as_text=True)

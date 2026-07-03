@@ -165,6 +165,22 @@ else
   bad "/security posture page" "curl failed"
 fi
 
+pilot_page="$tmpdir/pilot.html"
+if fetch "/pilot" "$pilot_page"; then
+  grep -q "Controlled Pilot Intake" "$pilot_page" \
+    && grep -q "Operator Note Template" "$pilot_page" \
+    && grep -q "Required Fields" "$pilot_page" \
+    && grep -q "public_form_submission=false" "$pilot_page" \
+    && grep -q "server_side_pii_storage=false" "$pilot_page" \
+    && grep -q "/api/pilot-intake" "$pilot_page" \
+    && grep -q "/api/pilot-intake.md" "$pilot_page" \
+    && ok "/pilot intake page" \
+    || bad "/pilot intake page" "missing pilot intake contract"
+  contains_none "/pilot has no legacy/auth/checkout copy" "$pilot_page" "${legacy_forbidden[@]}"
+else
+  bad "/pilot intake page" "curl failed"
+fi
+
 readiness_page="$tmpdir/readiness.html"
 if fetch "/readiness" "$readiness_page"; then
   grep -q "Readiness Checklist" "$readiness_page" \
@@ -189,6 +205,7 @@ if fetch "/buyer-pack" "$buyer_pack_page"; then
     && grep -q "/api/buyer-pack" "$buyer_pack_page" \
     && grep -q "/api/buyer-pack.md" "$buyer_pack_page" \
     && grep -q "/buyer-pack/print" "$buyer_pack_page" \
+    && grep -q "/pilot" "$buyer_pack_page" \
     && grep -q "/security" "$buyer_pack_page" \
     && grep -q "/pro/onboarding" "$buyer_pack_page" \
     && grep -q "not a performance claim" "$buyer_pack_page" \
@@ -504,6 +521,44 @@ else
   bad "/api/security-posture fetch" "curl failed"
 fi
 
+pilot="$tmpdir/pilot-intake.json"
+if fetch "/api/pilot-intake" "$pilot"; then
+  json_check "/api/pilot-intake contract" "$pilot" "
+privacy = data.get('privacy') or {}
+fields = {item.get('id'): item for item in (data.get('required_fields') or [])}
+links = {item.get('href') for item in (data.get('evidence_links') or [])}
+ok = (
+    data.get('status') == 'operator_review_required'
+    and data.get('self_serve_checkout') is False
+    and data.get('public_form_submission') is False
+    and data.get('public_submission_endpoint') is None
+    and privacy.get('server_side_pii_storage') is False
+    and privacy.get('token_collection') is False
+    and privacy.get('secret_collection') is False
+    and fields.get('organization', {}).get('required') is True
+    and fields.get('requested_scopes', {}).get('purpose') == 'least-privilege key issuance'
+    and '/api/pilot-intake.md' in links
+    and '/security' in links
+)
+msg = str(data)[:1000]
+"
+else
+  bad "/api/pilot-intake fetch" "curl failed"
+fi
+
+pilot_md="$tmpdir/pilot-intake.md"
+if fetch "/api/pilot-intake.md" "$pilot_md"; then
+  grep -q "# 13FLOW Pilot Intake" "$pilot_md" \
+    && grep -q "Public form submission: false" "$pilot_md" \
+    && grep -q "## Operator Note Template" "$pilot_md" \
+    && grep -q "requested_scopes" "$pilot_md" \
+    && grep -q "/security" "$pilot_md" \
+    && ok "/api/pilot-intake.md export" \
+    || bad "/api/pilot-intake.md export" "missing markdown pilot intake contract"
+else
+  bad "/api/pilot-intake.md export" "curl failed"
+fi
+
 buyer_pack="$tmpdir/buyer-pack.json"
 if fetch "/api/buyer-pack" "$buyer_pack"; then
   json_check "/api/buyer-pack contract" "$buyer_pack" "
@@ -519,10 +574,12 @@ ok = (
     and terms.get('operator_review_required') is True
     and 'validated alpha' in (data.get('do_not_claim_yet') or [])
     and '/pro/onboarding' in links
+    and '/pilot' in links
     and '/coverage' in links
     and '/security' in links
     and '/api/commercial-readiness' in links
     and (data.get('security_boundary') or {}).get('status') == 'controlled_pilot_security_ready'
+    and (data.get('pilot_intake') or {}).get('public_form_submission') is False
     and any('Pro API keys are scoped' in item for item in (data.get('proof_points') or []))
 )
 msg = str(data)[:1000]
@@ -673,7 +730,7 @@ openapi="$tmpdir/_api_openapi.json"
 if [[ -s "$openapi" ]]; then
   json_check "/api/openapi.json public paths" "$openapi" "
 paths = data.get('paths') or {}
-required = ['/api/live-status', '/api/product-status', '/api/commercial-readiness', '/api/buyer-pack', '/api/buyer-pack.md', '/api/pro-offer', '/api/funds', '/api/watchlist/discover', '/api/mcp', '/api/methodology/confluence-v1']
+required = ['/api/live-status', '/api/product-status', '/api/commercial-readiness', '/api/security-posture', '/api/pilot-intake', '/api/pilot-intake.md', '/api/buyer-pack', '/api/buyer-pack.md', '/api/pro-offer', '/api/funds', '/api/watchlist/discover', '/api/mcp', '/api/methodology/confluence-v1']
 missing = [p for p in required if p not in paths]
 ok = not missing
 msg = 'missing paths: ' + ', '.join(missing)
