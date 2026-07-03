@@ -1,5 +1,5 @@
 """
-Read-only JSON API over the Store, plus it serves the dashboard.
+Read-only JSON API over the Store, plus static proof pages and the research app.
 
 Endpoints (all under /api):
   GET /funds                          -> fund cards (AUM series, latest quarter)
@@ -15,7 +15,8 @@ Endpoints (all under /api):
   GET /pro/v1/openapi.json            -> Pro API OpenAPI document
   GET /subscriptions
   GET /alerts/preview/<cik>
-GET /  -> dashboard.html
+GET /      -> static public proof home
+GET /app   -> dashboard.html research app
 
 Core endpoints work fully offline (reported, quarter-end figures). Valuation (value=1)
 needs a price provider and hits the network at request time, so it's opt-in.
@@ -1812,13 +1813,13 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             },
             "plans": [
                 {
-                    "name": "Pilot access",
-                    "fit": "one research desk or analyst validating 13F workflows",
-                    "commercial_model": "operator quoted",
+                    "name": "Technical pilot review",
+                    "fit": "one bounded evaluator checking whether 13FLOW fits a real workflow",
+                    "commercial_model": "not publicly priced",
                     "includes": [
                         "one scoped API key",
-                        "default limits unless negotiated",
-                        "fund list, fund detail and data-quality endpoints",
+                        "conservative default limits",
+                        "status, funds, bounded fund detail and data-quality endpoints",
                         "bounded first probes with operator verification",
                     ],
                     "success_criteria": [
@@ -1828,9 +1829,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     ],
                 },
                 {
-                    "name": "Desk API",
-                    "fit": "repeatable internal dashboards, notebooks or data pipelines",
-                    "commercial_model": "operator quoted",
+                    "name": "API integration review",
+                    "fit": "internal dashboard, notebook or data pipeline evaluation after the first pilot probes",
+                    "commercial_model": "not publicly priced",
                     "includes": [
                         "institution-labelled API key",
                         "documented scopes, limits and rotation policy",
@@ -1844,9 +1845,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     ],
                 },
                 {
-                    "name": "Agent / MCP workflow",
-                    "fit": "automated agent access to 13F context and quality metadata",
-                    "commercial_model": "operator quoted",
+                    "name": "MCP integration review",
+                    "fit": "agent workflow evaluation where Pro tools must fail closed without a key",
+                    "commercial_model": "not publicly priced",
                     "includes": [
                         "MCP product-status and Pro tool probes",
                         "fail-closed behavior without a valid Pro key",
@@ -1868,10 +1869,13 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "confirmation that 13FLOW is a research screen, not investment advice",
             ],
             "commercial_model": {
-                "pricing_currency": "EUR",
+                "pricing_currency": "not_publicly_quoted",
+                "pricing_status": "paused_until_terms_and_capacity_are_ready",
                 "principle": (
-                    "Sell the audited 13F workflow, quality boundary, support and MCP readiness; "
-                    "do not sell raw SEC data as if it were proprietary."
+                    "Do not publish package pricing yet. 13FLOW is an operator-reviewed, "
+                    "limited-capacity research service; sell only a bounded technical "
+                    "pilot after the buyer accepts the validation, support and redistribution "
+                    "boundaries. Do not position it as cheap raw SEC data."
                 ),
                 "ideal_customer_profiles": [
                     {
@@ -1892,48 +1896,21 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 ],
                 "recommended_packages": [
                     {
-                        "name": "Paid pilot",
-                        "price_eur_per_month": 490,
-                        "term": "30 days, renewable once before conversion",
+                        "name": "Reviewed technical pilot",
+                        "price_eur_per_month": "not publicly quoted",
+                        "term": "short, bounded evaluation only",
                         "included_keys": 1,
                         "included_limits": {"per_min": 120, "per_day": 10000},
-                        "support": "best-effort email, one onboarding session",
-                        "sell_when": "prospect wants to validate one workflow against real live data",
-                    },
-                    {
-                        "name": "Desk API",
-                        "price_eur_per_month": 1500,
-                        "term": "annual preferred; monthly at operator discretion",
-                        "included_keys": 2,
-                        "included_limits": {"per_min": 240, "per_day": 50000},
-                        "support": "email support, quarterly key review, methodology change notices",
-                        "sell_when": "one desk or data team depends on the API repeatedly",
-                    },
-                    {
-                        "name": "Agent / MCP",
-                        "price_eur_per_month": 2500,
-                        "term": "annual preferred",
-                        "included_keys": 3,
-                        "included_limits": {"per_min": 300, "per_day": 100000},
-                        "support": "MCP integration handoff, fail-closed test pack, audit verification",
-                        "sell_when": "client is wiring 13FLOW into automated research agents",
-                    },
-                    {
-                        "name": "Enterprise / redistribution",
-                        "price_eur_per_month": "from 6000",
-                        "term": "custom contract",
-                        "included_keys": "custom",
-                        "included_limits": "custom",
-                        "support": "custom SLA, legal/security review, redistribution terms",
-                        "sell_when": "client needs redistribution, many keys, custom limits or procurement terms",
+                        "support": "best-effort operator availability; no SLA",
+                        "sell_when": "a serious evaluator has a bounded workflow and accepts the no-alpha/no-SLA boundary",
                     },
                 ],
                 "do_not_discount_below": {
-                    "full_live_api_access_eur_per_month": 490,
-                    "reason": "below that level the buyer gets curated live workflow, support and audit for less than the operator cost of serious onboarding",
+                    "full_live_api_access_eur_per_month": None,
+                    "reason": "public pricing is paused; quote nothing until pilot terms, capacity and support boundaries are explicit",
                 },
                 "pricing_policy": {
-                    "strategy": "better_not_cheaper",
+                    "strategy": "bounded_operator_review_before_any_quote",
                     "do_not_compete_on": [
                         "generic SEC filing download volume",
                         "self-serve retail portfolio widgets",
@@ -1945,7 +1922,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                         "operator-issued keys with audit, limits and fail-closed MCP tools",
                         "evidence pack suitable for a professional buyer review",
                     ],
-                    "discount_rule": "reduce scope, term or request limits before reducing the full live API floor",
+                    "discount_rule": "do not negotiate public packages; reduce to a smaller technical pilot or decline",
                 },
                 "market_context": [
                     {
@@ -2026,7 +2003,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "operator_note_schema": {
                     "organization": "",
                     "contact": "",
-                    "package": "Pilot access | Desk API | Agent / MCP workflow",
+                    "package": "Technical pilot review | API integration review | MCP integration review",
                     "workflow": "",
                     "scopes": ["funds:read", "quality:read"],
                     "rate_limits": {"per_min": 120, "per_day": 10000},
@@ -2773,6 +2750,11 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<div class=\"card\"><h3>Audit model</h3><p>Accepted, denied and rate-limited Pro requests may be logged with "
             "key id, scope, endpoint, status and request metadata needed for security review.</p></div>"
             "</div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Capacity and support boundary</h2>"
+            "<ul><li>13FLOW Pro is currently a limited-capacity, operator-reviewed technical evaluation surface.</li>"
+            "<li>No public package pricing, uptime SLA, support SLA, enterprise procurement promise or managed-service guarantee is offered on the open site.</li>"
+            "<li>Access can be declined, rate-limited, paused, rotated or revoked for operational, security or legal reasons.</li>"
+            "<li>Any paid pilot, production use or redistribution right requires explicit written agreement before a token is issued.</li></ul></div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Allowed use</h2>"
             "<ul><li>Internal research, dashboards, notebooks, data-quality checks and agent workflows.</li>"
             "<li>Source-linked review of SEC EDGAR-derived 13F holdings and quality warnings.</li>"
@@ -2828,7 +2810,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         commercial_cards = "".join(
             "<div class=\"card\">"
             f"<h3>{html_escape(pkg['name'])}</h3>"
-            f"<p class=\"num\">{html_escape(str(pkg['price_eur_per_month']))} EUR / month</p>"
+            f"<p class=\"num\">Pricing: {html_escape(str(pkg['price_eur_per_month']))}</p>"
             f"<p>{html_escape(pkg['term'])}</p>"
             f"<p>{html_escape(pkg['support'])}</p>"
             f"<p class=\"meta\">Sell when: {html_escape(pkg['sell_when'])}</p>"
@@ -2876,7 +2858,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         body = (
             "<h1>13FLOW Pro API</h1>"
             "<p class=\"lede\">Source-linked 13F data, quality warnings and agent-ready "
-            "read-only access for research desks that want to stop hand-scraping SEC filings.</p>"
+            "read-only access for bounded technical evaluation. This is an operator-reviewed, "
+            "limited-capacity service, not a self-serve SaaS checkout.</p>"
             "<p><a class=\"pill\" href=\"" + contact_link + "\">Request access</a> "
             f"<span class=\"meta\">{html_escape(contact['expected_response'])}</span></p>"
             "<div class=\"grid\">"
@@ -2908,9 +2891,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<div class=\"grid\">" + commercial_cards + "</div>"
             "<h3>Compete on</h3>"
             f"<ul>{compete_on}</ul>"
-            f"<p class=\"meta\">Do not sell full live API access below "
-            f"{html_escape(str(commercial['do_not_discount_below']['full_live_api_access_eur_per_month']))} EUR / month. "
-            f"{html_escape(commercial['do_not_discount_below']['reason'])}</p></div>"
+            f"<p class=\"meta\">{html_escape(commercial['do_not_discount_below']['reason'])}</p></div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Competitive position</h2>"
             "<p class=\"lede\">13FLOW should not race raw SEC API vendors to the bottom. "
             "It should sell verified workflow, method boundaries and buyer-specific evidence.</p>"
@@ -2955,13 +2936,60 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return resp
 
+    @app.get("/app")
+    def app_dashboard():
+        return _serve_html(dash)
+
     @app.get("/")
     def index():
-        return _serve_html(dash)
+        live = live_status_payload()
+        product = product_status_payload()
+        validation = product["validation"]
+        artifact = validation["current_artifact"]
+        counts = live["counts"]
+        status_label = "LIVE EDGAR" if live["public_state"] == "LIVE" and not live["uses_synthetic_data"] else live["public_state"]
+        body = (
+            "<h1>13FLOW</h1>"
+            "<p class=\"lede\">SEC EDGAR-derived 13F and Form 4 research surfaces for analysts, APIs and agent workflows. "
+            "This home is a static proof surface: no account, no checkout, no sample-data chrome.</p>"
+            "<div class=\"grid\">"
+            "<div class=\"card\"><h3>Data State</h3>"
+            f"<p><span id=\"srcText\" class=\"pill\">{html_escape(status_label.replace('LIVE EDGAR', 'LIVE · EDGAR'))}</span></p>"
+            f"<p class=\"meta\">Live data status: {html_escape(status_label)}.</p>"
+            f"<p class=\"meta\">uses_synthetic_data={str(live['uses_synthetic_data']).lower()}</p>"
+            f"<p class=\"meta\">latest 13F quarter {html_escape(live.get('latest_13f_quarter') or 'unknown')}</p></div>"
+            "<div class=\"card\"><h3>Public API</h3>"
+            f"<p class=\"meta\">/api/funds serves {html_escape(str(counts.get('funds') or 0))} funds</p>"
+            f"<p class=\"meta\">filings={html_escape(str(counts.get('filings') or 0))}; latest_rows={html_escape(str(counts.get('latest_filings') or 0))}</p>"
+            "<p><a class=\"pill\" href=\"/api/openapi.json\">OpenAPI</a> "
+            "<a class=\"pill\" href=\"/developers\">Developers</a></p></div>"
+            "<div class=\"card\"><h3>Validation Boundary</h3>"
+            f"<p><span class=\"pill\">{html_escape(validation['status'])}</span></p>"
+            f"<p class=\"meta\">rows={html_escape(str(artifact['row_count']))}; tickers={html_escape(str(artifact['ticker_count']))}; row_errors={html_escape(str(artifact['row_error_count']))}</p>"
+            "<p><a class=\"pill\" href=\"/validation\">Validation evidence</a></p></div>"
+            "</div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>What Is Live</h2>"
+            "<ul><li>Read-only public 13F data from SEC EDGAR-derived local storage.</li>"
+            "<li>25-ticker mature 13F + Form 4 joined evidence pack ready for human review.</li>"
+            "<li>Public API, MCP public tools, methodology contracts and status pages.</li></ul>"
+            "<p><a class=\"pill\" href=\"/funds\">Funds</a> "
+            "<a class=\"pill\" href=\"/stocks\">Stocks</a> "
+            "<a class=\"pill\" href=\"/signals\">Signals</a> "
+            "<a class=\"pill\" href=\"/app\">Open research app</a></p></div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>What Is Not Claimed</h2>"
+            "<ul><li>No validated alpha claim.</li><li>No probability or expected-return model.</li>"
+            "<li>No public self-serve checkout.</li><li>No production x402 payment flow.</li>"
+            "<li>No SLA or redistribution right without written agreement.</li></ul>"
+            "<p><a class=\"pill\" href=\"/status\">Status</a> "
+            "<a class=\"pill\" href=\"/methodology\">Methodology</a> "
+            "<a class=\"pill\" href=\"/pro\">Operator-reviewed API access</a> "
+            "<a class=\"pill\" href=\"/faq\">FAQ</a></p></div>"
+        )
+        return _html_response("Home", body)
 
     @app.get("/dashboard.html")
     def dashboard_alias():
-        return redirect("/", code=301)
+        return redirect("/app", code=301)
 
     _FAQ = os.path.join(os.path.dirname(dash), "faq.html")
 

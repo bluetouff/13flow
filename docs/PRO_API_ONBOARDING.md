@@ -41,7 +41,7 @@ Create a local operator note before issuing a key:
 ```text
 organization:
 contact:
-package: Pilot access | Desk API | Agent / MCP workflow
+package: Technical pilot review | API integration review | MCP integration review
 workflow:
 scopes: funds:read,quality:read
 rate_limits: 120/min, 10000/day
@@ -57,18 +57,24 @@ boundary_acknowledged: false
 
 Use one of the public packages exposed by `/api/pro-offer`:
 
-- **Pilot access** — one research desk or analyst validating 13F workflows.
-- **Desk API** — repeatable internal dashboards, notebooks or data pipelines.
-- **Agent / MCP workflow** — automated agent access to 13F context and quality metadata.
+- **Technical pilot review** — one bounded evaluator checking whether 13FLOW
+  fits a real workflow.
+- **API integration review** — internal dashboard, notebook or data-pipeline
+  evaluation after the first pilot probes.
+- **MCP integration review** — agent workflow evaluation where Pro tools must
+  fail closed without a key.
 
-All packages are operator quoted for now. Do not expose public self-serve
-checkout until pricing, terms, payment details and support boundaries are
-ready.
+No package has public pricing. Do not expose public self-serve checkout or
+enterprise-style offers until pricing, terms, payment details, capacity and
+support boundaries are ready.
 
-Commercial positioning, competitor context, pricing floors and objection
+Commercial positioning, competitor context, capacity limits and objection
 handling live in `docs/COMMERCIAL_MODEL.md`. Use that document before quoting:
-13FLOW should be sold as a verified 13F plus Form 4 workflow, not as cheap raw
-SEC access.
+13FLOW should be handled as a limited-capacity technical evaluation, not as
+cheap raw SEC access or a mature managed SaaS product.
+
+Pro, MCP and redistribution terms live in
+`docs/PRO_MCP_REDISTRIBUTION_TERMS.md`.
 
 ## 3. Qualify the account
 

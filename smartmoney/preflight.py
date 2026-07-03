@@ -338,16 +338,22 @@ def _public_surface_checks(db_path: str) -> list[Check]:
     try:
         from .api import create_app
         client = create_app(db_path, open_mode=True).test_client()
-        root = client.get("/")
-        html = root.get_data(as_text=True)
-        if root.status_code != 200:
-            checks.append(_check("public_surface.root", "fail", f"HTTP {root.status_code}"))
-        elif "SAMPLE DATA" in html:
+        surfaces = [("/", "root"), ("/app", "research app")]
+        sample_hits = []
+        for path, label in surfaces:
+            resp = client.get(path)
+            html = resp.get_data(as_text=True)
+            if resp.status_code != 200:
+                checks.append(_check(f"public_surface.{label.replace(' ', '_')}",
+                                     "fail", f"{path} HTTP {resp.status_code}"))
+            elif "SAMPLE DATA" in html:
+                sample_hits.append(f"{label} ({path})")
+        if sample_hits:
             checks.append(_check("public_surface.no_sample_badge", "fail",
-                                 "SAMPLE DATA is visible on the public root page"))
+                                 "SAMPLE DATA is visible on " + ", ".join(sample_hits)))
         else:
             checks.append(_check("public_surface.no_sample_badge", "pass",
-                                 "public root does not expose SAMPLE DATA"))
+                                 "public root and app do not expose SAMPLE DATA"))
 
         cfg = client.get("/api/config").get_json() or {}
         features = cfg.get("features") or {}

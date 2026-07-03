@@ -492,7 +492,7 @@ separated from the web user, and a scheduled refresh) lives in [`deploy/`](deplo
 - `crosssignal.py` — Confluence engine: 13F accumulation × insider buying → scored, classified signal.
 - `backtest.py` — rank-IC / quantile-spread harness + coordinate-ascent research optimiser.
 - `api_signals.py` — read-only `GET /api/signals/confluence` blueprint (live + sample providers).
-- `dashboard.html` — single-file web UI source; `/dashboard.html` redirects to canonical `/`.
+- `dashboard.html` — single-file research app source; served at `/app`, with `/dashboard.html` redirecting there.
 - `faq.html` — branded FAQ / explainer source, served at `/faq`; `/faq.html` redirects there.
 
 See **`SECURITY.md`** for the threat model, the audit findings, and deployment hardening.

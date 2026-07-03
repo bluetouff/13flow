@@ -113,7 +113,7 @@ for path in /faq /legal; do
   fi
 done
 
-redirects_to "legacy /dashboard.html redirects canonical" "/dashboard.html" "/"
+redirects_to "legacy /dashboard.html redirects app" "/dashboard.html" "/app"
 redirects_to "legacy /faq.html redirects canonical" "/faq.html" "/faq"
 redirects_to "legacy /mentions-legales redirects canonical" "/mentions-legales" "/legal"
 redirects_to "legacy /mentions-legales.html redirects canonical" "/mentions-legales.html" "/legal"
@@ -172,6 +172,8 @@ pro_terms_page="$tmpdir/legal-pro-api.html"
 if fetch "/legal/pro-api" "$pro_terms_page"; then
   grep -q "Pro API, MCP and x402 terms" "$pro_terms_page" \
     && grep -q "Self-serve checkout is disabled" "$pro_terms_page" \
+    && grep -q "No public package pricing" "$pro_terms_page" \
+    && grep -q "Access can be declined" "$pro_terms_page" \
     && grep -q "No resale, redistribution" "$pro_terms_page" \
     && ok "/legal/pro-api terms" \
     || bad "/legal/pro-api terms" "missing Pro API terms copy"
@@ -185,9 +187,10 @@ if fetch "/pro" "$pro_page"; then
   grep -q "13FLOW Pro API" "$pro_page" \
     && grep -q "/api/pro-offer" "$pro_page" \
     && grep -q "Request access" "$pro_page" \
-    && grep -q "Pilot access" "$pro_page" \
+    && grep -q "Technical pilot review" "$pro_page" \
     && grep -q "Operator lead kit" "$pro_page" \
-    && grep -q "490 EUR / month" "$pro_page" \
+    && grep -q "not publicly quoted" "$pro_page" \
+    && ! grep -q "490 EUR / month" "$pro_page" \
     && ok "/pro offer page" \
     || bad "/pro offer page" "missing Pro API packaging copy"
 else
@@ -297,12 +300,13 @@ ok = (
     offer.get('name') == '13FLOW Pro API'
     and offer.get('self_serve_checkout') is False
     and (offer.get('contact') or {}).get('email') == 'admin@toonux.com'
-    and [p.get('name') for p in plans] == ['Pilot access', 'Desk API', 'Agent / MCP workflow']
+    and [p.get('name') for p in plans] == ['Technical pilot review', 'API integration review', 'MCP integration review']
     and 'organization name and billing contact' in buyer_checklist
     and 'Before I issue a scoped pilot key' in (sales_packet.get('lead_reply_template') or '')
-    and note_schema.get('package') == 'Pilot access | Desk API | Agent / MCP workflow'
-    and packages and packages[0].get('price_eur_per_month') == 490
-    and (commercial.get('do_not_discount_below') or {}).get('full_live_api_access_eur_per_month') == 490
+    and note_schema.get('package') == 'Technical pilot review | API integration review | MCP integration review'
+    and commercial.get('pricing_status') == 'paused_until_terms_and_capacity_are_ready'
+    and packages and packages[0].get('price_eur_per_month') == 'not publicly quoted'
+    and (commercial.get('do_not_discount_below') or {}).get('full_live_api_access_eur_per_month') is None
     and int(limits.get('rate_per_min') or 0) == 120
     and 'validated alpha' in not_yet
     and bool(commands.get('create_key'))

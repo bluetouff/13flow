@@ -72,16 +72,17 @@ and handoff tests.
 
 ## Packages
 
-| Package | Price guide | Term | Fit |
-| --- | ---: | --- | --- |
-| Paid pilot | 490 EUR / month | 30 days, renewable once | One workflow against real live data. |
-| Desk API | 1,500 EUR / month | Annual preferred | One desk or data team depends on the API repeatedly. |
-| Agent / MCP | 2,500 EUR / month | Annual preferred | Client wires 13FLOW into automated research agents. |
-| Enterprise / redistribution | from 6,000 EUR / month | Custom contract | Redistribution, many keys, custom limits, procurement or SLA. |
+Public package pricing is paused. The service is currently a limited-capacity,
+operator-reviewed technical evaluation surface, not a self-serve SaaS checkout.
 
-Pricing rule: do not discount full live API access below 490 EUR / month. If a
-buyer pushes for less, reduce scope, duration, request limits or support before
-reducing the floor.
+| Package | Price guide | Term | Fit |
+| --- | --- | --- | --- |
+| Reviewed technical pilot | not publicly quoted | short, bounded evaluation only | One serious evaluator checks whether 13FLOW fits a real workflow. |
+
+Do not publish or negotiate public package prices until pilot terms, capacity,
+support, uptime, security, billing and redistribution boundaries are explicit.
+If a prospect asks for a larger package, reduce the conversation back to a
+bounded technical pilot or decline.
 
 ## What is included
 
@@ -108,7 +109,8 @@ Do not claim:
 
 Correct wording: 13FLOW is a source-linked research workflow over SEC
 EDGAR-derived 13F and Form 4 surfaces. Confluence v1 is a heuristic feature
-contract until the full validation dataset passes.
+contract. A 25-ticker mature joined artifact is mechanically ready for human
+review, but it is not a public validation or alpha claim.
 
 ## Qualification filter
 
@@ -160,9 +162,11 @@ boundaries and MCP behavior.
 
 **"Can we start for free?"**
 
-No full live Pro API for free. Use public endpoints and `/status` first. If the
-buyer has a serious workflow, quote the paid pilot.
+No public free Pro API. Use public endpoints, `/validation` and `/status` first.
+If the buyer has a serious workflow, evaluate whether a bounded technical pilot
+is operationally realistic.
 
 **"Can we redistribute this data?"**
 
-Only under the enterprise/redistribution package with explicit written terms.
+Only with explicit written terms. No redistribution right is implied by API key
+access.

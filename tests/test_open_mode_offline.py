@@ -122,7 +122,8 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
         html = create_app(db, secure_cookies=False, open_mode=True).test_client() \
             .get("/").get_data(as_text=True)
 
-        assert '<span id="srcText">LIVE · EDGAR</span>' in html
+        assert "<h1>13FLOW</h1>" in html
+        assert '<span id="srcText" class="pill">LIVE · EDGAR</span>' in html
         assert "SAMPLE DATA" not in html
         assert "Sign in" not in html
         assert "Upgrade to Pro" not in html
@@ -136,6 +137,8 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
         assert "uses_synthetic_data=false" in html
         assert "/api/funds serves 1 funds" in html
         assert "latest 13F quarter 2026-03-31" in html
+        assert "Open research app" in html
+        assert 'href="/app"' in html
         assert 'href="/developers"' in html
         assert 'href="/methodology"' in html
         assert 'href="/pro"' in html
@@ -143,6 +146,11 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
         assert 'href="/faq"' in html
         assert 'href="faq.html"' not in html
         assert "Public filings research. Not investment advice." in html
+
+        app_html = create_app(db, secure_cookies=False, open_mode=True).test_client() \
+            .get("/app").get_data(as_text=True)
+        assert "The Filings" in app_html
+        assert '<span id="srcText">LIVE · EDGAR</span>' in app_html
 
         live = create_app(db, secure_cookies=False, open_mode=True).test_client() \
             .get("/api/live-status").get_json()
@@ -259,7 +267,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             assert needle in r.get_data(as_text=True), path
 
         for path, target in (
-            ("/dashboard.html", "/"),
+            ("/dashboard.html", "/app"),
             ("/faq.html", "/faq"),
             ("/mentions-legales", "/legal"),
             ("/mentions-legales.html", "/legal"),
@@ -282,21 +290,23 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert offer["offer"]["self_serve_checkout"] is False
         assert offer["offer"]["contact"]["email"] == "admin@toonux.com"
         assert [p["name"] for p in offer["plans"]] == [
-            "Pilot access",
-            "Desk API",
-            "Agent / MCP workflow",
+            "Technical pilot review",
+            "API integration review",
+            "MCP integration review",
         ]
         assert "organization name and billing contact" in offer["buyer_checklist"]
         sales_packet = offer["sales_packet"]
         assert "Which desk, product or automated workflow" in sales_packet["qualification_questions"][0]
         assert "Before I issue a scoped pilot key" in sales_packet["lead_reply_template"]
-        assert sales_packet["operator_note_schema"]["package"] == "Pilot access | Desk API | Agent / MCP workflow"
+        assert sales_packet["operator_note_schema"]["package"] == \
+            "Technical pilot review | API integration review | MCP integration review"
         assert "Verify the key id in api_audit" in sales_packet["pilot_handoff"][3]
         commercial = offer["commercial_model"]
-        assert commercial["recommended_packages"][0]["price_eur_per_month"] == 490
-        assert commercial["do_not_discount_below"]["full_live_api_access_eur_per_month"] == 490
+        assert commercial["pricing_status"] == "paused_until_terms_and_capacity_are_ready"
+        assert commercial["recommended_packages"][0]["price_eur_per_month"] == "not publicly quoted"
+        assert commercial["do_not_discount_below"]["full_live_api_access_eur_per_month"] is None
         assert "raw SEC data" in commercial["principle"]
-        assert commercial["pricing_policy"]["strategy"] == "better_not_cheaper"
+        assert commercial["pricing_policy"]["strategy"] == "bounded_operator_review_before_any_quote"
         assert "13F plus Form 4 confluence workflow" in commercial["pricing_policy"]["compete_on"]
         assert [item["provider"] for item in commercial["market_context"]] == [
             "SEC.gov",
@@ -343,10 +353,12 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Request access" in pro_page
         assert "Access request checklist" in pro_page
         assert "Operator lead kit" in pro_page
-        assert "490 EUR / month" in pro_page
-        assert "Pilot access" in pro_page
+        assert "not publicly quoted" in pro_page
+        assert "Technical pilot review" in pro_page
+        assert "limited-capacity service" in pro_page
+        assert "490 EUR / month" not in pro_page
         assert "Competitive position" in pro_page
-        assert "better_not_cheaper" in pro_page
+        assert "bounded_operator_review_before_any_quote" in pro_page
         assert "Quiver Quantitative" in pro_page
         assert "Evidence pack" in pro_page
         assert 'href="/validation"' in pro_page
@@ -392,6 +404,8 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
 
         pro_terms = c.get("/legal/pro-api").get_data(as_text=True)
         assert "Self-serve checkout is disabled" in pro_terms
+        assert "No public package pricing" in pro_terms
+        assert "Access can be declined" in pro_terms
         assert "No resale, redistribution" in pro_terms
         assert "does not sell raw SEC access as proprietary data" in pro_terms
 

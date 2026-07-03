@@ -71,7 +71,7 @@ Détails de la méthodologie côté produit : voir `/faq`. Spécifique Form 4 : 
 
 ```
 13flow/
-├── dashboard.html          # source HTML de l'accueil, servi à `/`
+├── dashboard.html          # source de l'app de recherche, servie à `/app`
 ├── faq.html                # source FAQ, servie à `/faq`
 ├── mentions-legales.html   # source legal, servie à `/legal`
 ├── run.py                  # CLI (ingestion, vérif CIK, pré-calcul Confluence, comptes…)
@@ -272,7 +272,7 @@ Product methodology: see `/faq`. Form 4 specifics: [`FORMS4_INTEGRATION.md`](FOR
 
 ```
 13flow/
-├── dashboard.html          # home HTML source, served at `/`
+├── dashboard.html          # research app HTML source, served at `/app`
 ├── faq.html · mentions-legales.html  # sources served at `/faq` and `/legal`
 ├── run.py                  # CLI (ingest, verify CIKs, precompute Confluence, accounts…)
 ├── wsgi.py                 # Gunicorn entrypoint (create_app from env)
@@ -341,7 +341,7 @@ VIEW latest_filings(cik, report_date, accession)
 
 ### HTTP API (read-only in open mode)
 
-`GET /api/config` · `…/funds` · `…/fund/<cik>` · `…/consensus/holdings|buys` (`?min_funds=`, bounded) · `…/compare?ciks=` (≤12) · `…/coverage` · `…/signals/confluence?window=30|90|180` (serves the **cache** if present). HTML pages `/`, `/faq`, `/legal` carry a **per-request nonce CSP**. Legacy aliases `/dashboard.html`, `/faq.html`, `/mentions-legales` and `/mentions-legales.html` redirect to canonical URLs. Full-build routes (`auth/billing/subscriptions/alerts`) return **404 in open mode**.
+`GET /api/config` · `…/funds` · `…/fund/<cik>` · `…/consensus/holdings|buys` (`?min_funds=`, bounded) · `…/compare?ciks=` (≤12) · `…/coverage` · `…/signals/confluence?window=30|90|180` (serves the **cache** if present). HTML pages `/`, `/app`, `/faq`, `/legal` carry a **per-request nonce CSP**. Legacy aliases `/dashboard.html`, `/faq.html`, `/mentions-legales` and `/mentions-legales.html` redirect to canonical URLs. Full-build routes (`auth/billing/subscriptions/alerts`) return **404 in open mode**.
 
 ### CLI (`run.py`)
 
