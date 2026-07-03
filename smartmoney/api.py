@@ -1614,6 +1614,49 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "expiry, rotation and revocation expectations",
                 "confirmation that 13FLOW is a research screen, not investment advice",
             ],
+            "sales_packet": {
+                "qualification_questions": [
+                    "Which desk, product or automated workflow will consume 13FLOW?",
+                    "Which 13F managers, tickers or watchlists matter first?",
+                    "Is the first use case human research, internal dashboarding, or agent/MCP automation?",
+                    "What request volume do you expect during pilot and production use?",
+                    "Who owns security review, token custody and rotation?",
+                    "Do you need bounded fund detail only, or full data-quality metadata as well?",
+                ],
+                "lead_reply_template": (
+                    "Thanks for the 13FLOW Pro API request.\n\n"
+                    "Before I issue a scoped pilot key, please confirm:\n"
+                    "- Organization / billing contact:\n"
+                    "- Workflow: research desk, data pipeline, MCP agent, monitoring, or other\n"
+                    "- Priority funds, tickers or watchlists:\n"
+                    "- Expected request volume during pilot:\n"
+                    "- Required scopes: funds:read, quality:read, or both\n"
+                    "- Preferred secure token delivery channel:\n"
+                    "- Rotation / expiry expectation:\n"
+                    "- You accept the current validation boundary: no validated alpha, probability, or expected-return claim yet\n"
+                ),
+                "operator_note_schema": {
+                    "organization": "",
+                    "contact": "",
+                    "package": "Pilot access | Desk API | Agent / MCP workflow",
+                    "workflow": "",
+                    "scopes": ["funds:read", "quality:read"],
+                    "rate_limits": {"per_min": 120, "per_day": 10000},
+                    "token_delivery_channel": "",
+                    "expiry_or_rotation_date": "",
+                    "key_id": "",
+                    "first_probe_status": "pending",
+                    "audit_verified_at": "",
+                    "boundary_acknowledged": False,
+                },
+                "pilot_handoff": [
+                    "Send the Pro OpenAPI URL and three curl probes.",
+                    "Ask the buyer to run status, funds and one bounded fund-detail call.",
+                    "Confirm the buyer can parse truncation counters and data-quality warnings.",
+                    "Verify the key id in api_audit after the first successful calls.",
+                    "Document the rotation date before moving from pilot to recurring use.",
+                ],
+            },
             "included": [
                 {
                     "capability": "Pro API",
@@ -2048,6 +2091,13 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         checklist = "".join(
             f"<li>{html_escape(item)}</li>" for item in offer["buyer_checklist"]
         )
+        sales = offer["sales_packet"]
+        questions = "".join(
+            f"<li>{html_escape(item)}</li>" for item in sales["qualification_questions"]
+        )
+        handoff = "".join(
+            f"<li>{html_escape(item)}</li>" for item in sales["pilot_handoff"]
+        )
         not_yet = "".join(
             f"<li>{html_escape(item)}</li>" for item in offer["not_included_yet"]
         )
@@ -2079,6 +2129,12 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<p class=\"lede\">Send these details first so the operator can issue the right scoped key.</p>"
             f"<ul>{checklist}</ul>"
             "<p><a class=\"pill\" href=\"" + contact_link + "\">Email access request</a></p></div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Operator lead kit</h2>"
+            "<div class=\"grid\"><div class=\"card\"><h3>Qualification questions</h3>"
+            f"<ul>{questions}</ul></div>"
+            "<div class=\"card\"><h3>Pilot handoff</h3>"
+            f"<ul>{handoff}</ul></div></div>"
+            "<p class=\"meta\">Machine-readable template: /api/pro-offer sales_packet.lead_reply_template</p></div>"
             "<h2>Included</h2><div class=\"grid\">" + included + "</div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Not claimed yet</h2>"
             "<p class=\"lede\">These claims require additional evidence or configuration before use in sales material.</p>"

@@ -225,6 +225,11 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             "Agent / MCP workflow",
         ]
         assert "organization name and billing contact" in offer["buyer_checklist"]
+        sales_packet = offer["sales_packet"]
+        assert "Which desk, product or automated workflow" in sales_packet["qualification_questions"][0]
+        assert "Before I issue a scoped pilot key" in sales_packet["lead_reply_template"]
+        assert sales_packet["operator_note_schema"]["package"] == "Pilot access | Desk API | Agent / MCP workflow"
+        assert "Verify the key id in api_audit" in sales_packet["pilot_handoff"][3]
         assert offer["default_limits"]["rate_per_min"] == 120
         assert "validated alpha" in offer["not_included_yet"]
         assert "create_key" in offer["operator_commands"]
@@ -233,6 +238,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         pro_page = c.get("/pro").get_data(as_text=True)
         assert "Request access" in pro_page
         assert "Access request checklist" in pro_page
+        assert "Operator lead kit" in pro_page
         assert "Pilot access" in pro_page
 
         api_stock = c.get("/api/stocks/AAPL").get_json()

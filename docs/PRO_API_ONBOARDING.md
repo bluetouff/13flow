@@ -15,6 +15,12 @@ for these fields before quoting or issuing a key:
 - expiry, rotation and revocation expectations;
 - confirmation that 13FLOW is a research screen, not investment advice.
 
+The same checklist, qualification questions and reply template are exposed in:
+
+```bash
+curl -fsS https://13flow.eu/api/pro-offer | python3 -m json.tool
+```
+
 Suggested reply structure:
 
 ```text
@@ -28,6 +34,23 @@ Before I issue a scoped pilot key, please confirm:
 - Preferred secure token delivery channel:
 - Rotation / expiry expectation:
 - You accept the current validation boundary:
+```
+
+Create a local operator note before issuing a key:
+
+```text
+organization:
+contact:
+package: Pilot access | Desk API | Agent / MCP workflow
+workflow:
+scopes: funds:read,quality:read
+rate_limits: 120/min, 10000/day
+token_delivery_channel:
+expiry_or_rotation_date:
+key_id:
+first_probe_status: pending
+audit_verified_at:
+boundary_acknowledged: false
 ```
 
 ## 2. Select the access package
@@ -103,6 +126,14 @@ unset TOKEN
 The bounded fund-detail call must include `positions_total`,
 `positions_returned`, `changes_total` and `changes_returned` so clients can
 detect truncation deterministically.
+
+Pilot handoff is only complete when the buyer confirms they can parse:
+
+- the status response;
+- the funds response;
+- one bounded fund-detail response;
+- truncation counters;
+- data-quality warnings.
 
 ## 6. MCP probe
 

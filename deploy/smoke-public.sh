@@ -106,6 +106,7 @@ if fetch "/pro" "$pro_page"; then
     && grep -q "/api/pro-offer" "$pro_page" \
     && grep -q "Request access" "$pro_page" \
     && grep -q "Pilot access" "$pro_page" \
+    && grep -q "Operator lead kit" "$pro_page" \
     && ok "/pro offer page" \
     || bad "/pro offer page" "missing Pro API packaging copy"
 else
@@ -200,12 +201,16 @@ truth = data.get('truth_boundary') or {}
 artifact = truth.get('current_artifact') or {}
 plans = data.get('plans') or []
 buyer_checklist = data.get('buyer_checklist') or []
+sales_packet = data.get('sales_packet') or {}
+note_schema = sales_packet.get('operator_note_schema') or {}
 ok = (
     offer.get('name') == '13FLOW Pro API'
     and offer.get('self_serve_checkout') is False
     and (offer.get('contact') or {}).get('email') == 'admin@toonux.com'
     and [p.get('name') for p in plans] == ['Pilot access', 'Desk API', 'Agent / MCP workflow']
     and 'organization name and billing contact' in buyer_checklist
+    and 'Before I issue a scoped pilot key' in (sales_packet.get('lead_reply_template') or '')
+    and note_schema.get('package') == 'Pilot access | Desk API | Agent / MCP workflow'
     and int(limits.get('rate_per_min') or 0) == 120
     and 'validated alpha' in not_yet
     and bool(commands.get('create_key'))
