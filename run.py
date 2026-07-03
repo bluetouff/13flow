@@ -825,6 +825,47 @@ def cmd_validate_price_csv(path: str,
           f"partial={report['tickers_partial_history']}, gaps={report['major_gap_count']}")
 
 
+def cmd_validate_form4_csv(path: str,
+                           tickers_path: str | None,
+                           start: str | None,
+                           end: str | None,
+                           as_json: bool) -> None:
+    import json
+    from smartmoney.validation_form4 import validate_form4_csv
+    from smartmoney.validation_prices import parse_date
+    try:
+        start_date = parse_date(start) if start else None
+        end_date = parse_date(end) if end else None
+    except Exception as exc:  # noqa: BLE001
+        print(f"--validate-form4-csv setup failed: {exc}", file=sys.stderr)
+        sys.exit(2)
+    report = validate_form4_csv(
+        path,
+        tickers_path=tickers_path,
+        start=start_date,
+        end=end_date,
+    )
+    if as_json:
+        print(json.dumps(report, indent=2, sort_keys=True))
+        return
+    print(f"Form 4 CSV: {report['path']}")
+    print(f"  status:   {report['status']}")
+    print(f"  rows:     {report['rows_valid']} valid / {report['rows_total']} total")
+    print(f"  tickers:  {report['tickers_observed']} observed / "
+          f"{report['ticker_universe_count']} requested")
+    print(f"  range:    {report['earliest_transaction_date']} -> "
+          f"{report['latest_transaction_date']}")
+    print(f"  signal:   buys={report['open_market_buy_rows']} rows/"
+          f"{report['open_market_buy_tickers']} tickers, "
+          f"sells={report['open_market_sell_rows']} rows/"
+          f"{report['open_market_sell_tickers']} tickers")
+    print(f"  issues:   invalid={report['invalid_row_count']}, "
+          f"dupes={report['duplicate_row_count']}, "
+          f"unexpected_tickers={report['unexpected_ticker_count']}, "
+          f"mixed_issuer_tickers={report['mixed_issuer_ticker_count']}, "
+          f"empty={report['tickers_empty']}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="SmartMoney 13F tracker")
     ap.add_argument("--list", action="store_true", help="list tracked superinvestors")
@@ -932,6 +973,8 @@ def main() -> None:
                     help="export normalized Form 4 transactions for validation tickers")
     ap.add_argument("--validate-price-csv", metavar="CSV",
                     help="validate an imported adjusted-price CSV before validation use")
+    ap.add_argument("--validate-form4-csv", metavar="CSV",
+                    help="validate a normalized Form 4 CSV before validation use")
     ap.add_argument("--validation-format", choices=["csv", "jsonl"], default="csv",
                     help="format for --build-validation-dataset (default csv)")
     ap.add_argument("--validation-prices", metavar="CSV",
@@ -1052,6 +1095,10 @@ def main() -> None:
             args.validate_price_csv, args.validation_tickers, args.validation_start,
             args.validation_end, args.validation_price_max_gap_days,
             args.validation_json)
+    if args.validate_form4_csv:
+        return cmd_validate_form4_csv(
+            args.validate_form4_csv, args.validation_tickers, args.validation_start,
+            args.validation_end, args.validation_json)
     if args.create_api_key:
         return cmd_create_api_key(args.pro_db, args.create_api_key, args.api_key_scopes,
                                   args.api_key_rate_per_min, args.api_key_rate_per_day,

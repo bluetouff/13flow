@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 import os
 import time
+from collections import Counter, defaultdict
 from datetime import date
 from typing import Any, Callable
 
@@ -110,6 +111,203 @@ def _write_rows(path: str, rows: list[dict[str, str]]) -> None:
         for row in rows:
             writer.writerow({c: row.get(c, "") for c in FORM4_COLUMNS})
     os.replace(tmp, path)
+
+
+def validate_form4_csv(
+    path: str,
+    *,
+    tickers_path: str | None = None,
+    start: date | None = None,
+    end: date | None = None,
+) -> dict[str, Any]:
+    expected_tickers = read_tickers(tickers_path) if tickers_path else []
+    expected_set = set(expected_tickers)
+    required = set(FORM4_COLUMNS)
+    rows_seen = 0
+    valid_rows = 0
+    invalid_rows: list[dict[str, Any]] = []
+    duplicate_rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, ...]] = set()
+    issuer_ciks_by_ticker: dict[str, set[str]] = defaultdict(set)
+    issuer_names_by_ticker: dict[str, set[str]] = defaultdict(set)
+    transaction_code_counts: Counter[str] = Counter()
+    acquired_disposed_counts: Counter[str] = Counter()
+    row_counts_by_ticker: Counter[str] = Counter()
+    transaction_dates: list[str] = []
+    unexpected_tickers: set[str] = set()
+    open_market_buy_tickers: set[str] = set()
+    open_market_sell_tickers: set[str] = set()
+    open_market_buy_rows = 0
+    open_market_sell_rows = 0
+    invalid_count = 0
+    duplicate_count = 0
+
+    with open(path, "r", encoding="utf-8", newline="") as fh:
+        reader = csv.DictReader(fh)
+        columns = reader.fieldnames or []
+        missing_columns = sorted(required - set(columns))
+        for idx, row in enumerate(reader, start=2):
+            rows_seen += 1
+            ticker = str(row.get("ticker") or "").upper().strip()
+            issuer_cik = str(row.get("issuer_cik") or "").strip().zfill(10)
+            issuer_name = str(row.get("issuer_name") or "").strip()
+            accession = str(row.get("accession") or "").strip()
+            owner_cik = str(row.get("owner_cik") or "").strip()
+            raw_filing_date = str(row.get("filing_date") or "").strip()
+            raw_txn_date = str(row.get("transaction_date") or "").strip()
+            txn_code = str(row.get("transaction_code") or "").upper().strip()
+            acquired_disposed = str(row.get("acquired_disposed") or "").upper().strip()
+            shares = str(row.get("shares") or "").strip()
+            price = str(row.get("price_per_share") or "").strip()
+            filing_date = None
+            txn_date = None
+            try:
+                filing_date = parse_date(raw_filing_date)
+            except (TypeError, ValueError):
+                pass
+            try:
+                txn_date = parse_date(raw_txn_date)
+            except (TypeError, ValueError):
+                pass
+
+            problems = []
+            if not ticker:
+                problems.append("missing_ticker")
+            if expected_set and ticker and ticker not in expected_set:
+                problems.append("ticker_outside_universe")
+                unexpected_tickers.add(ticker)
+            if not issuer_cik or issuer_cik == "0000000000":
+                problems.append("missing_issuer_cik")
+            if not issuer_name:
+                problems.append("missing_issuer_name")
+            if not accession:
+                problems.append("missing_accession")
+            if filing_date is None:
+                problems.append("invalid_filing_date")
+            if txn_date is None:
+                problems.append("invalid_transaction_date")
+            if txn_date is not None and start and txn_date < start:
+                problems.append("transaction_before_start")
+            if txn_date is not None and end and txn_date > end:
+                problems.append("transaction_after_end")
+            if txn_code not in {"A", "C", "D", "F", "G", "I", "J", "M", "P", "S"}:
+                problems.append("unexpected_transaction_code")
+            if acquired_disposed not in {"A", "D"}:
+                problems.append("unexpected_acquired_disposed")
+            try:
+                if float(shares) <= 0:
+                    problems.append("non_positive_shares")
+            except (TypeError, ValueError):
+                problems.append("invalid_shares")
+            try:
+                if float(price) < 0:
+                    problems.append("negative_price_per_share")
+            except (TypeError, ValueError):
+                problems.append("invalid_price_per_share")
+
+            if problems:
+                invalid_count += 1
+                if len(invalid_rows) < 50:
+                    invalid_rows.append({
+                        "row": idx,
+                        "ticker": ticker,
+                        "accession": accession,
+                        "transaction_date": raw_txn_date,
+                        "errors": problems,
+                    })
+                continue
+
+            key = _row_key({c: str(row.get(c) or "") for c in FORM4_COLUMNS})
+            if key in seen:
+                duplicate_count += 1
+                if len(duplicate_rows) < 50:
+                    duplicate_rows.append({
+                        "row": idx,
+                        "ticker": ticker,
+                        "accession": accession,
+                        "transaction_date": raw_txn_date,
+                    })
+                continue
+            seen.add(key)
+            valid_rows += 1
+            row_counts_by_ticker[ticker] += 1
+            issuer_ciks_by_ticker[ticker].add(issuer_cik)
+            issuer_names_by_ticker[ticker].add(issuer_name)
+            transaction_code_counts[txn_code] += 1
+            acquired_disposed_counts[acquired_disposed] += 1
+            if txn_date is not None:
+                transaction_dates.append(txn_date.isoformat())
+            if txn_code == "P" and acquired_disposed == "A":
+                open_market_buy_rows += 1
+                open_market_buy_tickers.add(ticker)
+            if txn_code == "S" and acquired_disposed == "D":
+                open_market_sell_rows += 1
+                open_market_sell_tickers.add(ticker)
+
+    mixed_issuers = []
+    name_variants = []
+    for ticker in sorted(issuer_ciks_by_ticker):
+        ciks = sorted(issuer_ciks_by_ticker[ticker])
+        names = sorted(issuer_names_by_ticker[ticker])
+        if len(ciks) > 1:
+            mixed_issuers.append({
+                "ticker": ticker,
+                "issuer_ciks": ciks,
+                "issuer_names": names,
+                "rows": row_counts_by_ticker[ticker],
+            })
+        elif len(names) > 1:
+            name_variants.append({
+                "ticker": ticker,
+                "issuer_cik": ciks[0],
+                "issuer_names": names,
+                "rows": row_counts_by_ticker[ticker],
+            })
+
+    observed = set(row_counts_by_ticker)
+    empty_tickers = [t for t in expected_tickers if t not in observed]
+    status = "ready"
+    if (missing_columns or invalid_count or duplicate_count or mixed_issuers or
+            unexpected_tickers or valid_rows == 0):
+        status = "review"
+
+    return {
+        "path": path,
+        "status": status,
+        "columns": columns,
+        "missing_required_columns": missing_columns,
+        "rows_total": rows_seen,
+        "rows_valid": valid_rows,
+        "invalid_row_count": invalid_count,
+        "invalid_rows_sample": invalid_rows,
+        "duplicate_row_count": duplicate_count,
+        "duplicate_rows_sample": duplicate_rows,
+        "ticker_universe_count": len(expected_tickers) if expected_tickers else len(observed),
+        "tickers_observed": len(observed),
+        "tickers_empty": len(empty_tickers),
+        "empty_ticker_sample": empty_tickers[:50],
+        "unexpected_ticker_count": len(unexpected_tickers),
+        "unexpected_ticker_sample": sorted(unexpected_tickers)[:50],
+        "mixed_issuer_ticker_count": len(mixed_issuers),
+        "mixed_issuer_tickers_sample": mixed_issuers[:50],
+        "issuer_name_variant_count": len(name_variants),
+        "issuer_name_variant_sample": name_variants[:50],
+        "open_market_buy_rows": open_market_buy_rows,
+        "open_market_buy_tickers": len(open_market_buy_tickers),
+        "open_market_sell_rows": open_market_sell_rows,
+        "open_market_sell_tickers": len(open_market_sell_tickers),
+        "transaction_code_counts": dict(sorted(transaction_code_counts.items())),
+        "acquired_disposed_counts": dict(sorted(acquired_disposed_counts.items())),
+        "requested_start": start.isoformat() if start else None,
+        "requested_end": end.isoformat() if end else None,
+        "earliest_transaction_date": min(transaction_dates) if transaction_dates else None,
+        "latest_transaction_date": max(transaction_dates) if transaction_dates else None,
+        "readiness_rule": (
+            "ready requires required columns, valid in-window rows, no duplicate "
+            "transaction rows, no tickers outside the requested universe, at least one "
+            "valid row, and exactly one issuer CIK per ticker"
+        ),
+    }
 
 
 def _txn_row(ticker: str, form: Form4, txn: Form4Transaction) -> dict[str, str]:
