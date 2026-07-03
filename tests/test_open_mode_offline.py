@@ -383,6 +383,9 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Workspace Cockpit" in pro_workspace_page
         assert "Saved watchlists, ticker-flow alerts" in pro_workspace_page
         assert "data-pro-workspace-app" in pro_workspace_page
+        assert "Edit Watchlist" in pro_workspace_page
+        assert "Save changes" in pro_workspace_page
+        assert "workspaceCancelEdit" in pro_workspace_page
         assert 'type="password"' in pro_workspace_page
         assert "sessionStorage" in pro_workspace_page
         assert "13flow.pro.workspace.token" in pro_workspace_page
@@ -392,8 +395,10 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "api(\"/workspace/overview\")" in pro_workspace_page
         assert "api(\"/workspace/alerts?status=all&limit=50\")" in pro_workspace_page
         assert "api(\"/workspace/watchlists\"" in pro_workspace_page
+        assert "method: \"PUT\"" in pro_workspace_page
         assert "/signals/snapshot" in pro_workspace_page
         assert "/delete" in pro_workspace_page
+        assert "window.confirm" in pro_workspace_page
         assert "localStorage" not in pro_workspace_page
         assert "?token=" not in pro_workspace_page
         assert "checkout" not in pro_workspace_page.lower()

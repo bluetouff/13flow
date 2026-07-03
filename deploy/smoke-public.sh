@@ -203,8 +203,11 @@ if fetch "/pro/workspace" "$pro_workspace_page"; then
   grep -q "Workspace Cockpit" "$pro_workspace_page" \
     && grep -q "data-pro-workspace-app" "$pro_workspace_page" \
     && grep -q "sessionStorage" "$pro_workspace_page" \
+    && grep -q "Edit Watchlist" "$pro_workspace_page" \
+    && grep -q "Save changes" "$pro_workspace_page" \
     && grep -q "workspace/overview" "$pro_workspace_page" \
     && grep -q "workspace/alerts?status=all&limit=50" "$pro_workspace_page" \
+    && grep -q 'method: "PUT"' "$pro_workspace_page" \
     && ! grep -qi "localStorage" "$pro_workspace_page" \
     && ! grep -qi "checkout" "$pro_workspace_page" \
     && ok "/pro/workspace cockpit page" \

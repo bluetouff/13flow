@@ -4607,6 +4607,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 .workspace-form{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .workspace-form .wide{grid-column:1/-1}
 .workspace-form .actions{grid-column:1/-1;margin:0}
+.workspace-form-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.workspace-form-head h2{margin:0}
 @media(max-width:980px){.workspace-grid,.workspace-bar{grid-template-columns:1fr}.workspace-kpis{grid-template-columns:1fr 1fr}.workspace-form{grid-template-columns:1fr}}
 @media(max-width:700px){.workspace-kpis{grid-template-columns:1fr}}
 </style>
@@ -4635,15 +4637,17 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         <div id="workspaceWatchlists" class="workspace-list"><p class="workspace-empty">No data loaded.</p></div>
       </section>
       <section class="workspace-panel">
-        <h2>Create Watchlist</h2>
+        <div class="workspace-form-head"><h2 id="workspaceFormTitle">Create Watchlist</h2>
+          <button id="workspaceCancelEdit" class="workspace-button" type="button" hidden>New</button>
+        </div>
         <form id="workspaceCreate" class="workspace-form">
           <label>Name <input name="name" maxlength="80" required placeholder="Core tech monitor"></label>
           <label>Tickers <input name="tickers" required placeholder="AAPL, MSFT, NVDA"></label>
           <label>Action <select name="action"><option value="">Any</option><option value="alert">Alert</option><option value="watch">Watch</option><option value="monitor">Monitor</option></select></label>
-          <label>Min score <input name="min_score" inputmode="decimal" placeholder="30"></label>
+          <label>Min score <input name="min_score" inputmode="decimal" min="0" max="100" placeholder="30"></label>
           <label class="wide">Move filters <input name="move" placeholder="NEW, ADD"></label>
           <label class="wide">Notes <textarea name="notes" maxlength="1000"></textarea></label>
-          <div class="actions"><button class="workspace-button primary" type="submit">Create</button></div>
+          <div class="actions"><button id="workspaceSave" class="workspace-button primary" type="submit">Create</button></div>
         </form>
       </section>
     </div>
@@ -4677,7 +4681,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
   const $ = (id) => document.getElementById(id);
   const app = document.querySelector("[data-pro-workspace-app]");
   if (!app) return;
-  const state = {token: sessionStorage.getItem(TOKEN_KEY) || "", selectedId: "", watchlists: []};
+  const state = {token: sessionStorage.getItem(TOKEN_KEY) || "", selectedId: "", editingId: "", watchlists: []};
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const setStatus = (msg, bad=false) => {
     const node = $("workspaceStatus");
@@ -4705,12 +4709,15 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
   }
   function renderWatchlists(items=[]) {
     state.watchlists = items;
-    if (!state.selectedId && items[0]) state.selectedId = items[0].id;
     if (!items.length) {
+      state.selectedId = "";
       $("workspaceWatchlists").innerHTML = '<p class="workspace-empty">No saved watchlist.</p>';
       $("workspaceSnapshot").disabled = true;
+      if (state.editingId) resetForm();
       return;
     }
+    if (!items.some((w) => w.id === state.selectedId)) state.selectedId = items[0].id;
+    if (state.editingId && !items.some((w) => w.id === state.editingId)) resetForm();
     $("workspaceSnapshot").disabled = !state.selectedId;
     $("workspaceWatchlists").innerHTML = items.map((w) => {
       const active = w.id === state.selectedId ? " active" : "";
@@ -4725,6 +4732,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         <p>${chips.length ? chips.map((x) => `<span class="pill">${esc(x)}</span>`).join("") : '<span class="pill">no filters</span>'}</p>
         <div class="workspace-actions">
           <button class="workspace-button" type="button" data-action="select" data-id="${esc(w.id)}">Open</button>
+          <button class="workspace-button" type="button" data-action="edit" data-id="${esc(w.id)}">Edit</button>
           <button class="workspace-button primary" type="button" data-action="snapshot" data-id="${esc(w.id)}">Snapshot</button>
           <button class="workspace-button warn" type="button" data-action="delete" data-id="${esc(w.id)}">Delete</button>
         </div>
@@ -4775,7 +4783,11 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     }).join("")}</tbody></table>`;
   }
   async function loadSelected() {
-    if (!state.selectedId) return;
+    if (!state.selectedId) {
+      renderSignals({items: []});
+      renderHistory([]);
+      return;
+    }
     const signals = await api(`/workspace/watchlists/${state.selectedId}/signals`);
     renderSignals(signals.signals);
     const history = await api(`/workspace/watchlists/${state.selectedId}/signals/history?limit=10`);
@@ -4802,9 +4814,65 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     await refreshAll();
   }
   async function deleteWatchlist(id) {
+    const item = state.watchlists.find((w) => w.id === id);
+    if (item && !window.confirm(`Delete watchlist "${item.name}"?`)) return;
     await api(`/workspace/watchlists/${id}/delete`, {method: "POST"});
     if (state.selectedId === id) state.selectedId = "";
+    if (state.editingId === id) resetForm();
     await refreshAll();
+  }
+  function resetForm() {
+    state.editingId = "";
+    $("workspaceCreate").reset();
+    $("workspaceFormTitle").textContent = "Create Watchlist";
+    $("workspaceSave").textContent = "Create";
+    $("workspaceCancelEdit").hidden = true;
+  }
+  function splitValues(raw) {
+    return String(raw || "").split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
+  }
+  function field(form, name) {
+    return form.elements.namedItem(name);
+  }
+  function watchlistPayloadFromForm(form) {
+    const data = new FormData(form);
+    const filters = {};
+    const action = String(data.get("action") || "").trim();
+    const minScoreRaw = String(data.get("min_score") || "").trim();
+    const move = splitValues(data.get("move"));
+    if (action) filters.action = [action];
+    if (minScoreRaw) {
+      const minScore = Number(minScoreRaw);
+      if (!Number.isFinite(minScore) || minScore < 0 || minScore > 100) {
+        throw new Error("Min score must be between 0 and 100");
+      }
+      filters.min_score = minScore;
+    }
+    if (move.length) filters.move = move;
+    return {
+      name: String(data.get("name") || "").trim(),
+      tickers: splitValues(data.get("tickers")),
+      filters,
+      alert_policy: {enabled: false, frequency: "manual"},
+      notes: String(data.get("notes") || "").trim(),
+    };
+  }
+  function editWatchlist(id) {
+    const item = state.watchlists.find((w) => w.id === id);
+    if (!item) return;
+    const form = $("workspaceCreate");
+    const filters = item.filters || {};
+    state.editingId = id;
+    field(form, "name").value = item.name || "";
+    field(form, "tickers").value = (item.tickers || []).join(", ");
+    field(form, "action").value = (filters.action || [])[0] || "";
+    field(form, "min_score").value = filters.min_score ?? "";
+    field(form, "move").value = (filters.move || []).join(", ");
+    field(form, "notes").value = item.notes || "";
+    $("workspaceFormTitle").textContent = "Edit Watchlist";
+    $("workspaceSave").textContent = "Save changes";
+    $("workspaceCancelEdit").hidden = false;
+    setStatus(`Editing: ${item.name}`);
   }
   $("workspaceToken").value = state.token;
   $("workspaceConnect").addEventListener("click", async () => {
@@ -4817,6 +4885,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     state.selectedId = "";
     sessionStorage.removeItem(TOKEN_KEY);
     $("workspaceToken").value = "";
+    resetForm();
     renderKpis({});
     renderWatchlists([]);
     renderSignals({items: []});
@@ -4827,27 +4896,19 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
   });
   $("workspaceRefresh").addEventListener("click", () => refreshAll().catch((e) => setStatus(e.message, true)));
   $("workspaceSnapshot").addEventListener("click", () => snapshot().catch((e) => setStatus(e.message, true)));
+  $("workspaceCancelEdit").addEventListener("click", resetForm);
   $("workspaceCreate").addEventListener("submit", async (event) => {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const filters = {};
-    const action = String(form.get("action") || "").trim();
-    const minScore = String(form.get("min_score") || "").trim();
-    const move = String(form.get("move") || "").trim();
-    if (action) filters.action = [action];
-    if (minScore) filters.min_score = Number(minScore);
-    if (move) filters.move = move.split(/[\s,;]+/).filter(Boolean);
-    const payload = {
-      name: String(form.get("name") || "").trim(),
-      tickers: String(form.get("tickers") || "").split(/[,\s;]+/).filter(Boolean),
-      filters,
-      alert_policy: {enabled: false, frequency: "manual"},
-      notes: String(form.get("notes") || "").trim(),
-    };
     try {
-      const created = await api("/workspace/watchlists", {method: "POST", body: JSON.stringify(payload)});
-      state.selectedId = created.watchlist.id;
-      event.currentTarget.reset();
+      const payload = watchlistPayloadFromForm(event.currentTarget);
+      if (state.editingId) {
+        const updated = await api(`/workspace/watchlists/${state.editingId}`, {method: "PUT", body: JSON.stringify(payload)});
+        state.selectedId = updated.watchlist.id;
+      } else {
+        const created = await api("/workspace/watchlists", {method: "POST", body: JSON.stringify(payload)});
+        state.selectedId = created.watchlist.id;
+      }
+      resetForm();
       await refreshAll();
     } catch (e) { setStatus(e.message, true); }
   });
@@ -4860,6 +4921,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         renderWatchlists(state.watchlists);
         await loadSelected();
       }
+      if (button.dataset.action === "edit") editWatchlist(button.dataset.id);
       if (button.dataset.action === "snapshot") await snapshot(button.dataset.id);
       if (button.dataset.action === "delete") await deleteWatchlist(button.dataset.id);
       if (button.dataset.alert) {
