@@ -134,6 +134,9 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         assert "/api/pro/v1/fund/{cik}" in doc["paths"]
         assert "/api/pro/v1/watchlist" in doc["paths"]
         assert "/api/pro/v1/watchlist/discover" in doc["paths"]
+        assert "/api/pro/v1/workspace/overview" in doc["paths"]
+        assert "/api/pro/v1/workspace/alerts" in doc["paths"]
+        assert "/api/pro/v1/workspace/alerts/{alert_id}" in doc["paths"]
         assert "/api/pro/v1/workspace/watchlists" in doc["paths"]
         assert "/api/pro/v1/workspace/watchlists/{watchlist_id}" in doc["paths"]
         assert "/api/pro/v1/workspace/watchlists/{watchlist_id}/preview" in doc["paths"]
@@ -306,6 +309,8 @@ def test_pro_workspace_watchlists_are_saved_per_api_key(monkeypatch):
         assert payload["snapshot"]["summary"]["alerts"] >= 1
         assert payload["snapshot"]["tickers"]
         assert "signals" not in payload["snapshot"]
+        assert payload["alerts"]["candidates"] >= 1
+        assert payload["alerts"]["open"] >= 1
         assert payload["delta"]["baseline_snapshot_id"] is None
         assert payload["delta"]["previous_count"] == 0
         assert payload["delta"]["current_count"] == len(payload["snapshot"]["tickers"])
@@ -321,6 +326,57 @@ def test_pro_workspace_watchlists_are_saved_per_api_key(monkeypatch):
         assert payload["delta"]["added_tickers"] == []
         assert payload["delta"]["removed_tickers"] == []
         assert payload["delta"]["changed_actions"] == []
+
+        alerts = c.get(
+            "/api/pro/v1/workspace/alerts?limit=10",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert alerts.status_code == 200
+        payload = alerts.get_json()
+        assert payload["summary"]["by_status"]["open"] >= 1
+        assert payload["alerts"]
+        first_alert = payload["alerts"][0]
+        assert first_alert["watchlist_id"] == watchlist_id
+        assert first_alert["status"] == "open"
+        assert first_alert["action"] in {"alert", "watch"}
+        assert first_alert["reason"]["movement_codes"]
+
+        acknowledged = c.patch(
+            f"/api/pro/v1/workspace/alerts/{first_alert['id']}",
+            headers={"Authorization": "Bearer " + token},
+            json={"status": "acknowledged"},
+        )
+        assert acknowledged.status_code == 200
+        payload = acknowledged.get_json()
+        assert payload["alert"]["status"] == "acknowledged"
+        assert payload["alert"]["acknowledged_at"]
+
+        acknowledged_list = c.get(
+            "/api/pro/v1/workspace/alerts?status=acknowledged",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert acknowledged_list.status_code == 200
+        payload = acknowledged_list.get_json()
+        assert first_alert["id"] in {a["id"] for a in payload["alerts"]}
+
+        overview = c.get(
+            "/api/pro/v1/workspace/overview",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert overview.status_code == 200
+        payload = overview.get_json()
+        assert payload["meta"]["automation"] == "manual_snapshot_only"
+        assert payload["summary"]["watchlists"] == 1
+        assert payload["summary"]["signal_snapshots"] == 2
+        assert payload["summary"]["alerts"]["by_status"]["acknowledged"] >= 1
+        assert payload["watchlists"][0]["id"] == watchlist_id
+
+        other_alerts = c.get(
+            "/api/pro/v1/workspace/alerts?status=all",
+            headers={"Authorization": "Bearer " + other_token},
+        )
+        assert other_alerts.status_code == 200
+        assert other_alerts.get_json()["alerts"] == []
 
         history = c.get(
             f"/api/pro/v1/workspace/watchlists/{watchlist_id}/signals/history?limit=1",

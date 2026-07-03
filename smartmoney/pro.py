@@ -80,6 +80,26 @@ CREATE TABLE IF NOT EXISTS saved_watchlist_signal_snapshots (
 );
 CREATE INDEX IF NOT EXISTS ix_saved_watchlist_signal_snapshots_key_watchlist
     ON saved_watchlist_signal_snapshots(key_id, watchlist_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS saved_workspace_alerts (
+    id              TEXT PRIMARY KEY,
+    key_id          TEXT NOT NULL,
+    watchlist_id    TEXT NOT NULL,
+    snapshot_id     TEXT NOT NULL,
+    ticker          TEXT NOT NULL,
+    action          TEXT NOT NULL,
+    severity        INTEGER NOT NULL DEFAULT 0,
+    status          TEXT NOT NULL DEFAULT 'open',
+    reason_json     TEXT NOT NULL DEFAULT '{}',
+    first_seen_at   TEXT NOT NULL,
+    last_seen_at    TEXT NOT NULL,
+    acknowledged_at TEXT,
+    dismissed_at    TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_saved_workspace_alerts_current
+    ON saved_workspace_alerts(key_id, watchlist_id, ticker, action);
+CREATE INDEX IF NOT EXISTS ix_saved_workspace_alerts_key_status_last_seen
+    ON saved_workspace_alerts(key_id, status, last_seen_at DESC);
 """
 
 
@@ -370,6 +390,10 @@ class ProAPIStore:
                 "DELETE FROM saved_watchlist_signal_snapshots WHERE key_id=? AND watchlist_id=?",
                 (key_id, watchlist_id),
             )
+            self.conn.execute(
+                "DELETE FROM saved_workspace_alerts WHERE key_id=? AND watchlist_id=?",
+                (key_id, watchlist_id),
+            )
             cur = self.conn.execute(
                 "DELETE FROM saved_watchlists WHERE key_id=? AND id=?",
                 (key_id, watchlist_id),
@@ -453,6 +477,176 @@ class ProAPIStore:
         if row is None:
             raise RuntimeError("saved watchlist signal snapshot was not persisted")
         return self._signal_snapshot_row(row)
+
+    def _workspace_alert_row(self, row) -> dict:
+        return {
+            "id": row["id"],
+            "watchlist_id": row["watchlist_id"],
+            "snapshot_id": row["snapshot_id"],
+            "ticker": row["ticker"],
+            "action": row["action"],
+            "severity": int(row["severity"] or 0),
+            "status": row["status"],
+            "reason": json.loads(row["reason_json"] or "{}"),
+            "first_seen_at": row["first_seen_at"],
+            "last_seen_at": row["last_seen_at"],
+            "acknowledged_at": row["acknowledged_at"],
+            "dismissed_at": row["dismissed_at"],
+        }
+
+    def upsert_workspace_alerts(
+        self,
+        key_id: str,
+        watchlist_id: str,
+        snapshot_id: str,
+        signals: dict,
+    ) -> dict:
+        now = _now().isoformat(timespec="microseconds")
+        candidates = []
+        severity_by_action = {"alert": 3, "watch": 2}
+        for item in (signals or {}).get("items") or []:
+            action = str(item.get("action") or "").lower()
+            if action not in severity_by_action:
+                continue
+            ticker = str(item.get("ticker") or "").upper().strip()
+            if not ticker:
+                continue
+            reason = {
+                "score": (item.get("score") or {}).get("score"),
+                "confidence": (item.get("confidence") or {}).get("status"),
+                "movement_codes": list(item.get("movement_codes") or []),
+                "movement_summary": item.get("movement_summary") or {},
+                "triggers": item.get("triggers") or [],
+                "latest_13f_quarter": item.get("latest_13f_quarter"),
+            }
+            candidates.append({
+                "id": secrets.token_hex(8),
+                "ticker": ticker,
+                "action": action,
+                "severity": severity_by_action[action],
+                "reason": reason,
+            })
+        with self.conn:
+            for alert in candidates:
+                self.conn.execute(
+                    """INSERT INTO saved_workspace_alerts(
+                           id,key_id,watchlist_id,snapshot_id,ticker,action,severity,
+                           status,reason_json,first_seen_at,last_seen_at
+                       ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                       ON CONFLICT(key_id,watchlist_id,ticker,action) DO UPDATE SET
+                           snapshot_id=excluded.snapshot_id,
+                           severity=excluded.severity,
+                           reason_json=excluded.reason_json,
+                           last_seen_at=excluded.last_seen_at""",
+                    (
+                        alert["id"], key_id, watchlist_id, snapshot_id, alert["ticker"],
+                        alert["action"], alert["severity"], "open",
+                        _json_compact(alert["reason"]), now, now,
+                    ),
+                )
+        counts = self.workspace_alert_summary(key_id)
+        return {
+            "candidates": len(candidates),
+            "open": counts["by_status"].get("open", 0),
+            "acknowledged": counts["by_status"].get("acknowledged", 0),
+            "dismissed": counts["by_status"].get("dismissed", 0),
+        }
+
+    def list_workspace_alerts(
+        self,
+        key_id: str,
+        status: Optional[str] = "open",
+        limit: int = 50,
+        watchlist_id: Optional[str] = None,
+    ) -> list[dict]:
+        safe_limit = max(1, min(100, int(limit or 50)))
+        clauses = ["key_id=?"]
+        params: list[object] = [key_id]
+        if status:
+            clauses.append("status=?")
+            params.append(status)
+        if watchlist_id:
+            clauses.append("watchlist_id=?")
+            params.append(watchlist_id)
+        params.append(safe_limit)
+        rows = self.conn.execute(
+            f"""SELECT * FROM saved_workspace_alerts
+                WHERE {' AND '.join(clauses)}
+                ORDER BY severity DESC, last_seen_at DESC, ticker ASC
+                LIMIT ?""",
+            tuple(params),
+        ).fetchall()
+        return [self._workspace_alert_row(r) for r in rows]
+
+    def update_workspace_alert_status(
+        self,
+        key_id: str,
+        alert_id: str,
+        status: str,
+    ) -> Optional[dict]:
+        now = _now().isoformat(timespec="microseconds")
+        if status == "open":
+            acknowledged_at = None
+            dismissed_at = None
+        else:
+            row = self.conn.execute(
+                """SELECT acknowledged_at,dismissed_at FROM saved_workspace_alerts
+                   WHERE key_id=? AND id=?""",
+                (key_id, alert_id),
+            ).fetchone()
+            if row is None:
+                return None
+            acknowledged_at = now if status == "acknowledged" else row["acknowledged_at"]
+            dismissed_at = now if status == "dismissed" else row["dismissed_at"]
+        with self.conn:
+            cur = self.conn.execute(
+                """UPDATE saved_workspace_alerts
+                   SET status=?, acknowledged_at=?, dismissed_at=?
+                   WHERE key_id=? AND id=?""",
+                (status, acknowledged_at, dismissed_at, key_id, alert_id),
+            )
+        if cur.rowcount == 0:
+            return None
+        row = self.conn.execute(
+            "SELECT * FROM saved_workspace_alerts WHERE key_id=? AND id=?",
+            (key_id, alert_id),
+        ).fetchone()
+        return self._workspace_alert_row(row) if row else None
+
+    def workspace_alert_summary(self, key_id: str) -> dict:
+        rows = self.conn.execute(
+            """SELECT status, COUNT(*) AS c FROM saved_workspace_alerts
+               WHERE key_id=?
+               GROUP BY status""",
+            (key_id,),
+        ).fetchall()
+        by_status = {str(r["status"]): int(r["c"] or 0) for r in rows}
+        return {
+            "total": sum(by_status.values()),
+            "by_status": {
+                "open": by_status.get("open", 0),
+                "acknowledged": by_status.get("acknowledged", 0),
+                "dismissed": by_status.get("dismissed", 0),
+            },
+        }
+
+    def workspace_summary(self, key_id: str) -> dict:
+        watchlists = self.conn.execute(
+            "SELECT COUNT(*) AS c FROM saved_watchlists WHERE key_id=?",
+            (key_id,),
+        ).fetchone()
+        snapshots = self.conn.execute(
+            """SELECT COUNT(*) AS c, MAX(created_at) AS latest
+               FROM saved_watchlist_signal_snapshots
+               WHERE key_id=?""",
+            (key_id,),
+        ).fetchone()
+        return {
+            "watchlists": int((watchlists or {})["c"] or 0),
+            "signal_snapshots": int((snapshots or {})["c"] or 0),
+            "latest_snapshot_at": (snapshots or {})["latest"],
+            "alerts": self.workspace_alert_summary(key_id),
+        }
 
     def prune_audit(self, retention_days: int) -> dict:
         days = int(retention_days)

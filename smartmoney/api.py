@@ -761,6 +761,40 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                         "responses": {"200": {"description": "Ranked discovery watchlist"}},
                     }
                 },
+                "/api/pro/v1/workspace/overview": {
+                    "get": {
+                        "security": security,
+                        "summary": "Workspace dashboard summary for the authenticated API key",
+                        "responses": {"200": {"description": "Workspace overview"}},
+                    },
+                },
+                "/api/pro/v1/workspace/alerts": {
+                    "get": {
+                        "security": security,
+                        "summary": "List saved workspace alerts",
+                        "parameters": [
+                            {"name": "status", "in": "query", "required": False,
+                             "schema": {"type": "string", "enum": ["open", "acknowledged", "dismissed", "all"],
+                                        "default": "open"}},
+                            {"name": "limit", "in": "query", "required": False,
+                             "schema": {"type": "integer", "minimum": 1, "maximum": 100,
+                                        "default": 50}},
+                            {"name": "watchlist_id", "in": "query", "required": False,
+                             "schema": {"type": "string"}},
+                        ],
+                        "responses": {"200": {"description": "Workspace alert inbox"}},
+                    },
+                },
+                "/api/pro/v1/workspace/alerts/{alert_id}": {
+                    "patch": {
+                        "security": security,
+                        "summary": "Update a workspace alert status",
+                        "parameters": [{"name": "alert_id", "in": "path", "required": True,
+                                        "schema": {"type": "string"}}],
+                        "responses": {"200": {"description": "Workspace alert updated"},
+                                      "404": {"description": "Not found"}},
+                    },
+                },
                 "/api/pro/v1/workspace/watchlists": {
                     "get": {
                         "security": security,
@@ -2160,6 +2194,16 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "changed_scores": changed_scores,
         }
 
+    def _clean_workspace_alert_status(raw, *, allow_all: bool = False) -> str | None:
+        from werkzeug.exceptions import BadRequest
+        value = str(raw or "open").strip().lower()
+        allowed = {"open", "acknowledged", "dismissed"}
+        if allow_all and value == "all":
+            return None
+        if value not in allowed:
+            raise BadRequest("invalid alert status")
+        return value
+
     def _pro_store_call(fn):
         ps = ProAPIStore(pro_db_path)
         try:
@@ -2465,6 +2509,67 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "watchlist": payload,
             })
 
+        @app.get("/api/pro/v1/workspace/overview")
+        @pro_required("workspace:write")
+        def pro_workspace_overview_ep():
+            key = request.pro_api_key
+            with ProAPIStore(pro_db_path) as ps:
+                summary = ps.workspace_summary(key.key_id)
+                recent_alerts = ps.list_workspace_alerts(key.key_id, status="open", limit=10)
+                watchlists = ps.list_watchlists(key.key_id)
+            return jsonify({
+                "meta": {
+                    "api": "13flow-pro",
+                    "version": "v1",
+                    "git_sha": _git_sha(),
+                    "workspace_scope": "api_key",
+                    "ui_exposed": False,
+                    "automation": "manual_snapshot_only",
+                },
+                "summary": summary,
+                "recent_alerts": recent_alerts,
+                "watchlists": watchlists[:50],
+            })
+
+        @app.get("/api/pro/v1/workspace/alerts")
+        @pro_required("workspace:write")
+        def pro_workspace_alerts_ep():
+            key = request.pro_api_key
+            status = _clean_workspace_alert_status(request.args.get("status"), allow_all=True)
+            limit = clean_int(request.args.get("limit"), 50, 1, 100)
+            watchlist_id = (request.args.get("watchlist_id") or "").strip() or None
+            with ProAPIStore(pro_db_path) as ps:
+                alerts = ps.list_workspace_alerts(
+                    key.key_id, status=status, limit=limit, watchlist_id=watchlist_id,
+                )
+                summary = ps.workspace_alert_summary(key.key_id)
+            return jsonify({
+                "meta": {
+                    "api": "13flow-pro",
+                    "version": "v1",
+                    "git_sha": _git_sha(),
+                    "status": status or "all",
+                    "limit": limit,
+                },
+                "summary": summary,
+                "alerts": alerts,
+            })
+
+        @app.patch("/api/pro/v1/workspace/alerts/<alert_id>")
+        @pro_required("workspace:write")
+        def pro_workspace_alert_update_ep(alert_id):
+            key = request.pro_api_key
+            payload = request.get_json(silent=True) or {}
+            status = _clean_workspace_alert_status(payload.get("status"))
+            with ProAPIStore(pro_db_path) as ps:
+                alert = ps.update_workspace_alert_status(key.key_id, alert_id, status)
+            if alert is None:
+                return jsonify({"error": "not_found"}), 404
+            return jsonify({
+                "meta": {"api": "13flow-pro", "version": "v1", "git_sha": _git_sha()},
+                "alert": alert,
+            })
+
         @app.get("/api/pro/v1/workspace/watchlists")
         @pro_required("workspace:write")
         def pro_workspace_watchlists_list_ep():
@@ -2598,6 +2703,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 snapshot = ps.create_signal_snapshot(
                     key.key_id, watchlist_id, signals, max_snapshots=100,
                 )
+                alerts = ps.upsert_workspace_alerts(
+                    key.key_id, watchlist_id, snapshot["id"], signals,
+                )
             return jsonify({
                 "meta": {
                     "api": "13flow-pro",
@@ -2609,6 +2717,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 },
                 "snapshot": snapshot,
                 "delta": _saved_watchlist_signal_delta(signals, previous),
+                "alerts": alerts,
             }), 201
 
         @app.get("/api/pro/v1/workspace/watchlists/<watchlist_id>/signals/history")
