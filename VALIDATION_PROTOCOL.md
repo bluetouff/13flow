@@ -62,6 +62,7 @@ horizons:
 python run.py --db /var/lib/13flow/13flow.db \
   --build-validation-dataset /var/lib/13flow/confluence_features.csv \
   --validation-prices /path/to/adjusted_prices.csv \
+  --validation-form4 /path/to/normalized_form4_transactions.csv \
   --validation-code-commit "$SHA" \
   --validation-json
 ```
@@ -70,8 +71,9 @@ python run.py --db /var/lib/13flow/13flow.db \
 python run.py --validation-dataset /path/to/confluence_features.csv --validation-json
 ```
 
-The first command builds a local point-in-time feature table from the 13F database and an
-optional adjusted-price CSV. The second command gates an existing dataset. They emit:
+The first command builds a local point-in-time feature table from the 13F database,
+an optional adjusted-price CSV and an optional normalized Form 4 CSV/JSONL artifact.
+The second command gates an existing dataset. They emit:
 
 - the dataset SHA256 hash;
 - row count, ticker count, date range and train/validation/test split counts;
@@ -87,10 +89,15 @@ price source, delisting handling, costs, liquidity filters and neutralization st
 review before publication. `status=not_publishable` means no public performance claim is
 allowed from that artifact.
 
-The current builder exports the institutional 13F side first (`feature_scope=13f_only_no_form4`).
-That is enough to test the file contract, institutional baselines and price-return join, but
-not enough for a full Confluence validation claim. Form 4 insider features must be joined in
-a later artifact before validating the complete score.
+Without `--validation-form4`, the builder exports the institutional 13F side
+(`feature_scope=13f_only_no_form4`). With `--validation-form4`, it exports
+`feature_scope=13f_form4_joined`, hashes the joined Form 4 accessions and fills insider
+features such as open-market buyer count, buy value and insider score. The Form 4 join is
+strictly point-in-time: a Form 4 is eligible only if its filing date is on or before the row
+`as_of` date, and only transactions inside the trailing Form 4 window enter the score. This
+is enough to test the complete Confluence feature contract, but still not enough for a
+public validation claim until the Form 4 artifact coverage, price source, delisting handling,
+costs and no-lookahead controls are reviewed.
 
 By default, the builder excludes non-priceable/common-equity suspects from validation rows:
 convertible notes, preferreds, warrants, currency-suffixed FIGI artefacts, tickers with

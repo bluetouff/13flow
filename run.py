@@ -608,6 +608,8 @@ def cmd_validation_dataset(path: str, horizon: int, as_json: bool) -> None:
 
 def cmd_build_validation_dataset(db_path: str, output: str, fmt: str,
                                  prices_path: str | None,
+                                 form4_path: str | None,
+                                 form4_window_days: int,
                                  execution_lag_days: int,
                                  start: str | None,
                                  end: str | None,
@@ -621,6 +623,8 @@ def cmd_build_validation_dataset(db_path: str, output: str, fmt: str,
     rows = build_validation_rows(
         db_path,
         prices_path=prices_path,
+        form4_path=form4_path,
+        form4_window_days=form4_window_days,
         start=start,
         end=end,
         execution_lag_days=execution_lag_days,
@@ -869,6 +873,10 @@ def main() -> None:
                     help="format for --build-validation-dataset (default csv)")
     ap.add_argument("--validation-prices", metavar="CSV",
                     help="optional adjusted-price CSV: ticker,date,adj_close")
+    ap.add_argument("--validation-form4", metavar="CSV_OR_JSONL",
+                    help="optional normalized Form 4 transaction file for full Confluence feature join")
+    ap.add_argument("--validation-form4-window-days", type=int, default=90,
+                    help="trailing Form 4 window for --build-validation-dataset (default 90)")
     ap.add_argument("--validation-tickers", metavar="FILE",
                     help=("ticker list for --build-validation-prices, or optional universe "
                           "filter for --build-validation-dataset"))
@@ -946,7 +954,8 @@ def main() -> None:
     if args.build_validation_dataset:
         return cmd_build_validation_dataset(
             args.db, args.build_validation_dataset, args.validation_format,
-            args.validation_prices, args.validation_execution_lag_days,
+            args.validation_prices, args.validation_form4, args.validation_form4_window_days,
+            args.validation_execution_lag_days,
             args.validation_start, args.validation_end, args.validation_code_commit,
             args.validation_include_non_priceable, args.validation_tickers,
             args.validation_json)

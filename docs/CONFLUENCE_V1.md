@@ -129,6 +129,7 @@ python run.py \
 python run.py --db /var/lib/13flow/13flow.db \
   --build-validation-dataset /var/lib/13flow/confluence_features.csv \
   --validation-prices /var/lib/13flow/validation_prices_sample25.csv \
+  --validation-form4 /var/lib/13flow/validation_form4_sample25.csv \
   --validation-tickers /var/lib/13flow/validation_tickers_sample25.txt \
   --validation-code-commit "$SHA" \
   --validation-json
@@ -160,9 +161,12 @@ unpriced tickers from the full universe will remain in the feature table. This i
 gate, not a claim of validation. The output must be archived with the dataset hash,
 price-source notes, costs,
 liquidity rules and review notes before any public result is described as validated. The
-first builder release exports
-`feature_scope=13f_only_no_form4`; complete Confluence validation still requires Form 4
-insider features to be joined point-in-time.
+builder exports `feature_scope=13f_only_no_form4` without `--validation-form4` and
+`feature_scope=13f_form4_joined` when a normalized local Form 4 transaction artifact is
+provided. The join is point-in-time: filing date must be on or before the row `as_of`, and
+transactions must fall inside the trailing Form 4 window. Complete Confluence validation
+still requires the Form 4 artifact coverage, price source, delisting treatment, costs and
+no-lookahead controls to be reviewed.
 
 Precompute live Confluence and append revisions:
 

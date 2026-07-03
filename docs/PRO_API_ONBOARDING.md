@@ -78,6 +78,9 @@ Record before creating a key:
 
 Do not promise validated alpha, expected returns, probabilistic scores, complete
 insider-only coverage, production x402 access, or full quantitative validation.
+The validation builder can join a reviewed local Form 4 transaction artifact via
+`--validation-form4`, but that is a feature-contract capability, not a published
+performance claim.
 The public boundary is:
 
 ```bash
@@ -221,5 +224,5 @@ Re-test with the revoked token and expect `401`.
   `/var/lib/13flow-pro/13flow-pro.db`.
 - Do not enable x402 until `MCP_X402_PAY_TO`, `MCP_X402_FACILITATOR_URL` and
   the internal Pro token are configured and tested.
-- Do not relaunch external historical-price scraping from production to satisfy
-  full validation. Import a vetted CSV and validate it offline.
+- Do not relaunch external historical-price or Form 4 fan-out from production to
+  satisfy full validation. Import vetted local artifacts and validate them offline.

@@ -69,8 +69,8 @@ served at `/funds`, `/funds/<cik>`, `/stocks`, `/stocks/<ticker>`, `/signals`, a
 machine-readable proof of live state: SHA, source (`SEC EDGAR`), latest quarter, row counts,
 data-quality summary, and `uses_synthetic_data=false`. `/api/product-status` is the
 go-to-market truth surface: it states what is sellable now, what is deliberately disabled
-(for example x402), and why full quantitative validation remains blocked until an imported
-2013-2026 adjusted-price CSV is available. See
+(for example x402), and why full quantitative validation remains blocked until imported
+2013-2026 adjusted-price and normalized Form 4 transaction artifacts are available. See
 [`docs/GTM_PRODUCT_STATUS.md`](docs/GTM_PRODUCT_STATUS.md).
 The public Pro packaging page lives at `/pro`; its machine-readable contract is
 `/api/pro-offer`.
@@ -264,6 +264,7 @@ python run.py \
 python run.py --db /var/lib/13flow/13flow.db \
   --build-validation-dataset /var/lib/13flow/confluence_features.csv \
   --validation-prices /var/lib/13flow/validation_prices_sample25.csv \
+  --validation-form4 /var/lib/13flow/validation_form4_sample25.csv \
   --validation-tickers /var/lib/13flow/validation_tickers_sample25.txt \
   --validation-code-commit "$SHA" \
   --validation-json
@@ -300,11 +301,16 @@ python run.py \
 The validator reports required columns, positive-price failures, duplicate ticker/date rows,
 missing tickers, partial histories and major calendar gaps before the file is used in a
 validation dataset.
-The current builder exports
-`feature_scope=13f_only_no_form4`; this is mechanically useful but not a full Confluence
-validation claim until Form 4 insider features are joined and reviewed. Non-priceable/common
-equity suspects are excluded by default; use `--validation-include-non-priceable` only for
-auditing noisy 13F rows.
+The dataset builder can now join a reviewed local Form 4 transaction file with
+`--validation-form4`. Accepted CSV/JSONL rows include `ticker`, `accession`,
+`filing_date`, `transaction_date`, owner identity/role fields, transaction code,
+acquired/disposed flag, shares, price and ownership-after fields. The join is point-in-time:
+only Form 4 filings accepted by the dataset `as_of` date and transactions inside the trailing
+window enter the row. Without that file the builder still exports
+`feature_scope=13f_only_no_form4`; with it the scope becomes `13f_form4_joined`. Neither scope
+is a full validation claim until the imported price and Form 4 artifacts, coverage, costs and
+no-lookahead controls are reviewed. Non-priceable/common equity suspects are excluded by
+default; use `--validation-include-non-priceable` only for auditing noisy 13F rows.
 
 Confluence v1 is frozen as a machine-readable research contract in
 `docs/confluence_v1.json` and documented in `docs/CONFLUENCE_V1.md`. The append-only signal

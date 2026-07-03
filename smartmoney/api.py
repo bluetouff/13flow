@@ -1498,11 +1498,15 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "publishable_as_full_validation": False,
                 },
                 "blocked_by": (
-                    "No full 2013-2026 adjusted-price CSV is installed on production. "
-                    "Do not relaunch external historical-price scraping from zen; import "
-                    "a vetted vendor CSV, then validate it offline."
+                    "No full 2013-2026 adjusted-price CSV or reviewed normalized Form 4 "
+                    "transaction artifact is installed on production. Do not relaunch "
+                    "external historical-price or Form 4 fan-out from zen; import vetted "
+                    "local files, then validate them offline."
                 ),
-                "required_next_artifact": "/var/lib/13flow/validation_prices_full.csv",
+                "required_next_artifact": (
+                    "/var/lib/13flow/validation_prices_full.csv plus "
+                    "/var/lib/13flow/validation_form4_full.csv"
+                ),
             },
             "offer_boundary": {
                 "sell_now": [

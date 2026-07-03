@@ -51,11 +51,13 @@ Current milestone:
   `2e35a5713c3e0654134d8d05d6f50b7013729ce6634d31db4e5e2e534ba57c9e`;
 - sample feature artifact SHA256:
   `4ecceb420a466b138de6d4672844158705c0da4ed5425bc661e97df8ecfc8592`;
-- full validation: blocked until a vetted adjusted-price CSV covering the
-  full required universe and history is imported.
+- Form 4 join: supported in the offline validation builder through a reviewed
+  normalized CSV/JSONL artifact;
+- full validation: blocked until vetted adjusted-price and Form 4 artifacts
+  covering the full required universe and history are imported.
 
-Do not relaunch external historical-price scraping loops from production. Use a
-bulk vendor export or a locally prepared CSV.
+Do not relaunch external historical-price scraping or Form 4 fan-out loops from
+production. Use bulk vendor exports or locally prepared files.
 
 Expected full price file:
 
@@ -78,6 +80,13 @@ sudo /opt/13flow/.venv/bin/python /opt/13flow/run.py \
   --validation-start 2013-01-01 \
   --validation-end 2026-07-02 \
   --validation-json
+```
+
+Expected normalized Form 4 transaction file:
+
+```csv
+ticker,accession,filing_date,transaction_date,owner_cik,owner_name,officer_title,is_officer,transaction_code,acquired_disposed,shares,price_per_share,shares_owned_after
+AAPL,0000320193-26-000004,2026-05-04,2026-05-02,0000000001,Example CEO,Chief Executive Officer,1,P,A,10000,180.00,50000
 ```
 
 Only after that validation passes should the full point-in-time feature dataset

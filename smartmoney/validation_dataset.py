@@ -14,12 +14,13 @@ import os
 import re
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Iterable
 
-from .crosssignal import InstitutionalSignal, InsiderActivity, score_confluence
+from .crosssignal import InstitutionalSignal, InsiderActivity, aggregate_insider_activity, score_confluence
 from .db import Store
 from .diff import Move, diff_portfolios
+from .forms4 import Form4, Form4Transaction
 from .research import (
     CONFLUENCE_VERSION,
     FEATURE_SCHEMA_VERSION,
@@ -31,6 +32,7 @@ from .research import (
 )
 
 HORIZONS = (20, 60, 120)
+DEFAULT_FORM4_WINDOW_DAYS = 90
 PRICEABLE_TICKER_RE = re.compile(r"^[A-Z]{1,5}([./][A-Z]{1,2})?$")
 NON_PRICEABLE_TITLE_HINTS = (
     "NOTE", "NOTES", "NT ", "BOND", "DEBENTURE", "DEB ",
@@ -89,6 +91,11 @@ class PricePoint:
     px: float
 
 
+def _as_bool(value: Any) -> bool:
+    raw = str(value or "").strip().lower()
+    return raw in ("1", "true", "yes", "y")
+
+
 def _parse_date(value: Any) -> date | None:
     if value is None:
         return None
@@ -145,6 +152,121 @@ def load_ticker_universe(path: str | None) -> set[str] | None:
             if ticker and not ticker.startswith("#"):
                 out.add(ticker)
     return out
+
+
+def _read_rows(path: str) -> list[dict[str, Any]]:
+    if path.endswith(".jsonl"):
+        rows = []
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line:
+                    rows.append(json.loads(line))
+        return rows
+    with open(path, "r", encoding="utf-8", newline="") as fh:
+        return list(csv.DictReader(fh))
+
+
+def _row_value(row: dict[str, Any], *names: str) -> Any:
+    for name in names:
+        value = row.get(name)
+        if value is not None and str(value).strip() != "":
+            return value
+    return ""
+
+
+def load_form4_filings(path: str | None) -> dict[str, list[Form4]]:
+    """
+    Load a normalized local Form 4 transaction file.
+
+    Accepted CSV/JSONL columns include:
+      ticker, issuer_cik, issuer_name, accession, filing_date, transaction_date,
+      owner_cik, owner_name, officer_title, is_director, is_officer,
+      is_ten_percent_owner, transaction_code, acquired_disposed, shares,
+      price_per_share, value_usd, shares_owned_after.
+
+    The loader never fetches EDGAR. It is designed for reviewed bulk exports or
+    previously downloaded ownership XML converted into a hashable validation input.
+    """
+    if not path:
+        return {}
+    by_ticker: dict[str, list[Form4]] = defaultdict(list)
+    for row in _read_rows(path):
+        ticker = str(_row_value(row, "ticker", "issuer_ticker", "symbol")).upper().strip()
+        txn_date = _parse_date(_row_value(row, "transaction_date", "txn_date", "period_of_report"))
+        if not ticker or not txn_date:
+            continue
+        shares = _as_float(_row_value(row, "shares", "transaction_shares")) or 0.0
+        price = _as_float(_row_value(row, "price_per_share", "transaction_price_per_share")) or 0.0
+        value = _as_float(_row_value(row, "value_usd", "transaction_value_usd"))
+        if price <= 0 and value is not None and shares > 0:
+            price = value / shares
+        code = str(_row_value(row, "transaction_code", "code")).upper().strip() or "P"
+        ad = str(_row_value(row, "acquired_disposed", "transaction_acquired_disposed_code")).upper().strip()
+        txn = Form4Transaction(
+            security_title=str(_row_value(row, "security_title", "title_of_class") or "Common Stock"),
+            txn_date=txn_date.isoformat(),
+            code=code,
+            acquired_disposed=ad or ("A" if code == "P" else "D" if code == "S" else ""),
+            shares=shares,
+            price_per_share=price,
+            direct=not str(_row_value(row, "direct", "ownership_nature")).upper().startswith("I"),
+            shares_owned_after=_as_float(_row_value(row, "shares_owned_after")) or 0.0,
+        )
+        filing_date = _parse_date(_row_value(row, "filing_date", "accepted_at", "acceptance_date"))
+        form = Form4(
+            accession=str(_row_value(row, "accession", "form4_accession")),
+            filing_date=(filing_date or txn_date).isoformat(),
+            period_of_report=str(_row_value(row, "period_of_report") or txn_date.isoformat()),
+            issuer_cik=str(_row_value(row, "issuer_cik")).zfill(10) if _row_value(row, "issuer_cik") else "",
+            issuer_name=str(_row_value(row, "issuer_name")),
+            issuer_ticker=ticker,
+            owner_cik=str(_row_value(row, "owner_cik", "reporting_owner_cik")),
+            owner_name=str(_row_value(row, "owner_name", "reporting_owner_name")),
+            is_director=_as_bool(_row_value(row, "is_director")),
+            is_officer=_as_bool(_row_value(row, "is_officer")),
+            is_ten_percent_owner=_as_bool(_row_value(row, "is_ten_percent_owner")),
+            officer_title=str(_row_value(row, "officer_title", "role")),
+            transactions=(txn,),
+        )
+        by_ticker[ticker].append(form)
+    return dict(by_ticker)
+
+
+def _txn_date(txn: Form4Transaction) -> date | None:
+    return _parse_date(txn.txn_date)
+
+
+def _form4_visible_as_of(forms: Iterable[Form4], as_of: date,
+                         *, window_days: int) -> list[Form4]:
+    start = as_of - timedelta(days=max(1, int(window_days)))
+    visible: list[Form4] = []
+    for form in forms:
+        filed = _parse_date(form.filing_date)
+        if filed and filed > as_of:
+            continue
+        txns = tuple(
+            txn for txn in form.transactions
+            if (d := _txn_date(txn)) is not None and start <= d <= as_of
+        )
+        if not txns:
+            continue
+        visible.append(Form4(
+            accession=form.accession,
+            filing_date=form.filing_date,
+            period_of_report=form.period_of_report,
+            issuer_cik=form.issuer_cik,
+            issuer_name=form.issuer_name,
+            issuer_ticker=form.issuer_ticker,
+            owner_cik=form.owner_cik,
+            owner_name=form.owner_name,
+            is_director=form.is_director,
+            is_officer=form.is_officer,
+            is_ten_percent_owner=form.is_ten_percent_owner,
+            officer_title=form.officer_title,
+            transactions=txns,
+        ))
+    return visible
 
 
 def _price_at_or_after(points: list[PricePoint], target: date) -> int | None:
@@ -244,6 +366,8 @@ def build_validation_rows(
     db_path: str,
     *,
     prices_path: str | None = None,
+    form4_path: str | None = None,
+    form4_window_days: int = DEFAULT_FORM4_WINDOW_DAYS,
     start: str | None = None,
     end: str | None = None,
     execution_lag_days: int = 1,
@@ -252,6 +376,7 @@ def build_validation_rows(
     ticker_universe_path: str | None = None,
 ) -> list[dict[str, Any]]:
     prices = load_adjusted_prices(prices_path)
+    form4_by_ticker = load_form4_filings(form4_path)
     price_source = f"local_csv:{os.path.basename(prices_path)}" if prices_path else ""
     ticker_universe = load_ticker_universe(ticker_universe_path)
     commit = code_commit or current_git_sha()
@@ -339,6 +464,7 @@ def build_validation_rows(
 
             for t, item in sorted(by_ticker.items()):
                 as_of = max(item["filing_dates"]) if item["filing_dates"] else report_date
+                as_of_date = _parse_date(as_of) or _parse_date(report_date)
                 avg_weight_pct = (
                     sum(item["weights"]) / len(item["weights"]) * 100.0
                     if item["weights"] else 0.0
@@ -353,9 +479,34 @@ def build_validation_rows(
                     avg_weight_pct=float(avg_weight_pct),
                     quarters_ago=0,
                 )
-                sig = score_confluence(inst, InsiderActivity(ticker=t))
+                visible_form4 = (
+                    _form4_visible_as_of(
+                        form4_by_ticker.get(t, []),
+                        as_of_date,
+                        window_days=form4_window_days,
+                    )
+                    if form4_path and as_of_date else []
+                )
+                insider = (
+                    aggregate_insider_activity(
+                        t,
+                        visible_form4,
+                        window_days=form4_window_days,
+                        issuer_name=item["issuer_name"],
+                        as_of=as_of_date,
+                    )
+                    if form4_path and as_of_date else InsiderActivity(ticker=t)
+                )
+                sig = score_confluence(inst, insider)
                 accessions = sorted(set(item["accessions"]))
-                flags = sorted(set(item["quality_flags"]) | {"insider_features_not_joined"})
+                form4_accessions = sorted({f.accession for f in visible_form4 if f.accession})
+                if form4_path:
+                    form4_flags = set() if visible_form4 else {"no_form4_activity_in_window"}
+                    feature_scope = "13f_form4_joined"
+                else:
+                    form4_flags = {"insider_features_not_joined"}
+                    feature_scope = "13f_only_no_form4"
+                flags = sorted(set(item["quality_flags"]) | form4_flags)
                 row = {
                     "as_of": as_of,
                     "report_date": report_date,
@@ -366,7 +517,7 @@ def build_validation_rows(
                     "weight_version": WEIGHT_VERSION,
                     "parameter_hash": parameter_hash,
                     "code_commit": commit,
-                    "feature_scope": "13f_only_no_form4",
+                    "feature_scope": feature_scope,
                     "score": round(sig.score, 6),
                     "quadrant": sig.quadrant,
                     "institutional_score": round(sig.breakdown.get("institutional", 0.0), 6),
@@ -379,12 +530,12 @@ def build_validation_rows(
                     "total_value_usd": round(inst.total_value_usd, 2),
                     "fund_labels": _split_csv(item["fund_labels"]),
                     "fund_moves": _split_csv(item["fund_moves"]),
-                    "open_market_buyers": 0,
-                    "open_market_buy_value_usd": 0.0,
+                    "open_market_buyers": insider.n_buyers,
+                    "open_market_buy_value_usd": round(insider.buy_value_usd, 2),
                     "13f_accession_hash": stable_json_hash(accessions),
                     "13f_accessions": _split_csv(accessions),
-                    "form4_accession_hash": stable_json_hash([]),
-                    "form4_accessions": "",
+                    "form4_accession_hash": stable_json_hash(form4_accessions),
+                    "form4_accessions": _split_csv(form4_accessions),
                     "dollar_volume": "",
                     "market_cap": "",
                     "sector": "",
@@ -416,16 +567,26 @@ def write_validation_dataset(rows: list[dict[str, Any]], path: str,
                 w.writerow({c: row.get(c, "") for c in EXPORT_COLUMNS})
     else:
         raise ValueError("fmt must be csv or jsonl")
+    scopes = sorted({str(row.get("feature_scope") or "") for row in rows if row.get("feature_scope")})
+    feature_scope = scopes[0] if len(scopes) == 1 else "mixed" if scopes else ""
+    if feature_scope == "13f_form4_joined":
+        notes = [
+            "This dataset builder is offline and joined a local normalized Form 4 "
+            "transaction artifact to the 13F feature table with no lookahead.",
+            "Forward returns are populated only when a local adjusted-price CSV is supplied.",
+        ]
+    else:
+        notes = [
+            "This dataset builder is offline and currently exports 13F institutional "
+            "features only. Form 4 insider features must be joined before full "
+            "Confluence validation claims.",
+            "Forward returns are populated only when a local adjusted-price CSV is supplied.",
+        ]
     return {
         "path": path,
         "format": fmt,
         "rows": len(rows),
         "generated_at": utc_now_iso(),
-        "feature_scope": "13f_only_no_form4",
-        "notes": [
-            "This dataset builder is offline and currently exports 13F institutional "
-            "features only. Form 4 insider features must be joined before full "
-            "Confluence validation claims.",
-            "Forward returns are populated only when a local adjusted-price CSV is supplied.",
-        ],
+        "feature_scope": feature_scope,
+        "notes": notes,
     }
