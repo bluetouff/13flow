@@ -137,6 +137,7 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         assert "/api/pro/v1/workspace/watchlists" in doc["paths"]
         assert "/api/pro/v1/workspace/watchlists/{watchlist_id}" in doc["paths"]
         assert "/api/pro/v1/workspace/watchlists/{watchlist_id}/preview" in doc["paths"]
+        assert "/api/pro/v1/workspace/watchlists/{watchlist_id}/signals" in doc["paths"]
 
 
 def test_pro_watchlist_feed_uses_ticker_flow(monkeypatch):
@@ -275,6 +276,21 @@ def test_pro_workspace_watchlists_are_saved_per_api_key(monkeypatch):
         assert payload["meta"]["saved_watchlist_id"] == watchlist_id
         assert payload["watchlist"]["metadata"]["version"] == "watchlist_preview_v1"
         assert {item["ticker"] for item in payload["watchlist"]["items"]} == {"AAPL", "MSFT"}
+
+        signals = c.get(
+            f"/api/pro/v1/workspace/watchlists/{watchlist_id}/signals",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert signals.status_code == 200
+        payload = signals.get_json()
+        assert payload["meta"]["saved_watchlist_id"] == watchlist_id
+        assert payload["signals"]["metadata"]["version"] == "saved_watchlist_signals_v1"
+        assert payload["signals"]["metadata"]["filters"]["action"] == ["alert"]
+        assert payload["signals"]["metadata"]["filters"]["move"] == ["NEW"]
+        assert payload["signals"]["metadata"]["filtered_count"] >= len(payload["signals"]["items"])
+        assert payload["signals"]["items"]
+        assert all(item["action"] == "alert" for item in payload["signals"]["items"])
+        assert all("NEW" in item["movement_codes"] for item in payload["signals"]["items"])
 
         update = c.put(
             f"/api/pro/v1/workspace/watchlists/{watchlist_id}",

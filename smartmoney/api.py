@@ -810,6 +810,16 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                       "404": {"description": "Not found"}},
                     },
                 },
+                "/api/pro/v1/workspace/watchlists/{watchlist_id}/signals": {
+                    "get": {
+                        "security": security,
+                        "summary": "Apply saved filters to a saved workspace watchlist",
+                        "parameters": [{"name": "watchlist_id", "in": "path", "required": True,
+                                        "schema": {"type": "string"}}],
+                        "responses": {"200": {"description": "Filtered saved watchlist signals"},
+                                      "404": {"description": "Not found"}},
+                    },
+                },
                 "/api/pro/v1/openapi.json": {
                     "get": {"summary": "OpenAPI document for the Pro API",
                             "responses": {"200": {"description": "OpenAPI JSON"}}}
@@ -1595,10 +1605,12 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             triggers = _watchlist_triggers(stock)
             action = _watchlist_action(triggers)
             summary = stock.get("movement_summary") or {}
+            movement_codes = sorted({m["move"] for m in stock.get("movements", [])})
             items.append({
                 "ticker": ticker,
                 "action": action,
                 "triggers": triggers,
+                "movement_codes": movement_codes,
                 "score": stock.get("score"),
                 "confidence": stock.get("confidence"),
                 "latest_13f_quarter": stock.get("latest_13f_quarter"),
@@ -2045,6 +2057,36 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "notes": _clean_watchlist_notes(raw.get("notes")),
         }
 
+    def _saved_watchlist_signals_payload(item: dict) -> dict:
+        filters = _watchlist_discovery_filters(item.get("filters") or {})
+        base = _watchlist_payload(item.get("tickers") or [], limit=50)
+        items = base["items"]
+        if _discovery_filter_active(filters):
+            items = [i for i in items if _discovery_item_matches_filters(i, filters)]
+        items.sort(key=_watchlist_rank_key)
+        filtered_count = len(items)
+        return {
+            "metadata": {
+                "version": "saved_watchlist_signals_v1",
+                "source": "saved_workspace_watchlist",
+                "saved_watchlist_id": item["id"],
+                "saved_watchlist_name": item["name"],
+                "input_count": len(item.get("tickers") or []),
+                "returned_count": len(items),
+                "filtered_count": filtered_count,
+                "filters": _discovery_filters_payload(filters),
+                "rank_basis": _watchlist_rank_basis(),
+                "human_review_required_for_routine_publication": False,
+            },
+            "summary": {
+                "alerts": len([i for i in items if i["action"] == "alert"]),
+                "watch": len([i for i in items if i["action"] == "watch"]),
+                "monitor": len([i for i in items if i["action"] == "monitor"]),
+                "blocked": len([i for i in items if i["action"] == "blocked"]),
+            },
+            "items": items,
+        }
+
     def _pro_store_call(fn):
         ps = ProAPIStore(pro_db_path)
         try:
@@ -2447,6 +2489,24 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "saved_watchlist_name": item["name"],
                 },
                 "watchlist": payload,
+            })
+
+        @app.get("/api/pro/v1/workspace/watchlists/<watchlist_id>/signals")
+        @pro_required("workspace:write")
+        def pro_workspace_watchlists_signals_ep(watchlist_id):
+            key = request.pro_api_key
+            item = _pro_store_call(lambda ps: ps.get_watchlist(key.key_id, watchlist_id))
+            if item is None:
+                return jsonify({"error": "not_found"}), 404
+            return jsonify({
+                "meta": {
+                    "api": "13flow-pro",
+                    "version": "v1",
+                    "git_sha": _git_sha(),
+                    "saved_watchlist_id": watchlist_id,
+                    "saved_watchlist_name": item["name"],
+                },
+                "signals": _saved_watchlist_signals_payload(item),
             })
 
         @app.get("/api/pro/v1/openapi.json")
