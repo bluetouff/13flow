@@ -112,8 +112,10 @@ SELECT cik, report_date, accession FROM (
 
 
 def _cik_filter(ciks: set[str] | None, column: str = "lf.cik") -> tuple[str, tuple[str, ...]]:
-    if not ciks:
+    if ciks is None:
         return "", ()
+    if not ciks:
+        return " AND 1=0", ()
     normalized = tuple(sorted(c.zfill(10) for c in ciks))
     placeholders = ",".join("?" for _ in normalized)
     return f" AND {column} IN ({placeholders})", normalized
@@ -334,10 +336,13 @@ class Store:
         if report_date:
             conditions.append("lf.report_date = ?")
             args.append(report_date)
-        if ciks:
-            placeholders = ",".join("?" for _ in ciks)
-            conditions.append(f"lf.cik IN ({placeholders})")
-            args.extend(sorted(c.zfill(10) for c in ciks))
+        if ciks is not None:
+            if not ciks:
+                conditions.append("1=0")
+            else:
+                placeholders = ",".join("?" for _ in ciks)
+                conditions.append(f"lf.cik IN ({placeholders})")
+                args.extend(sorted(c.zfill(10) for c in ciks))
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         cur = self.conn.execute(
             f"""
@@ -374,10 +379,13 @@ class Store:
         if report_date:
             filters.append("lf.report_date = ?")
             args.append(report_date)
-        if ciks:
-            placeholders = ",".join("?" for _ in ciks)
-            filters.append(f"lf.cik IN ({placeholders})")
-            args.extend(sorted(c.zfill(10) for c in ciks))
+        if ciks is not None:
+            if not ciks:
+                filters.append("1=0")
+            else:
+                placeholders = ",".join("?" for _ in ciks)
+                filters.append(f"lf.cik IN ({placeholders})")
+                args.extend(sorted(c.zfill(10) for c in ciks))
         where = f"AND {' AND '.join(filters)}" if filters else ""
         cur = self.conn.execute(
             f"""

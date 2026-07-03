@@ -7,7 +7,7 @@ from pathlib import Path
 
 from smartmoney.api import create_app
 from smartmoney.db import Store
-from smartmoney.quality import data_quality_report
+from smartmoney.quality import data_quality_report, quality_gate_report
 from tests.test_db_offline import AAPL, KO, MSFT, _save
 
 
@@ -120,3 +120,43 @@ def test_public_quality_surface_filters_legacy_ciks_when_registry_is_present():
         assert quality["summary"]["funds_scanned"] == 1
         assert quality["summary"]["stale_funds"] == 0
         assert quality["summary"]["duplicate_labels"] == 0
+
+
+def test_quality_gate_automatically_excludes_untrusted_funds_from_signals():
+    with tempfile.TemporaryDirectory() as d:
+        store = Store(str(Path(d) / "gate.db"))
+        try:
+            _save(store, "0000000001", "Trusted Fund", "PM1", "T1", "13F-HR",
+                  "2026-02-14", "2025-12-31",
+                  [("APPLE INC", AAPL, 1_000, 100, "")])
+            _save(store, "0000000001", "Trusted Fund", "PM1", "T2", "13F-HR",
+                  "2026-05-15", "2026-03-31",
+                  [("APPLE INC", AAPL, 1_100, 110, "")])
+
+            _save(store, "0000000002", "Stale Fund", "PM2", "S1", "13F-HR",
+                  "2026-02-14", "2025-12-31",
+                  [("APPLE INC", AAPL, 1_000, 100, "")])
+
+            _save(store, "0000000003", "Partial Fund", "PM3", "P1", "13F-HR/A",
+                  "2026-05-15", "2026-03-31",
+                  [("APPLE INC", AAPL, 900, 10, "")])
+
+            _save(store, "0000000004", "Jump Fund", "PM4", "J1", "13F-HR",
+                  "2026-02-14", "2025-12-31",
+                  [("APPLE INC", AAPL, 1, 1, "")])
+            _save(store, "0000000004", "Jump Fund", "PM4", "J2", "13F-HR",
+                  "2026-05-15", "2026-03-31",
+                  [("APPLE INC", AAPL, 200_000, 100, "")])
+
+            gate = quality_gate_report(store)
+        finally:
+            store.close()
+
+    by_label = {f["label"]: f for f in gate["funds"]}
+    assert gate["summary"]["trusted_funds"] == 1
+    assert gate["trusted_ciks"] == ["0000000001"]
+    assert by_label["Trusted Fund"]["status"] == "trusted"
+    assert by_label["Stale Fund"]["status"] == "stale"
+    assert by_label["Partial Fund"]["status"] == "quarantined"
+    assert by_label["Jump Fund"]["status"] == "quarantined"
+    assert {r["code"] for r in by_label["Jump Fund"]["reasons"]} == {"current_aum_jump"}

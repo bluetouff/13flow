@@ -51,7 +51,7 @@ from .db import Store
 from .diff import Move, diff_portfolios
 from .portfolio import Portfolio
 from .pro import APIKeyError, APIRateLimited, ProAPIStore
-from .quality import data_quality_report
+from .quality import data_quality_report, quality_gate_report
 from .valuation import value_portfolio
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -113,6 +113,13 @@ def _latest_filings_date(store: Store, fn: str, ciks: set[str] | None = None):
     ).fetchone()["d"]
 
 
+def _trusted_active_ciks(store: Store) -> tuple[set[str], dict]:
+    active = _public_active_ciks(store)
+    gate = quality_gate_report(store, active_ciks=active)
+    trusted = set(gate.get("trusted_ciks") or [])
+    return trusted, gate
+
+
 def _git_sha() -> str:
     env_sha = os.environ.get("SMARTMONEY_GIT_SHA", "").strip()
     if env_sha:
@@ -172,7 +179,8 @@ class _StoreConfluence:
             rd = row["d"] if row else None
             if not rd:
                 return {}
-            ciks = list(_public_active_ciks(s))
+            trusted, _gate = _trusted_active_ciks(s)
+            ciks = list(trusted)
             # Only scan Form 4s for tickers with meaningful institutional accumulation.
             # min_funds=1 means "any single fund bought" -> ~1000 tickers -> hours of Form 4
             # fetches. The conviction quadrant needs multiple funds anyway, so gate here.
@@ -870,9 +878,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 # default to the most recent quarter present anywhere
                 r = s.conn.execute("SELECT MAX(report_date) m FROM filings").fetchone()
                 date = r["m"]
+            trusted, _gate = _trusted_active_ciks(s)
             return jsonify({
                 "date": date,
-                "rows": s.consensus_holdings(date, min_funds, _public_active_ciks(s)),
+                "rows": s.consensus_holdings(date, min_funds, trusted),
             })
         finally:
             s.close()
@@ -886,7 +895,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             if not date:
                 r = s.conn.execute("SELECT MAX(report_date) m FROM filings").fetchone()
                 date = r["m"]
-            ciks = list(_public_active_ciks(s))
+            trusted, _gate = _trusted_active_ciks(s)
+            ciks = list(trusted)
             rows = consensus_moves(s, ciks, date, min_funds=min_funds)
             return jsonify({"date": date, "rows": [{
                 "cusip": m.cusip, "ticker": m.ticker, "issuer": m.issuer,
@@ -1040,10 +1050,15 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         limit = clean_int(request.args.get("limit"), 100, 1, 500)
         s = store()
         try:
-            return jsonify(data_quality_report(
+            report = data_quality_report(
                 s, aum_jump_threshold=threshold, limit=limit,
                 active_ciks=_public_active_ciks(s),
-            ))
+            )
+            report["quality_gate"] = quality_gate_report(
+                s, active_ciks=_public_active_ciks(s),
+                aum_jump_threshold=threshold,
+            )
+            return jsonify(report)
         finally:
             s.close()
 
@@ -1208,13 +1223,16 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         s = store()
         try:
             active = _public_active_ciks(s)
+            trusted, gate = _trusted_active_ciks(s)
             latest = _latest_filings_date(s, "MAX", active)
-            active_values = tuple(sorted(active))
+            trusted_values = tuple(sorted(trusted))
             active_sql = ""
             active_args: tuple[str, ...] = ()
-            if active_values:
-                active_sql = f" AND lf.cik IN ({_placeholders(active_values)})"
-                active_args = active_values
+            if trusted_values:
+                active_sql = f" AND lf.cik IN ({_placeholders(trusted_values)})"
+                active_args = trusted_values
+            else:
+                active_sql = " AND 1=0"
             rows = [dict(r) for r in s.conn.execute(
                 f"""SELECT fn.label, lf.cik, lf.report_date, f.accession, f.filing_date,
                           f.form, f.n_positions,
@@ -1231,7 +1249,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 
             movements: list[dict] = []
             labels = {r["cik"]: r["label"] for r in _fund_rows(s, active)}
-            for cik in sorted(active):
+            for cik in sorted(trusted):
                 curr = s.load_portfolio(cik, latest)
                 prev_q = s.previous_quarter(cik, latest) if latest else None
                 prev = s.load_portfolio(cik, prev_q) if prev_q else None
@@ -1296,6 +1314,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             }
             confidence = _stock_confidence_status(rows, movements, quality_flags)
             score = _stock_score(summary, confidence)
+            excluded_funds = [
+                d for d in gate.get("funds", [])
+                if not d.get("signal_eligible")
+            ]
         finally:
             s.close()
         return {
@@ -1308,6 +1330,11 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "movements": movements,
             "confidence": confidence,
             "score": score,
+            "quality_gate": {
+                "summary": gate["summary"],
+                "policy": gate["policy"],
+                "excluded_funds": excluded_funds[:25],
+            },
             "quality_flags": quality_flags[:25],
             "sec_company_search": f"https://www.sec.gov/edgar/search/#/q={t}",
         }
@@ -1362,10 +1389,15 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             limit = int(args.get("limit") or 100)
             s = store()
             try:
-                return data_quality_report(
+                active = _public_active_ciks(s)
+                report = data_quality_report(
                     s, aum_jump_threshold=threshold, limit=limit,
-                    active_ciks=_public_active_ciks(s),
+                    active_ciks=active,
                 )
+                report["quality_gate"] = quality_gate_report(
+                    s, active_ciks=active, aum_jump_threshold=threshold,
+                )
+                return report
             finally:
                 s.close()
         return {"error": "unknown_tool"}
@@ -1426,6 +1458,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 active = _public_active_ciks(s)
                 rows = _fund_rows(s, active)
                 quality = data_quality_report(s, limit=500, active_ciks=active)
+                gate = quality_gate_report(s, active_ciks=active)
                 warnings_by_cik = {}
                 for w in quality["warnings"]:
                     warnings_by_cik.setdefault(w["fund"]["cik"], []).append(w)
@@ -1459,6 +1492,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                         "methodology": pro_methodology(quality["parameters"]["aum_jump_threshold"]),
                     },
                     "quality_summary": quality["summary"],
+                    "quality_gate": gate["summary"],
                     "funds": out,
                 })
             finally:
@@ -1483,7 +1517,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     cik=cik, fund_label=pf.fund_label, report_date="", form="")
                 prev_filing = filing_row_for(s, cik, prev_q) if prev_q else None
                 diff = diff_portfolios(prev, pf)
-                quality = data_quality_report(s, limit=500, active_ciks=_public_active_ciks(s))
+                active = _public_active_ciks(s)
+                quality = data_quality_report(s, limit=500, active_ciks=active)
                 fund_warnings = [
                     w for w in quality["warnings"] if w["fund"]["cik"] == cik
                 ]
@@ -1563,12 +1598,17 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             limit = clean_int(request.args.get("limit"), 100, 1, 500)
             s = store()
             try:
+                active = _public_active_ciks(s)
+                report = data_quality_report(
+                    s, aum_jump_threshold=threshold, limit=limit,
+                    active_ciks=active,
+                )
+                report["quality_gate"] = quality_gate_report(
+                    s, active_ciks=active, aum_jump_threshold=threshold,
+                )
                 return jsonify({
                     "meta": {"api": "13flow-pro", "version": "v1", "git_sha": _git_sha()},
-                    "report": data_quality_report(
-                        s, aum_jump_threshold=threshold, limit=limit,
-                        active_ciks=_public_active_ciks(s),
-                    ),
+                    "report": report,
                 })
             finally:
                 s.close()
@@ -1674,7 +1714,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "value_unresolved": None,
                 "per_fund": [],
             }
-            quality = data_quality_report(s, limit=1, active_ciks=active)["summary"]
+            quality_report = data_quality_report(s, limit=1, active_ciks=active)
+            quality = quality_report["summary"]
+            gate = quality_gate_report(s, active_ciks=active)
         finally:
             s.close()
         ready = bool(funds and filings and latest_rows)
@@ -1719,6 +1761,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "duplicate_labels": quality["duplicate_labels"],
                 "unit_scale_candidates": quality["unit_scale_candidates"],
                 "review_items": quality["review_items"],
+                "quality_gate_status": gate["summary"]["status"],
+                "trusted_funds": gate["summary"]["trusted_funds"],
+                "signal_eligible_funds": gate["summary"]["signal_eligible_funds"],
+                "quarantined_funds": gate["summary"]["quarantined_funds"],
             },
             "public_endpoints": ["/api/live-status", "/api/version", "/api/funds", "/api/data-quality"],
         }
@@ -2699,14 +2745,16 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     def static_stocks():
         s = store()
         try:
-            active = _public_active_ciks(s)
-            latest = _latest_filings_date(s, "MAX", active)
-            active_values = tuple(sorted(active))
+            trusted, _gate = _trusted_active_ciks(s)
+            latest = _latest_filings_date(s, "MAX", _public_active_ciks(s))
+            active_values = tuple(sorted(trusted))
             active_sql = ""
             active_args: tuple[str, ...] = ()
             if active_values:
                 active_sql = f" AND lf.cik IN ({_placeholders(active_values)})"
                 active_args = active_values
+            else:
+                active_sql = " AND 1=0"
             rows = [dict(r) for r in s.conn.execute(
                 f"""SELECT UPPER(h.ticker) ticker, MAX(h.issuer) issuer,
                           COUNT(DISTINCT lf.cik) holders, SUM(h.value_usd) value_usd

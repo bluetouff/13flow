@@ -522,6 +522,40 @@ def test_ticker_flow_payload_explains_quarter_moves_and_confidence():
         assert "Data Confidence" in html
 
 
+def test_ticker_flow_uses_trusted_universe_and_exposes_automatic_exclusions():
+    with tempfile.TemporaryDirectory() as d:
+        db = str(Path(d) / "trusted-ticker-flow.db")
+        s = Store(db)
+        _save(s, "0001067983", "Berkshire Hathaway", "Warren Buffett",
+              "BRK-Q1", "13F-HR", "2026-02-14", "2025-12-31",
+              [("APPLE INC", AAPL, 1_000, 100, "")])
+        _save(s, "0001067983", "Berkshire Hathaway", "Warren Buffett",
+              "BRK-Q2", "13F-HR", "2026-05-15", "2026-03-31",
+              [("APPLE INC", AAPL, 1_100, 110, "")])
+        # Pershing is active-registry but fails the automated current AUM jump gate.
+        _save(s, "0001336528", "Pershing Square", "Bill Ackman",
+              "PS-Q1", "13F-HR", "2026-02-14", "2025-12-31",
+              [("APPLE INC", AAPL, 1, 1, "")])
+        _save(s, "0001336528", "Pershing Square", "Bill Ackman",
+              "PS-Q2", "13F-HR", "2026-05-15", "2026-03-31",
+              [("APPLE INC", AAPL, 200_000, 100, "")])
+        s.conn.execute("UPDATE holdings SET ticker='AAPL' WHERE cusip=?", (AAPL,))
+        s.conn.commit()
+        s.close()
+
+        c = create_app(db, secure_cookies=False, open_mode=True).test_client()
+        payload = c.get("/api/stocks/AAPL").get_json()
+
+        assert payload["movement_summary"]["holder_count"] == 1
+        assert [h["label"] for h in payload["holders"]] == ["Berkshire Hathaway"]
+        assert {m["label"] for m in payload["movements"]} == {"Berkshire Hathaway"}
+        assert payload["quality_gate"]["summary"]["trusted_funds"] == 1
+        assert payload["quality_gate"]["summary"]["quarantined_funds"] == 1
+        excluded = {f["label"]: f for f in payload["quality_gate"]["excluded_funds"]}
+        assert excluded["Pershing Square"]["status"] == "quarantined"
+        assert any(r["code"] == "current_aum_jump" for r in excluded["Pershing Square"]["reasons"])
+
+
 if __name__ == "__main__":
     import sys, pytest
     sys.exit(pytest.main([__file__, "-q"]))

@@ -10,6 +10,14 @@ from __future__ import annotations
 import math
 from typing import Any
 
+PARTIAL_AMENDMENT_MAX_POSITIONS = 3
+STATUS_RANK = {
+    "trusted": 0,
+    "degraded": 1,
+    "stale": 2,
+    "quarantined": 3,
+}
+
 
 def _active_clause(active_ciks: set[str] | None, prefix: str = "") -> tuple[str, tuple[str, ...]]:
     if not active_ciks:
@@ -74,6 +82,17 @@ def _severity(ratio: float) -> str:
     if ratio >= 250:
         return "high"
     return "review"
+
+
+def _downgrade(status: str, candidate: str) -> str:
+    return candidate if STATUS_RANK[candidate] > STATUS_RANK[status] else status
+
+
+def _add_reason(decision: dict[str, Any], code: str, detail: dict[str, Any] | None = None) -> None:
+    reason = {"code": code}
+    if detail:
+        reason.update(detail)
+    decision["reasons"].append(reason)
 
 
 def aum_jump_warnings(
@@ -289,7 +308,142 @@ def data_quality_report(
         "unit_scale_candidates": candidates[:limit],
         "notes": [
             "Warnings are read-only data-quality signals, not automatic corrections.",
-            "Stale funds and duplicate labels are public-surface quality issues for Pro review.",
-            "Unit-scale candidates require operator review before any DB repair.",
+            "The automated quality gate excludes non-trusted funds from product signals.",
+            "Human review is not required for routine publication; only DB repairs need operator action.",
         ],
     }
+
+
+def quality_gate_report(
+    store,
+    active_ciks: set[str] | None = None,
+    aum_jump_threshold: float = 100.0,
+) -> dict[str, Any]:
+    """Automatic commercial gate for signal eligibility.
+
+    This is intentionally deterministic and conservative. The gate does not edit
+    SEC-derived rows; it decides which funds are eligible for paid/product
+    signals without requiring routine human validation.
+    """
+    by_fund = _latest_rows_by_fund(store, active_ciks)
+    current = _current_rows_by_fund(store, active_ciks)
+    funds = _fund_rows(store, active_ciks)
+    warnings = aum_jump_warnings(store, threshold=aum_jump_threshold, active_ciks=active_ciks)
+    stale = stale_fund_warnings(store, active_ciks=active_ciks)
+    duplicates = duplicate_label_warnings(store, active_ciks=active_ciks)
+    candidates = unit_scale_candidates(store, active_ciks=active_ciks)
+
+    decisions: dict[str, dict[str, Any]] = {}
+    for fund in funds:
+        cik = fund["cik"]
+        row = current.get(cik)
+        decisions[cik] = {
+            "cik": cik,
+            "label": fund["label"],
+            "manager": fund.get("manager"),
+            "status": "trusted",
+            "signal_eligible": True,
+            "latest_filing": _filing_payload(row) if row else None,
+            "series_points": len(by_fund.get(cik, [])),
+            "reasons": [],
+        }
+        if row is None:
+            decisions[cik]["status"] = "quarantined"
+            _add_reason(decisions[cik], "missing_latest_filing")
+            continue
+        if str(row.get("form") or "").endswith("/A") and int(row.get("n_positions") or 0) <= PARTIAL_AMENDMENT_MAX_POSITIONS:
+            decisions[cik]["status"] = _downgrade(decisions[cik]["status"], "quarantined")
+            _add_reason(decisions[cik], "partial_amendment_latest", {
+                "accession": row.get("accession"),
+                "n_positions": row.get("n_positions"),
+            })
+
+    for warning in stale:
+        fund = warning.get("fund") or {}
+        cik = fund.get("cik")
+        if cik in decisions:
+            decisions[cik]["status"] = _downgrade(decisions[cik]["status"], "stale")
+            _add_reason(decisions[cik], "stale_fund", {
+                "latest_dataset_quarter": warning.get("latest_dataset_quarter"),
+                "latest_fund_quarter": warning.get("latest_fund_quarter"),
+                "quarters_behind": warning.get("quarters_behind"),
+            })
+
+    for warning in warnings:
+        fund = warning.get("fund") or {}
+        cik = fund.get("cik")
+        if cik not in decisions:
+            continue
+        latest = (decisions[cik].get("latest_filing") or {}).get("report_date")
+        endpoints = {
+            (warning.get("from") or {}).get("report_date"),
+            (warning.get("to") or {}).get("report_date"),
+        }
+        if latest not in endpoints:
+            continue
+        severity = warning.get("severity")
+        status = "quarantined" if severity == "critical" else "degraded"
+        decisions[cik]["status"] = _downgrade(decisions[cik]["status"], status)
+        _add_reason(decisions[cik], "current_aum_jump", {
+            "severity": severity,
+            "ratio": warning.get("ratio"),
+            "direction": warning.get("direction"),
+        })
+
+    for candidate in candidates:
+        fund = candidate.get("fund") or {}
+        cik = fund.get("cik")
+        if cik in decisions:
+            decisions[cik]["status"] = _downgrade(decisions[cik]["status"], "quarantined")
+            _add_reason(decisions[cik], "unit_scale_candidate", {
+                "action": candidate.get("action"),
+                "ratio_to_neighbor_geomean": candidate.get("ratio_to_neighbor_geomean"),
+            })
+
+    for warning in duplicates:
+        for fund in warning.get("funds", []):
+            cik = fund.get("cik")
+            if cik in decisions:
+                decisions[cik]["status"] = _downgrade(decisions[cik]["status"], "quarantined")
+                _add_reason(decisions[cik], "duplicate_label", {
+                    "label": warning.get("label"),
+                    "normalized_label": warning.get("normalized_label"),
+                })
+
+    for decision in decisions.values():
+        if decision["status"] != "trusted":
+            decision["signal_eligible"] = False
+        if not decision["reasons"]:
+            _add_reason(decision, "passed_automated_quality_gate")
+
+    ordered = sorted(decisions.values(), key=lambda d: (STATUS_RANK[d["status"]], d["label"], d["cik"]))
+    summary = {
+        "status": "ok" if all(d["status"] == "trusted" for d in ordered) else "gated",
+        "active_funds": len(ordered),
+        "trusted_funds": len([d for d in ordered if d["status"] == "trusted"]),
+        "degraded_funds": len([d for d in ordered if d["status"] == "degraded"]),
+        "stale_funds": len([d for d in ordered if d["status"] == "stale"]),
+        "quarantined_funds": len([d for d in ordered if d["status"] == "quarantined"]),
+        "signal_eligible_funds": len([d for d in ordered if d["signal_eligible"]]),
+    }
+    return {
+        "summary": summary,
+        "trusted_ciks": [d["cik"] for d in ordered if d["signal_eligible"]],
+        "excluded_ciks": [d["cik"] for d in ordered if not d["signal_eligible"]],
+        "funds": ordered,
+        "policy": {
+            "mode": "automated_fail_closed",
+            "human_review_required_for_routine_publication": False,
+            "signal_rule": "Only trusted funds are eligible for scores, consensus and watchlist signals.",
+            "statuses": {
+                "trusted": "eligible for product signals",
+                "degraded": "visible for audit, excluded from product signals",
+                "stale": "visible for audit/history, excluded from current signals",
+                "quarantined": "retained in DB, excluded from product signals",
+            },
+        },
+    }
+
+
+def trusted_signal_ciks(store, active_ciks: set[str] | None = None) -> set[str]:
+    return set(quality_gate_report(store, active_ciks=active_ciks)["trusted_ciks"])
