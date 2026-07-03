@@ -68,6 +68,18 @@ CREATE TABLE IF NOT EXISTS saved_watchlists (
 );
 CREATE INDEX IF NOT EXISTS ix_saved_watchlists_key_updated
     ON saved_watchlists(key_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS saved_watchlist_signal_snapshots (
+    id             TEXT PRIMARY KEY,
+    key_id         TEXT NOT NULL,
+    watchlist_id   TEXT NOT NULL,
+    signals_json   TEXT NOT NULL,
+    summary_json   TEXT NOT NULL DEFAULT '{}',
+    tickers_json   TEXT NOT NULL DEFAULT '[]',
+    created_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_saved_watchlist_signal_snapshots_key_watchlist
+    ON saved_watchlist_signal_snapshots(key_id, watchlist_id, created_at DESC);
 """
 
 
@@ -115,6 +127,10 @@ def _parse_token(token: str) -> tuple[str, str]:
 def _scopes_to_string(scopes) -> str:
     vals = [str(s).strip() for s in scopes if str(s).strip()]
     return " ".join(dict.fromkeys(vals or DEFAULT_SCOPES))
+
+
+def _json_compact(value) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
 
 
 @dataclass(frozen=True)
@@ -330,7 +346,7 @@ class ProAPIStore:
         alert_policy: Optional[dict] = None,
         notes: str = "",
     ) -> Optional[dict]:
-        now = _iso(_now())
+        now = _now().isoformat(timespec="microseconds")
         with self.conn:
             cur = self.conn.execute(
                 """UPDATE saved_watchlists
@@ -350,11 +366,93 @@ class ProAPIStore:
 
     def delete_watchlist(self, key_id: str, watchlist_id: str) -> bool:
         with self.conn:
+            self.conn.execute(
+                "DELETE FROM saved_watchlist_signal_snapshots WHERE key_id=? AND watchlist_id=?",
+                (key_id, watchlist_id),
+            )
             cur = self.conn.execute(
                 "DELETE FROM saved_watchlists WHERE key_id=? AND id=?",
                 (key_id, watchlist_id),
             )
         return cur.rowcount > 0
+
+    def _signal_snapshot_row(self, row, include_signals: bool = False) -> dict:
+        signals = json.loads(row["signals_json"] or "{}")
+        out = {
+            "id": row["id"],
+            "watchlist_id": row["watchlist_id"],
+            "created_at": row["created_at"],
+            "summary": json.loads(row["summary_json"] or "{}"),
+            "tickers": json.loads(row["tickers_json"] or "[]"),
+            "metadata": signals.get("metadata") or {},
+        }
+        if include_signals:
+            out["signals"] = signals
+        return out
+
+    def list_signal_snapshots(
+        self,
+        key_id: str,
+        watchlist_id: str,
+        limit: int = 20,
+        include_signals: bool = False,
+    ) -> list[dict]:
+        safe_limit = max(1, min(100, int(limit or 20)))
+        rows = self.conn.execute(
+            """SELECT * FROM saved_watchlist_signal_snapshots
+               WHERE key_id=? AND watchlist_id=?
+               ORDER BY created_at DESC, id DESC
+               LIMIT ?""",
+            (key_id, watchlist_id, safe_limit),
+        ).fetchall()
+        return [self._signal_snapshot_row(r, include_signals=include_signals) for r in rows]
+
+    def create_signal_snapshot(
+        self,
+        key_id: str,
+        watchlist_id: str,
+        signals: dict,
+        max_snapshots: int = 100,
+    ) -> dict:
+        snapshot_id = secrets.token_hex(8)
+        now = _iso(_now())
+        items = list((signals or {}).get("items") or [])
+        tickers = [
+            str(item.get("ticker") or "").upper()
+            for item in items
+            if str(item.get("ticker") or "").strip()
+        ]
+        summary = dict((signals or {}).get("summary") or {})
+        keep = max(1, min(500, int(max_snapshots or 100)))
+        with self.conn:
+            self.conn.execute(
+                """INSERT INTO saved_watchlist_signal_snapshots(
+                       id,key_id,watchlist_id,signals_json,summary_json,tickers_json,created_at
+                   ) VALUES (?,?,?,?,?,?,?)""",
+                (
+                    snapshot_id, key_id, watchlist_id, _json_compact(signals or {}),
+                    _json_compact(summary), _json_compact(tickers), now,
+                ),
+            )
+            self.conn.execute(
+                """DELETE FROM saved_watchlist_signal_snapshots
+                   WHERE key_id=? AND watchlist_id=?
+                     AND id NOT IN (
+                         SELECT id FROM saved_watchlist_signal_snapshots
+                         WHERE key_id=? AND watchlist_id=?
+                         ORDER BY created_at DESC, id DESC
+                         LIMIT ?
+                     )""",
+                (key_id, watchlist_id, key_id, watchlist_id, keep),
+            )
+        row = self.conn.execute(
+            """SELECT * FROM saved_watchlist_signal_snapshots
+               WHERE key_id=? AND watchlist_id=? AND id=?""",
+            (key_id, watchlist_id, snapshot_id),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("saved watchlist signal snapshot was not persisted")
+        return self._signal_snapshot_row(row)
 
     def prune_audit(self, retention_days: int) -> dict:
         days = int(retention_days)

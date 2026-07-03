@@ -138,6 +138,8 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         assert "/api/pro/v1/workspace/watchlists/{watchlist_id}" in doc["paths"]
         assert "/api/pro/v1/workspace/watchlists/{watchlist_id}/preview" in doc["paths"]
         assert "/api/pro/v1/workspace/watchlists/{watchlist_id}/signals" in doc["paths"]
+        assert "/api/pro/v1/workspace/watchlists/{watchlist_id}/signals/snapshot" in doc["paths"]
+        assert "/api/pro/v1/workspace/watchlists/{watchlist_id}/signals/history" in doc["paths"]
 
 
 def test_pro_watchlist_feed_uses_ticker_flow(monkeypatch):
@@ -291,6 +293,60 @@ def test_pro_workspace_watchlists_are_saved_per_api_key(monkeypatch):
         assert payload["signals"]["items"]
         assert all(item["action"] == "alert" for item in payload["signals"]["items"])
         assert all("NEW" in item["movement_codes"] for item in payload["signals"]["items"])
+
+        snapshot = c.post(
+            f"/api/pro/v1/workspace/watchlists/{watchlist_id}/signals/snapshot",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert snapshot.status_code == 201
+        payload = snapshot.get_json()
+        assert payload["meta"]["saved_watchlist_id"] == watchlist_id
+        assert payload["meta"]["history_retention_snapshots"] == 100
+        assert payload["snapshot"]["watchlist_id"] == watchlist_id
+        assert payload["snapshot"]["summary"]["alerts"] >= 1
+        assert payload["snapshot"]["tickers"]
+        assert "signals" not in payload["snapshot"]
+        assert payload["delta"]["baseline_snapshot_id"] is None
+        assert payload["delta"]["previous_count"] == 0
+        assert payload["delta"]["current_count"] == len(payload["snapshot"]["tickers"])
+        assert payload["delta"]["added_tickers"] == sorted(payload["snapshot"]["tickers"])
+
+        second_snapshot = c.post(
+            f"/api/pro/v1/workspace/watchlists/{watchlist_id}/signals/snapshot",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert second_snapshot.status_code == 201
+        payload = second_snapshot.get_json()
+        assert payload["delta"]["baseline_snapshot_id"] == snapshot.get_json()["snapshot"]["id"]
+        assert payload["delta"]["added_tickers"] == []
+        assert payload["delta"]["removed_tickers"] == []
+        assert payload["delta"]["changed_actions"] == []
+
+        history = c.get(
+            f"/api/pro/v1/workspace/watchlists/{watchlist_id}/signals/history?limit=1",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert history.status_code == 200
+        payload = history.get_json()
+        assert payload["meta"]["include_signals"] is False
+        assert len(payload["history"]) == 1
+        assert "signals" not in payload["history"][0]
+
+        history_with_signals = c.get(
+            f"/api/pro/v1/workspace/watchlists/{watchlist_id}/signals/history?limit=2&include_signals=1",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert history_with_signals.status_code == 200
+        payload = history_with_signals.get_json()
+        assert payload["meta"]["include_signals"] is True
+        assert len(payload["history"]) == 2
+        assert payload["history"][0]["signals"]["metadata"]["version"] == "saved_watchlist_signals_v1"
+
+        other_history = c.get(
+            f"/api/pro/v1/workspace/watchlists/{watchlist_id}/signals/history",
+            headers={"Authorization": "Bearer " + other_token},
+        )
+        assert other_history.status_code == 404
 
         update = c.put(
             f"/api/pro/v1/workspace/watchlists/{watchlist_id}",

@@ -820,6 +820,33 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                       "404": {"description": "Not found"}},
                     },
                 },
+                "/api/pro/v1/workspace/watchlists/{watchlist_id}/signals/snapshot": {
+                    "post": {
+                        "security": security,
+                        "summary": "Persist a point-in-time saved watchlist signal snapshot",
+                        "parameters": [{"name": "watchlist_id", "in": "path", "required": True,
+                                        "schema": {"type": "string"}}],
+                        "responses": {"201": {"description": "Saved watchlist signal snapshot"},
+                                      "404": {"description": "Not found"}},
+                    },
+                },
+                "/api/pro/v1/workspace/watchlists/{watchlist_id}/signals/history": {
+                    "get": {
+                        "security": security,
+                        "summary": "List bounded saved watchlist signal snapshots",
+                        "parameters": [
+                            {"name": "watchlist_id", "in": "path", "required": True,
+                             "schema": {"type": "string"}},
+                            {"name": "limit", "in": "query", "required": False,
+                             "schema": {"type": "integer", "minimum": 1, "maximum": 100,
+                                        "default": 20}},
+                            {"name": "include_signals", "in": "query", "required": False,
+                             "schema": {"type": "boolean", "default": False}},
+                        ],
+                        "responses": {"200": {"description": "Saved watchlist signal history"},
+                                      "404": {"description": "Not found"}},
+                    },
+                },
                 "/api/pro/v1/openapi.json": {
                     "get": {"summary": "OpenAPI document for the Pro API",
                             "responses": {"200": {"description": "OpenAPI JSON"}}}
@@ -2087,6 +2114,52 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "items": items,
         }
 
+    def _signal_item_delta_basis(payload: dict) -> dict[str, dict]:
+        out = {}
+        for item in (payload or {}).get("items") or []:
+            ticker = str(item.get("ticker") or "").upper().strip()
+            if not ticker:
+                continue
+            out[ticker] = {
+                "action": item.get("action"),
+                "score": float((item.get("score") or {}).get("score") or 0.0),
+            }
+        return out
+
+    def _saved_watchlist_signal_delta(current: dict, previous_snapshot: dict | None) -> dict:
+        previous_signals = (previous_snapshot or {}).get("signals") or {}
+        current_by_ticker = _signal_item_delta_basis(current)
+        previous_by_ticker = _signal_item_delta_basis(previous_signals)
+        current_tickers = set(current_by_ticker)
+        previous_tickers = set(previous_by_ticker)
+        shared = sorted(current_tickers & previous_tickers)
+        changed_actions = []
+        changed_scores = []
+        for ticker in shared:
+            prev = previous_by_ticker[ticker]
+            curr = current_by_ticker[ticker]
+            if prev.get("action") != curr.get("action"):
+                changed_actions.append({
+                    "ticker": ticker,
+                    "from": prev.get("action"),
+                    "to": curr.get("action"),
+                })
+            if abs(float(curr.get("score") or 0.0) - float(prev.get("score") or 0.0)) >= 0.1:
+                changed_scores.append({
+                    "ticker": ticker,
+                    "from": round(float(prev.get("score") or 0.0), 2),
+                    "to": round(float(curr.get("score") or 0.0), 2),
+                })
+        return {
+            "baseline_snapshot_id": (previous_snapshot or {}).get("id"),
+            "previous_count": len(previous_tickers),
+            "current_count": len(current_tickers),
+            "added_tickers": sorted(current_tickers - previous_tickers),
+            "removed_tickers": sorted(previous_tickers - current_tickers),
+            "changed_actions": changed_actions,
+            "changed_scores": changed_scores,
+        }
+
     def _pro_store_call(fn):
         ps = ProAPIStore(pro_db_path)
         try:
@@ -2507,6 +2580,61 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "saved_watchlist_name": item["name"],
                 },
                 "signals": _saved_watchlist_signals_payload(item),
+            })
+
+        @app.post("/api/pro/v1/workspace/watchlists/<watchlist_id>/signals/snapshot")
+        @pro_required("workspace:write")
+        def pro_workspace_watchlists_signals_snapshot_ep(watchlist_id):
+            key = request.pro_api_key
+            with ProAPIStore(pro_db_path) as ps:
+                item = ps.get_watchlist(key.key_id, watchlist_id)
+                if item is None:
+                    return jsonify({"error": "not_found"}), 404
+                previous_rows = ps.list_signal_snapshots(
+                    key.key_id, watchlist_id, limit=1, include_signals=True,
+                )
+                previous = previous_rows[0] if previous_rows else None
+                signals = _saved_watchlist_signals_payload(item)
+                snapshot = ps.create_signal_snapshot(
+                    key.key_id, watchlist_id, signals, max_snapshots=100,
+                )
+            return jsonify({
+                "meta": {
+                    "api": "13flow-pro",
+                    "version": "v1",
+                    "git_sha": _git_sha(),
+                    "saved_watchlist_id": watchlist_id,
+                    "saved_watchlist_name": item["name"],
+                    "history_retention_snapshots": 100,
+                },
+                "snapshot": snapshot,
+                "delta": _saved_watchlist_signal_delta(signals, previous),
+            }), 201
+
+        @app.get("/api/pro/v1/workspace/watchlists/<watchlist_id>/signals/history")
+        @pro_required("workspace:write")
+        def pro_workspace_watchlists_signals_history_ep(watchlist_id):
+            key = request.pro_api_key
+            limit = clean_int(request.args.get("limit"), 20, 1, 100)
+            include_signals = clean_bool(request.args.get("include_signals"), False)
+            with ProAPIStore(pro_db_path) as ps:
+                item = ps.get_watchlist(key.key_id, watchlist_id)
+                if item is None:
+                    return jsonify({"error": "not_found"}), 404
+                history = ps.list_signal_snapshots(
+                    key.key_id, watchlist_id, limit=limit, include_signals=include_signals,
+                )
+            return jsonify({
+                "meta": {
+                    "api": "13flow-pro",
+                    "version": "v1",
+                    "git_sha": _git_sha(),
+                    "saved_watchlist_id": watchlist_id,
+                    "saved_watchlist_name": item["name"],
+                    "include_signals": include_signals,
+                    "limit": limit,
+                },
+                "history": history,
             })
 
         @app.get("/api/pro/v1/openapi.json")
