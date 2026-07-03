@@ -43,7 +43,17 @@ fi
 if [[ -n "$BACKUP_PASSPHRASE_FILE" ]]; then
   gpg_args+=(--pinentry-mode loopback --passphrase-file "$BACKUP_PASSPHRASE_FILE" --no-symkey-cache)
 fi
-gpg "${gpg_args[@]}" --decrypt "$BACKUP_FILE"
+gpg_stderr="$tmpdir/gpg-decrypt.stderr"
+if ! gpg "${gpg_args[@]}" --decrypt "$BACKUP_FILE" 2>"$gpg_stderr"; then
+  if grep -Eiq "no secret key|no secret keys|pas de clef secr[eè]te|pas de cl[eé] secr[eè]te" "$gpg_stderr"; then
+    cat "$gpg_stderr" >&2
+    echo "RESTORE VERIFY SKIPPED: no private key is available on this host." >&2
+    echo "Copy the encrypted archive to the restore host that holds the private backup key." >&2
+    exit 77
+  fi
+  cat "$gpg_stderr" >&2
+  exit 2
+fi
 
 while IFS= read -r member; do
   case "$member" in

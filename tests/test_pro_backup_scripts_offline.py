@@ -45,6 +45,45 @@ def _gpg_symmetric_batch_error() -> str:
         return "" if result.returncode == 0 else (result.stderr.strip() or "gpg batch failed")
 
 
+def test_restore_verify_skips_cleanly_without_private_key():
+    root = Path(__file__).resolve().parents[1]
+    verify_script = root / "deploy" / "verify-pro-db-backup.sh"
+
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        bin_dir = tmp / "bin"
+        verify_dir = tmp / "verify"
+        backup_file = tmp / "13flow-pro-test.tar.gz.gpg"
+        fake_gpg = bin_dir / "gpg"
+        bin_dir.mkdir()
+        backup_file.write_bytes(b"not really encrypted")
+        fake_gpg.write_text(
+            "#!/usr/bin/env bash\n"
+            "echo 'gpg: encrypted with rsa4096 key, ID EBDDF6E279A16C74' >&2\n"
+            "echo 'gpg: echec du dechiffrement par clef publique: Pas de clef secrete' >&2\n"
+            "echo 'gpg: decryption failed: No secret key' >&2\n"
+            "exit 2\n",
+            encoding="utf-8",
+        )
+        fake_gpg.chmod(0o700)
+
+        env = os.environ.copy()
+        env.update({
+            "PATH": f"{bin_dir}{os.pathsep}{env.get('PATH', '')}",
+            "VERIFY_WORK_DIR": str(verify_dir),
+        })
+        result = subprocess.run(
+            ["bash", str(verify_script), str(backup_file)],
+            env=env,
+            text=True,
+            capture_output=True,
+        )
+
+        assert result.returncode == 77
+        assert "RESTORE VERIFY SKIPPED" in result.stderr
+        assert "private key" in result.stderr
+
+
 @pytest.mark.skipif(_missing_tools(), reason="backup verification tools are unavailable")
 def test_encrypted_pro_backup_can_be_restore_verified():
     gpg_error = _gpg_symmetric_batch_error()

@@ -134,6 +134,8 @@ sudo systemctl start 13flow-pro-backup.service
 
 # Run this only on a host that can decrypt the archive: either the symmetric
 # passphrase file is configured, or the matching private backup key is present.
+# If production intentionally has only the public GPG key, this exits cleanly as
+# "RESTORE VERIFY SKIPPED" and the real restore check belongs on the key-holder host.
 sudo systemctl start 13flow-pro-backup-verify.service
 
 sudo systemctl enable --now 13flow-pro-backup.timer
@@ -149,7 +151,9 @@ the expected Pro/workspace tables and then deletes the plaintext restore copy. W
 public-key encryption, run the verifier only on a host that has the matching private
 backup key; the production server may deliberately hold only the public key. In that
 model, copy one encrypted archive to the restore host and run
-`verify-pro-db-backup.sh` there before enabling routine audit pruning.
+`verify-pro-db-backup.sh` there before enabling routine audit pruning. The systemd
+verify unit treats "no private key on this host" as a clean skip (`SuccessExitStatus=77`)
+so a public-key-only production host does not stay in a failed state.
 The systemd unit runs as `flowpro` and keeps `/var/lib/13flow-pro` in `ReadWritePaths`
 because SQLite WAL sidecar access may be required even though the script opens the DB in
 `mode=ro`.

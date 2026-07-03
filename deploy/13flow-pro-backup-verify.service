@@ -9,6 +9,7 @@ Group=flowpro
 EnvironmentFile=/etc/13flow/13flow-pro-backup.env
 ExecStart=/opt/13flow/deploy/verify-pro-db-backup.sh
 StateDirectory=13flow-pro-backup
+SuccessExitStatus=77
 
 NoNewPrivileges=yes
 PrivateTmp=yes
