@@ -122,6 +122,8 @@ sudo install -o root -g root -m 755 /opt/13flow/deploy/backup-pro-db.sh \
   /opt/13flow/deploy/backup-pro-db.sh
 sudo install -o root -g root -m 755 /opt/13flow/deploy/verify-pro-db-backup.sh \
   /opt/13flow/deploy/verify-pro-db-backup.sh
+sudo install -o root -g root -m 755 /opt/13flow/deploy/prepare-pro-backup-restore-check.sh \
+  /opt/13flow/deploy/prepare-pro-backup-restore-check.sh
 sudo install -o root -g root -m 644 /opt/13flow/deploy/13flow-pro-backup.service \
   /etc/systemd/system/13flow-pro-backup.service
 sudo install -o root -g root -m 644 /opt/13flow/deploy/13flow-pro-backup-verify.service \
@@ -154,6 +156,16 @@ model, copy one encrypted archive to the restore host and run
 `verify-pro-db-backup.sh` there before enabling routine audit pruning. The systemd
 verify unit treats "no private key on this host" as a clean skip (`SuccessExitStatus=77`)
 so a public-key-only production host does not stay in a failed state.
+To prepare that off-production check without exposing plaintext, generate a checksum
+sidecar and copy only encrypted material:
+
+```bash
+sudo -u flowpro WRITE_SHA256=1 /opt/13flow/deploy/prepare-pro-backup-restore-check.sh
+```
+
+Then run the printed `scp`, `sha256sum -c` and `verify-pro-db-backup.sh` commands on
+the host that owns the private backup key.
+
 The systemd unit runs as `flowpro` and keeps `/var/lib/13flow-pro` in `ReadWritePaths`
 because SQLite WAL sidecar access may be required even though the script opens the DB in
 `mode=ro`.

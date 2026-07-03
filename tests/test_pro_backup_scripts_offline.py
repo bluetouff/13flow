@@ -84,6 +84,42 @@ def test_restore_verify_skips_cleanly_without_private_key():
         assert "private key" in result.stderr
 
 
+@pytest.mark.skipif("sha256sum" in _missing_tools(), reason="sha256sum is unavailable")
+def test_prepare_restore_check_selects_latest_backup_and_writes_checksum():
+    root = Path(__file__).resolve().parents[1]
+    prepare_script = root / "deploy" / "prepare-pro-backup-restore-check.sh"
+
+    with tempfile.TemporaryDirectory() as d:
+        backup_dir = Path(d)
+        old_backup = backup_dir / "13flow-pro-20260703T010000Z.tar.gz.gpg"
+        latest_backup = backup_dir / "13flow-pro-20260703T020000Z.tar.gz.gpg"
+        old_backup.write_bytes(b"old encrypted archive")
+        latest_backup.write_bytes(b"latest encrypted archive")
+
+        env = os.environ.copy()
+        env.update({
+            "BACKUP_DIR": str(backup_dir),
+            "WRITE_SHA256": "1",
+            "RESTORE_WORK_DIR": "./restore-work",
+        })
+        result = subprocess.run(
+            ["bash", str(prepare_script)],
+            env=env,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+        sidecar = latest_backup.with_suffix(latest_backup.suffix + ".sha256")
+        assert f"backup_file={latest_backup}" in result.stdout
+        assert f"backup_name={latest_backup.name}" in result.stdout
+        assert f"sha256_sidecar={sidecar}" in result.stdout
+        assert "sha256sum -c" in result.stdout
+        assert "RESTORE VERIFY OK" in result.stdout
+        assert sidecar.exists()
+        assert latest_backup.name in sidecar.read_text(encoding="utf-8")
+
+
 @pytest.mark.skipif(_missing_tools(), reason="backup verification tools are unavailable")
 def test_encrypted_pro_backup_can_be_restore_verified():
     gpg_error = _gpg_symmetric_batch_error()
