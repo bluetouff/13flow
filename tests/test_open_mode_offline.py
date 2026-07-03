@@ -201,6 +201,9 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             ("/signals", "test signal"),
             ("/signals/AAPL", "Latest 13F holders"),
             ("/pro", "13FLOW Pro API"),
+            ("/methodology", "Application methodology"),
+            ("/methodology/app", "13F filings are delayed regulatory disclosures"),
+            ("/methodology/mcp", "Pro tools must fail closed"),
             ("/faq", "Frequently asked questions"),
             ("/legal", "Legal, privacy and data terms"),
         ):
@@ -213,6 +216,8 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/api/product-status" in doc["paths"]
         assert "/api/pro-offer" in doc["paths"]
         assert "/api/methodology/confluence-v1" in doc["paths"]
+        assert "/api/methodology/app" in doc["paths"]
+        assert "/api/methodology/mcp" in doc["paths"]
         assert "/api/stocks/{ticker}" in doc["paths"]
 
         offer = c.get("/api/pro-offer").get_json()
@@ -230,15 +235,29 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Before I issue a scoped pilot key" in sales_packet["lead_reply_template"]
         assert sales_packet["operator_note_schema"]["package"] == "Pilot access | Desk API | Agent / MCP workflow"
         assert "Verify the key id in api_audit" in sales_packet["pilot_handoff"][3]
+        commercial = offer["commercial_model"]
+        assert commercial["recommended_packages"][0]["price_eur_per_month"] == 490
+        assert commercial["do_not_discount_below"]["full_live_api_access_eur_per_month"] == 490
+        assert "raw SEC data" in commercial["principle"]
         assert offer["default_limits"]["rate_per_min"] == 120
         assert "validated alpha" in offer["not_included_yet"]
         assert "create_key" in offer["operator_commands"]
         assert offer["truth_boundary"]["current_artifact"]["publishable_as_full_validation"] is False
 
+        app_method = c.get("/api/methodology/app").get_json()
+        assert app_method["current_state"]["public_state"] == "LIVE"
+        assert "13F filings are delayed regulatory disclosures" in app_method["user_interpretation"][0]
+        assert "validated alpha" in app_method["not_claimed"]
+
+        mcp_method = c.get("/api/methodology/mcp").get_json()
+        assert "Pro tools must fail closed" in mcp_method["contract"][1]
+        assert mcp_method["security"]["credential_headers"][0].startswith("Authorization")
+
         pro_page = c.get("/pro").get_data(as_text=True)
         assert "Request access" in pro_page
         assert "Access request checklist" in pro_page
         assert "Operator lead kit" in pro_page
+        assert "490 EUR / month" in pro_page
         assert "Pilot access" in pro_page
 
         api_stock = c.get("/api/stocks/AAPL").get_json()

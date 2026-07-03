@@ -100,6 +100,16 @@ for path in /faq /faq.html /legal /mentions-legales.html; do
   fi
 done
 
+for path in /methodology /methodology/app /methodology/mcp; do
+  out="$tmpdir/${path//\//_}.html"
+  if fetch "$path" "$out"; then
+    ok "$path fetch"
+    contains_none "$path has no legacy/auth/checkout copy" "$out" "${legacy_forbidden[@]}"
+  else
+    bad "$path fetch" "curl failed"
+  fi
+done
+
 pro_page="$tmpdir/pro.html"
 if fetch "/pro" "$pro_page"; then
   grep -q "13FLOW Pro API" "$pro_page" \
@@ -107,6 +117,7 @@ if fetch "/pro" "$pro_page"; then
     && grep -q "Request access" "$pro_page" \
     && grep -q "Pilot access" "$pro_page" \
     && grep -q "Operator lead kit" "$pro_page" \
+    && grep -q "490 EUR / month" "$pro_page" \
     && ok "/pro offer page" \
     || bad "/pro offer page" "missing Pro API packaging copy"
 else
@@ -203,6 +214,8 @@ plans = data.get('plans') or []
 buyer_checklist = data.get('buyer_checklist') or []
 sales_packet = data.get('sales_packet') or {}
 note_schema = sales_packet.get('operator_note_schema') or {}
+commercial = data.get('commercial_model') or {}
+packages = commercial.get('recommended_packages') or []
 ok = (
     offer.get('name') == '13FLOW Pro API'
     and offer.get('self_serve_checkout') is False
@@ -211,6 +224,8 @@ ok = (
     and 'organization name and billing contact' in buyer_checklist
     and 'Before I issue a scoped pilot key' in (sales_packet.get('lead_reply_template') or '')
     and note_schema.get('package') == 'Pilot access | Desk API | Agent / MCP workflow'
+    and packages and packages[0].get('price_eur_per_month') == 490
+    and (commercial.get('do_not_discount_below') or {}).get('full_live_api_access_eur_per_month') == 490
     and int(limits.get('rate_per_min') or 0) == 120
     and 'validated alpha' in not_yet
     and bool(commands.get('create_key'))
@@ -220,6 +235,41 @@ msg = str(data)
 "
 else
   bad "/api/pro-offer fetch" "curl failed"
+fi
+
+method_app="$tmpdir/methodology-app.json"
+if fetch "/api/methodology/app" "$method_app"; then
+  json_check "/api/methodology/app contract" "$method_app" "
+sources = data.get('primary_sources') or []
+state = data.get('current_state') or {}
+interp = data.get('user_interpretation') or []
+ok = (
+    data.get('title') == '13FLOW application methodology'
+    and state.get('public_state') == 'LIVE'
+    and any(s.get('name') == 'SEC EDGAR filing and data APIs' for s in sources)
+    and interp and interp[0].startswith('13F filings are delayed')
+    and 'validated alpha' in (data.get('not_claimed') or [])
+)
+msg = str(data)
+"
+else
+  bad "/api/methodology/app fetch" "curl failed"
+fi
+
+method_mcp="$tmpdir/methodology-mcp.json"
+if fetch "/api/methodology/mcp" "$method_mcp"; then
+  json_check "/api/methodology/mcp contract" "$method_mcp" "
+contract = data.get('contract') or []
+security = data.get('security') or {}
+ok = (
+    data.get('title') == '13FLOW MCP methodology'
+    and any('fail closed' in item for item in contract)
+    and 'Authorization: Bearer <token>' in (security.get('credential_headers') or [])
+)
+msg = str(data)
+"
+else
+  bad "/api/methodology/mcp fetch" "curl failed"
 fi
 
 funds="$tmpdir/funds.json"
