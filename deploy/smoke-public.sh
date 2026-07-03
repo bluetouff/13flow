@@ -100,6 +100,16 @@ for path in /faq /faq.html /legal /mentions-legales.html; do
   fi
 done
 
+pro_page="$tmpdir/pro.html"
+if fetch "/pro" "$pro_page"; then
+  grep -q "13FLOW Pro API" "$pro_page" \
+    && grep -q "/api/pro-offer" "$pro_page" \
+    && ok "/pro offer page" \
+    || bad "/pro offer page" "missing Pro API packaging copy"
+else
+  bad "/pro offer page" "curl failed"
+fi
+
 version="$tmpdir/version.json"
 if fetch "/api/version" "$version"; then
   json_check "/api/version contract" "$version" "
@@ -177,6 +187,29 @@ else
   bad "/api/product-status fetch" "curl failed"
 fi
 
+offer="$tmpdir/pro-offer.json"
+if fetch "/api/pro-offer" "$offer"; then
+  json_check "/api/pro-offer packaging" "$offer" "
+offer = data.get('offer') or {}
+limits = data.get('default_limits') or {}
+not_yet = data.get('not_included_yet') or []
+commands = data.get('operator_commands') or {}
+truth = data.get('truth_boundary') or {}
+artifact = truth.get('current_artifact') or {}
+ok = (
+    offer.get('name') == '13FLOW Pro API'
+    and offer.get('self_serve_checkout') is False
+    and int(limits.get('rate_per_min') or 0) == 120
+    and 'validated alpha' in not_yet
+    and bool(commands.get('create_key'))
+    and artifact.get('publishable_as_full_validation') is False
+)
+msg = str(data)
+"
+else
+  bad "/api/pro-offer fetch" "curl failed"
+fi
+
 funds="$tmpdir/funds.json"
 if fetch "/api/funds" "$funds"; then
   json_check "/api/funds non-empty" "$funds" "
@@ -200,7 +233,7 @@ openapi="$tmpdir/_api_openapi.json"
 if [[ -s "$openapi" ]]; then
   json_check "/api/openapi.json public paths" "$openapi" "
 paths = data.get('paths') or {}
-required = ['/api/live-status', '/api/product-status', '/api/funds', '/api/mcp', '/api/methodology/confluence-v1']
+required = ['/api/live-status', '/api/product-status', '/api/pro-offer', '/api/funds', '/api/mcp', '/api/methodology/confluence-v1']
 missing = [p for p in required if p not in paths]
 ok = not missing
 msg = 'missing paths: ' + ', '.join(missing)
@@ -224,7 +257,7 @@ if [[ "$REQUIRE_MCP" == "1" ]]; then
     json_check "MCP tools/list public contract" "$mcp_tools" "
 tools = ((data.get('result') or {}).get('tools') or [])
 names = {t.get('name') for t in tools}
-required = {'get_live_status', 'get_product_status', 'list_funds', 'get_payment_policy', 'pro.list_funds'}
+required = {'get_live_status', 'get_product_status', 'get_pro_offer', 'list_funds', 'get_payment_policy', 'pro.list_funds'}
 missing = sorted(required - names)
 ok = not missing
 msg = 'missing MCP tools: ' + ', '.join(missing)

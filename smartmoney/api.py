@@ -516,6 +516,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                              "responses": {"200": {"description": "Live status"}}}},
                 "/api/product-status": {"get": {"summary": "Go-to-market readiness and proof boundary",
                                                 "responses": {"200": {"description": "Product status"}}}},
+                "/api/pro-offer": {"get": {"summary": "Pro offer packaging and onboarding runbook",
+                                           "responses": {"200": {"description": "Pro offer"}}}},
                 "/api/funds": {"get": {"summary": "List tracked funds with AUM series",
                                         "responses": {"200": {"description": "Fund list"}}}},
                 "/api/fund/{cik}": {
@@ -993,6 +995,11 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "inputSchema": {"type": "object", "properties": {}},
             },
             {
+                "name": "pro.offer",
+                "description": "Return Pro API packaging, limits and onboarding runbook.",
+                "inputSchema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "funds.get",
                 "description": "Get one fund portfolio by CIK.",
                 "inputSchema": {
@@ -1078,6 +1085,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     def _mcp_call_tool(name: str, args: dict) -> dict:
         if name == "product.status":
             return product_status_payload()
+        if name == "pro.offer":
+            return pro_offer_payload()
         if name == "funds.list":
             s = store()
             try:
@@ -1516,6 +1525,129 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     def product_status_ep():
         return jsonify(product_status_payload())
 
+    def pro_offer_payload() -> dict:
+        status = product_status_payload()
+        return {
+            "app": "13flow",
+            "generated_at": _now_iso(),
+            "git_sha": _git_sha(),
+            "offer": {
+                "name": "13FLOW Pro API",
+                "positioning": (
+                    "Institutional read-only API and MCP access over SEC EDGAR-derived "
+                    "13F data, methodology contracts, data-quality warnings and signal "
+                    "history."
+                ),
+                "audience": [
+                    "family offices",
+                    "asset managers",
+                    "research desks",
+                    "data teams",
+                    "automated agent workflows",
+                ],
+                "access_model": "operator_issued_api_key",
+                "self_serve_checkout": False,
+                "human_page": "/pro",
+                "runbook": "docs/PRO_API_ONBOARDING.md",
+            },
+            "included": [
+                {
+                    "capability": "Pro API",
+                    "details": [
+                        "API-key authentication by Authorization Bearer or X-13FLOW-Key",
+                        "scopes: funds:read and quality:read",
+                        "per-key rate limits and request audit",
+                        "bounded payload controls on fund detail endpoints",
+                    ],
+                },
+                {
+                    "capability": "MCP",
+                    "details": [
+                        "read-only public tools",
+                        "Pro tools gated by Pro API key",
+                        "x402 path implemented but disabled until production payment details are configured",
+                    ],
+                },
+                {
+                    "capability": "Data quality and methodology",
+                    "details": [
+                        "read-only quality warnings, never silent corrections",
+                        "frozen Confluence v1 methodology contract",
+                        "append-only signal history for revisions",
+                    ],
+                },
+                {
+                    "capability": "Alerts",
+                    "details": [
+                        "filing-diff alert engine implemented",
+                        "operator runbook and channel configuration required before managed service use",
+                    ],
+                },
+            ],
+            "not_included_yet": status["offer_boundary"]["do_not_claim_yet"],
+            "default_limits": {
+                "rate_per_min": 120,
+                "rate_per_day": 10000,
+                "max_positions_per_fund_detail": 1000,
+                "max_moves_per_fund_detail": 2000,
+            },
+            "onboarding": [
+                "Confirm use case, organization label, scopes, rate limits and expiry policy.",
+                "Create one API key per institution or internal service.",
+                "Deliver the plaintext token once through an out-of-band secure channel.",
+                "Run status, funds and bounded fund-detail probes.",
+                "Verify recent audit rows and document the key id.",
+                "Schedule rotation and revoke bootstrap/internal QA keys when no longer needed.",
+            ],
+            "operator_commands": {
+                "create_key": (
+                    "sudo /opt/13flow/.venv/bin/python /opt/13flow/run.py "
+                    "--create-api-key \"Client Label\" "
+                    "--pro-db /var/lib/13flow-pro/13flow-pro.db "
+                    "--api-key-scopes funds:read,quality:read "
+                    "--api-key-rate-per-min 120 --api-key-rate-per-day 10000"
+                ),
+                "list_keys": (
+                    "sudo /opt/13flow/.venv/bin/python /opt/13flow/run.py "
+                    "--list-api-keys --pro-db /var/lib/13flow-pro/13flow-pro.db"
+                ),
+                "revoke_key": (
+                    "sudo /opt/13flow/.venv/bin/python /opt/13flow/run.py "
+                    "--revoke-api-key <key_id> --pro-db /var/lib/13flow-pro/13flow-pro.db"
+                ),
+                "preflight": (
+                    "sudo -E /opt/13flow/.venv/bin/python /opt/13flow/run.py --preflight "
+                    "--db /var/lib/13flow/13flow.db --pro-db /var/lib/13flow-pro/13flow-pro.db "
+                    "--require-pro --expected-sha <sha>"
+                ),
+            },
+            "client_probes": {
+                "status": "curl -H \"Authorization: Bearer $TOKEN\" https://13flow.eu/api/pro/v1/status",
+                "funds": "curl -H \"Authorization: Bearer $TOKEN\" https://13flow.eu/api/pro/v1/funds",
+                "fund_detail_bounded": (
+                    "curl -H \"Authorization: Bearer $TOKEN\" "
+                    "\"https://13flow.eu/api/pro/v1/fund/0001067983?include_holds=0&limit_positions=20&limit_moves=50\""
+                ),
+                "mcp_product_status": (
+                    "curl -fsS https://13flow.eu/api/mcp -H 'Content-Type: application/json' "
+                    "-H 'Accept: application/json, text/event-stream' "
+                    "--data '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\","
+                    "\"params\":{\"name\":\"get_product_status\",\"arguments\":{}}}'"
+                ),
+            },
+            "security": {
+                "token_storage": "plaintext token shown once; SHA-256 hash stored at rest",
+                "audit": "one api_audit row per accepted, denied or rate-limited Pro request",
+                "cache": "Pro responses are private/no-store and vary by credential header",
+                "service_split": "public web service has no Pro DB write path",
+            },
+            "truth_boundary": status["validation"],
+        }
+
+    @app.get("/api/pro-offer")
+    def pro_offer_ep():
+        return jsonify(pro_offer_payload())
+
     # ---- dashboard ------------------------------------------------------
     def _dashboard_live_status() -> dict[str, str]:
         status = live_status_payload()
@@ -1651,7 +1783,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         nav = (
             '<nav><a class="brand" href="/">13<span>FL</span><b>OW</b></a>'
             '<a href="/funds">Funds</a><a href="/stocks">Stocks</a>'
-            '<a href="/signals">Signals</a><a href="/faq">FAQ</a>'
+            '<a href="/signals">Signals</a><a href="/pro">Pro API</a><a href="/faq">FAQ</a>'
             '<a href="/legal">Legal</a></nav>'
         )
         html = f"""<!doctype html>
@@ -1823,6 +1955,54 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             f"<p class=\"lede\"><a href=\"/stocks/{html_escape(t)}\">Latest 13F holders</a> · <a href=\"https://www.sec.gov/edgar/search/#/q={html_escape(t)}\" rel=\"noopener\" target=\"_blank\">SEC search</a></p>"
         )
         return _html_response(f"{t} signal", body)
+
+    @app.get("/pro")
+    def static_pro_offer():
+        offer = pro_offer_payload()
+        included = "".join(
+            "<div class=\"card\">"
+            f"<h3>{html_escape(item['capability'])}</h3>"
+            "<ul>" + "".join(f"<li>{html_escape(detail)}</li>" for detail in item["details"]) + "</ul>"
+            "</div>"
+            for item in offer["included"]
+        )
+        not_yet = "".join(
+            f"<li>{html_escape(item)}</li>" for item in offer["not_included_yet"]
+        )
+        onboarding = "".join(
+            f"<li>{html_escape(step)}</li>" for step in offer["onboarding"]
+        )
+        limits = offer["default_limits"]
+        body = (
+            "<h1>13FLOW Pro API</h1>"
+            f"<p class=\"lede\">{html_escape(offer['offer']['positioning'])}</p>"
+            "<div class=\"grid\">"
+            "<div class=\"card\"><h3>Access model</h3>"
+            f"<p>{html_escape(offer['offer']['access_model'].replace('_', ' '))}</p>"
+            "<p class=\"meta\">No public checkout is enabled on the open build.</p></div>"
+            "<div class=\"card\"><h3>Default limits</h3>"
+            f"<p class=\"num\">{limits['rate_per_min']} / min · {limits['rate_per_day']} / day</p>"
+            f"<p class=\"meta\">{limits['max_positions_per_fund_detail']} positions and "
+            f"{limits['max_moves_per_fund_detail']} moves per bounded fund-detail call.</p></div>"
+            "<div class=\"card\"><h3>Verification</h3>"
+            "<p><a href=\"/api/pro-offer\">/api/pro-offer</a> · "
+            "<a href=\"/api/product-status\">/api/product-status</a> · "
+            "<a href=\"/api/pro/v1/openapi.json\">Pro OpenAPI</a></p></div>"
+            "</div>"
+            "<h2>Included</h2><div class=\"grid\">" + included + "</div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Not claimed yet</h2>"
+            "<p class=\"lede\">These claims require additional evidence or configuration before use in sales material.</p>"
+            f"<ul>{not_yet}</ul></div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Onboarding runbook</h2>"
+            f"<ol>{onboarding}</ol></div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Validation boundary</h2>"
+            f"<p>{html_escape(offer['truth_boundary']['blocked_by'])}</p>"
+            f"<p class=\"meta\">Current sample feature hash: "
+            f"{html_escape(offer['truth_boundary']['current_artifact']['features_sha256'])}</p>"
+            f"<p class=\"meta\">Current sample price hash: "
+            f"{html_escape(offer['truth_boundary']['current_artifact']['prices_sha256'])}</p></div>"
+        )
+        return _html_response("Pro API", body)
 
     _FONT_DIR = os.path.join(os.path.dirname(dash), "assets", "fonts")
 

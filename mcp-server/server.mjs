@@ -427,6 +427,10 @@ function buildServer(context = {}) {
     return fetchJson('/api/product-status');
   }
 
+  async function getProOffer() {
+    return fetchJson('/api/pro-offer');
+  }
+
   async function getFunds() {
     const rows = await fetchJson('/api/funds');
     return { funds: rows, count: Array.isArray(rows) ? rows.length : 0, source: `${SITE}/api/funds` };
@@ -528,6 +532,9 @@ function buildServer(context = {}) {
   server.registerResource('product-status', '13flow://product-status',
     { title: 'Product status', description: 'Go-to-market readiness, offer boundary and validation proof state.', mimeType: 'application/json' },
     async (uri) => resourceJson(uri.toString(), await getProductStatus()));
+  server.registerResource('pro-offer', '13flow://pro-offer',
+    { title: 'Pro offer', description: 'Pro API packaging, limits and onboarding runbook.', mimeType: 'application/json' },
+    async (uri) => resourceJson(uri.toString(), await getProOffer()));
   server.registerResource('openapi', '13flow://openapi',
     { title: 'OpenAPI', description: 'Public OpenAPI document.', mimeType: 'application/json' },
     async (uri) => resourceJson(uri.toString(), await getOpenapi()));
@@ -573,6 +580,13 @@ function buildServer(context = {}) {
     outputSchema: ToolOutput,
     annotations: { readOnlyHint: true },
   }, async () => reply(await getProductStatus()));
+
+  server.registerTool('get_pro_offer', {
+    description: 'Return 13FLOW Pro API packaging, default limits, onboarding steps and operator commands.',
+    inputSchema: {},
+    outputSchema: ToolOutput,
+    annotations: { readOnlyHint: true },
+  }, async () => reply(await getProOffer()));
 
   server.registerTool('list_funds', {
     description: 'List the public tracked 13F manager universe with latest public fields.',

@@ -19,6 +19,7 @@ Public tools are free and read-only:
 
 - `get_live_status`
 - `get_product_status`
+- `get_pro_offer`
 - `list_funds`
 - `get_fund`
 - `get_stock`
@@ -31,6 +32,8 @@ Public tools are free and read-only:
 Public resources include `13flow://product-status`, a machine-readable go-to-market
 boundary that states what can be sold now, what must not be claimed yet, and why full
 quantitative validation is still blocked until a vetted adjusted-price CSV is imported.
+`13flow://pro-offer` exposes the Pro API packaging, limits and onboarding runbook for
+agent integrations.
 
 Premium tools are read-only but gated:
 

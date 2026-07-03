@@ -72,6 +72,8 @@ go-to-market truth surface: it states what is sellable now, what is deliberately
 (for example x402), and why full quantitative validation remains blocked until an imported
 2013-2026 adjusted-price CSV is available. See
 [`docs/GTM_PRODUCT_STATUS.md`](docs/GTM_PRODUCT_STATUS.md).
+The public Pro packaging page lives at `/pro`; its machine-readable contract is
+`/api/pro-offer`.
 
 ## Accounts & auth
 Read-only market data is public (it's public-domain). The **paid** feature — filing-alert
@@ -171,6 +173,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 curl -H "Authorization: Bearer $TOKEN" https://13flow.eu/api/pro/v1/data-quality
 curl https://13flow.eu/api/pro/v1/openapi.json
 curl https://13flow.eu/api/product-status
+curl https://13flow.eu/api/pro-offer
 ```
 
 Security properties: opaque high-entropy tokens, key hashes only at rest, scoped access
@@ -186,7 +189,8 @@ Operational baseline:
 - keep Pro audit rows long enough for incident response, then prune with
   `--prune-pro-audit-days`;
 - back up `SMARTMONEY_PRO_DB` with encrypted backups only. See
-  [`deploy/PRO_API_SPLIT.md`](deploy/PRO_API_SPLIT.md) and `deploy/backup-pro-db.sh`.
+  [`deploy/PRO_API_SPLIT.md`](deploy/PRO_API_SPLIT.md), `deploy/backup-pro-db.sh`, and
+  [`docs/PRO_API_ONBOARDING.md`](docs/PRO_API_ONBOARDING.md).
 
 `GET /api/pro/v1/fund/<cik>` is the institutional detail endpoint: it returns the selected
 filing metadata, previous filing metadata, full holdings, share-count moves versus the

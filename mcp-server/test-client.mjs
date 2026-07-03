@@ -24,6 +24,7 @@ console.log('tools:', toolNames.join(', '));
 for (const required of [
   'get_live_status',
   'get_product_status',
+  'get_pro_offer',
   'list_funds',
   'get_fund',
   'get_stock',
@@ -45,6 +46,7 @@ for (const required of [
   '13flow://mcp/server',
   '13flow://live-status',
   '13flow://product-status',
+  '13flow://pro-offer',
   '13flow://openapi',
   '13flow://methodology/confluence-v1',
   '13flow://data-quality',
@@ -76,6 +78,12 @@ if (!product.validation?.current_artifact || product.commercial_readiness?.x402 
   throw new Error('product status boundary is incomplete');
 }
 console.log('product:', product.validation.status);
+
+const proOffer = await call('get_pro_offer');
+if (proOffer.offer?.name !== '13FLOW Pro API' || proOffer.offer?.self_serve_checkout !== false) {
+  throw new Error('Pro offer boundary is incomplete');
+}
+console.log('offer:', proOffer.offer.name);
 
 const funds = await call('list_funds');
 if (!Array.isArray(funds.funds) || funds.count < 1) throw new Error('fund list is empty');

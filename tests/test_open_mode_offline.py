@@ -200,6 +200,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             ("/stocks/AAPL", "SEC company search"),
             ("/signals", "test signal"),
             ("/signals/AAPL", "Latest 13F holders"),
+            ("/pro", "13FLOW Pro API"),
             ("/faq", "Frequently asked questions"),
             ("/legal", "Legal, privacy and data terms"),
         ):
@@ -210,8 +211,17 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         doc = c.get("/api/openapi.json").get_json()
         assert "/api/mcp" in doc["paths"]
         assert "/api/product-status" in doc["paths"]
+        assert "/api/pro-offer" in doc["paths"]
         assert "/api/methodology/confluence-v1" in doc["paths"]
         assert "/api/stocks/{ticker}" in doc["paths"]
+
+        offer = c.get("/api/pro-offer").get_json()
+        assert offer["offer"]["name"] == "13FLOW Pro API"
+        assert offer["offer"]["self_serve_checkout"] is False
+        assert offer["default_limits"]["rate_per_min"] == 120
+        assert "validated alpha" in offer["not_included_yet"]
+        assert "create_key" in offer["operator_commands"]
+        assert offer["truth_boundary"]["current_artifact"]["publishable_as_full_validation"] is False
 
         api_stock = c.get("/api/stocks/AAPL").get_json()
         assert api_stock["ticker"] == "AAPL"
@@ -222,6 +232,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         }).get_json()
         assert any(t["name"] == "stocks.get" for t in mcp["result"]["tools"])
         assert any(t["name"] == "product.status" for t in mcp["result"]["tools"])
+        assert any(t["name"] == "pro.offer" for t in mcp["result"]["tools"])
 
         stock = c.post("/api/mcp", json={
             "jsonrpc": "2.0", "id": 2, "method": "tools/call",
@@ -237,6 +248,12 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert product["result"]["structuredContent"]["validation"]["current_artifact"][
             "publishable_as_full_validation"
         ] is False
+
+        pro_offer = c.post("/api/mcp", json={
+            "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+            "params": {"name": "pro.offer", "arguments": {}},
+        }).get_json()
+        assert pro_offer["result"]["structuredContent"]["offer"]["self_serve_checkout"] is False
 
 
 if __name__ == "__main__":
