@@ -292,6 +292,8 @@ if fetch "/pro/admin" "$pro_admin_page"; then
     && grep -q "admin:read" "$pro_admin_page" \
     && grep -q "13flow.pro.admin.token" "$pro_admin_page" \
     && grep -q "/admin/health" "$pro_admin_page" \
+    && grep -q "Rotation due" "$pro_admin_page" \
+    && grep -q "rotation_due_at" "$pro_admin_page" \
     && grep -q "sessionStorage" "$pro_admin_page" \
     && grep -q "Authorization" "$pro_admin_page" \
     && ! grep -qi "localStorage" "$pro_admin_page" \

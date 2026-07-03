@@ -507,6 +507,8 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "13flow.pro.admin.token" in pro_admin_page
         assert "/api/pro/v1\" + path" in pro_admin_page
         assert "/admin/health" in pro_admin_page
+        assert "Rotation due" in pro_admin_page
+        assert "rotation_due_at" in pro_admin_page
         assert "sessionStorage" in pro_admin_page
         assert "Authorization" in pro_admin_page
         assert "localStorage" not in pro_admin_page

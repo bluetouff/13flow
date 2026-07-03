@@ -150,6 +150,18 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def _iso_due(value: Optional[str]) -> bool:
+    if not value:
+        return False
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return True
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed <= datetime.now(timezone.utc)
+
+
 class _StoreConfluence:
     """Live Confluence provider: institutional side from the 13F store, insider side from
     Form 4s via EDGAR. Issuer ticker->CIK comes from SEC's company_tickers.json. Any failure
@@ -2664,6 +2676,15 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "scopes": list(key.scopes),
                     "rate_per_min": key.rate_per_min,
                     "rate_per_day": key.rate_per_day,
+                    "created_at": key.created_at,
+                    "expires_at": key.expires_at,
+                    "rotation_due_at": key.rotation_due_at,
+                },
+                "key_lifecycle": {
+                    "expires_at": key.expires_at,
+                    "rotation_due_at": key.rotation_due_at,
+                    "rotation_required": _iso_due(key.rotation_due_at),
+                    "rotation_policy": "default reminder is 90 days from issue unless the operator overrides it",
                 },
                 "workspace_limits": _pro_workspace_limits_payload(),
             })
@@ -2745,6 +2766,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "scopes": list(key.scopes),
                     "rate_per_min": key.rate_per_min,
                     "rate_per_day": key.rate_per_day,
+                    "created_at": key.created_at,
+                    "expires_at": key.expires_at,
+                    "rotation_due_at": key.rotation_due_at,
                 },
                 "diagnostic": {
                     "status": "ready",
@@ -2753,6 +2777,12 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "quality_enabled": quality_enabled,
                     "self_serve_checkout": False,
                     "human_review_required_for_routine_publication": False,
+                },
+                "key_lifecycle": {
+                    "expires_at": key.expires_at,
+                    "rotation_due_at": key.rotation_due_at,
+                    "rotation_required": _iso_due(key.rotation_due_at),
+                    "expired_keys_fail_closed": True,
                 },
                 "limits": _pro_workspace_limits_payload(),
                 "endpoints": {
@@ -4548,7 +4578,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "--create-api-key \"Client Label\" "
                     "--pro-db /var/lib/13flow-pro/13flow-pro.db "
                     "--api-key-scopes funds:read,quality:read "
-                    "--api-key-rate-per-min 120 --api-key-rate-per-day 10000"
+                    "--api-key-rate-per-min 120 --api-key-rate-per-day 10000 "
+                    "--api-key-rotation-days 90"
                 ),
                 "list_keys": (
                     "sudo /opt/13flow/.venv/bin/python /opt/13flow/run.py "
@@ -6053,7 +6084,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
   <div id="adminStatus" class="admin-status">Disconnected</div>
   <section class="admin-kpis" id="adminKpis">
     <div class="admin-kpi"><b>-</b><span>Active keys</span></div>
-    <div class="admin-kpi"><b>-</b><span>Audit rows</span></div>
+    <div class="admin-kpi"><b>-</b><span>Rotation due</span></div>
     <div class="admin-kpi"><b>-</b><span>Open alerts</span></div>
     <div class="admin-kpi"><b>-</b><span>Server errors</span></div>
   </section>
@@ -6093,13 +6124,14 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     const workspace = health.workspace || {};
     $("adminKpis").innerHTML = [
       ["Active keys", keys.active],
-      ["Audit rows", audit.total],
+      ["Rotation due", keys.rotation_due],
       ["Open alerts", workspace.open_alerts],
       ["Server errors", audit.server_errors],
     ].map(([label, value]) => `<div class="admin-kpi"><b>${esc(number(value))}</b><span>${esc(label)}</span></div>`).join("");
-    $("adminKeys").innerHTML = (health.usage?.keys || []).length ? (health.usage.keys || []).map((k) => `<article class="admin-row">
-      <div class="admin-row-top"><h3>${esc(k.label || k.key_id)}</h3><span class="admin-mini">${esc(k.key_id)}</span></div>
-      <p><span class="pill">minute ${esc(k.minute_count)}/${esc(k.minute_limit)}</span><span class="pill">day ${esc(k.day_count)}/${esc(k.day_limit)}</span><span class="pill">${esc(k.tier)}</span></p>
+    $("adminKeys").innerHTML = (keys.recent || []).length ? (keys.recent || []).map((k) => `<article class="admin-row">
+      <div class="admin-row-top"><h3>${esc(k.label || k.id)}</h3><span class="admin-mini">${esc(k.id)}</span></div>
+      <p><span class="pill">${esc(k.revoked ? "revoked" : (k.expired ? "expired" : "active"))}</span><span class="pill">rotation:${esc(k.rotation_due ? "due" : "scheduled")}</span><span class="pill">scopes:${esc((k.scopes || []).join(","))}</span></p>
+      <p class="admin-mini">expires=${esc(k.expires_at || "-")} rotation_due=${esc(k.rotation_due_at || "-")} last_used=${esc(k.last_used_at || "-")}</p>
     </article>`).join("") : '<p class="admin-empty">No key usage bucket yet.</p>';
     $("adminAudit").innerHTML = `<article class="admin-row"><h3>Status</h3><p><span class="pill">${esc(health.status || "unknown")}</span><span class="pill">401:${esc(number(audit.unauthorized))}</span><span class="pill">403:${esc(number(audit.forbidden))}</span><span class="pill">429:${esc(number(audit.rate_limited))}</span></p><p class="admin-mini">latest=${esc(audit.latest_at || "-")}</p></article>` +
       ((audit.recent_errors || []).map((e) => `<article class="admin-row"><div class="admin-row-top"><h3>${esc(e.status)} ${esc(e.method)}</h3><span class="admin-mini">${esc(e.at)}</span></div><p>${esc(e.route)}</p></article>`).join("") || '<p class="admin-empty">No recent error.</p>');

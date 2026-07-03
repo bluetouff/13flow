@@ -11,7 +11,7 @@ from pathlib import Path
 
 from smartmoney.api import create_app
 from smartmoney.db import Store
-from smartmoney.pro import APIKeyError, ProAPIStore
+from smartmoney.pro import APIKeyError, APIKeyExpired, ProAPIStore
 from tests.test_db_offline import AAPL, MSFT, _save
 from tests.test_quality_offline import _seed_quality_db
 
@@ -75,6 +75,9 @@ def test_pro_api_responses_are_not_cacheable(monkeypatch):
         assert r.status_code == 200
         assert r.get_json()["workspace_limits"]["max_watchlists_per_key"] == 50
         assert r.get_json()["workspace_limits"]["max_tickers_per_watchlist"] == 50
+        assert r.get_json()["key"]["rotation_due_at"]
+        assert r.get_json()["key_lifecycle"]["rotation_due_at"]
+        assert r.get_json()["key_lifecycle"]["rotation_required"] is False
         assert r.headers["Cache-Control"] == "private, no-store, max-age=0"
         assert r.headers["Pragma"] == "no-cache"
         assert r.headers["Expires"] == "0"
@@ -93,11 +96,14 @@ def test_pro_onboarding_self_diagnostic_redacts_token(monkeypatch):
         assert payload["meta"]["api"] == "13flow-pro"
         assert payload["key"]["id"] == key.key_id
         assert payload["key"]["label"] == "Test Institution"
+        assert payload["key"]["rotation_due_at"]
         assert payload["diagnostic"]["status"] == "ready"
         assert payload["diagnostic"]["token_echoed"] is False
         assert payload["diagnostic"]["workspace_enabled"] is True
         assert payload["diagnostic"]["quality_enabled"] is True
         assert payload["diagnostic"]["self_serve_checkout"] is False
+        assert payload["key_lifecycle"]["expired_keys_fail_closed"] is True
+        assert payload["key_lifecycle"]["rotation_due_at"]
         checks = {item["id"]: item for item in payload["endpoints"]["checks"]}
         assert checks["workspace_report"]["available"] is True
         assert checks["workspace_export"]["required_scope"] == "workspace:write"
@@ -673,7 +679,7 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
         with ProAPIStore(pro_db) as pro:
             workspace_token, workspace_key = pro.create_key(
                 "Workspace only", scopes=("funds:read", "workspace:write"),
-                rate_per_min=120, rate_per_day=10000,
+                rate_per_min=120, rate_per_day=10000, rotation_days=-1,
             )
             admin_token, admin_key = pro.create_key(
                 "Ops admin", scopes=("admin:read",),
@@ -703,6 +709,12 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
         assert payload["meta"]["scope"] == "admin:read"
         health = payload["health"]
         assert health["keys"]["active"] == 2
+        assert health["keys"]["rotation_due"] == 1
+        assert any("rotation" in warning for warning in health["warnings"])
+        recent = {item["id"]: item for item in health["keys"]["recent"]}
+        assert recent[workspace_key.key_id]["rotation_due"] is True
+        assert recent[workspace_key.key_id]["rotation_due_at"]
+        assert recent[workspace_key.key_id]["expires_at"] is None
         assert health["audit"]["server_errors"] == 1
         assert health["external_checks"]["collected_by_web_process"] is False
         assert "13flow-pro-backup.timer" in health["external_checks"]["expected_units"]
@@ -741,6 +753,60 @@ def test_pro_api_key_revocation_is_immediate():
                 assert False, "revoked key must not authenticate"
             except APIKeyError:
                 pass
+
+
+def test_pro_api_expired_key_fails_closed(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        data_db = str(Path(d) / "expired-data.db")
+        pro_db = str(Path(d) / "expired-pro.db")
+        store = _seed_quality_db(data_db)
+        store.close()
+        with ProAPIStore(pro_db) as pro:
+            token, key = pro.create_key("Expired", expires_days=-1)
+            try:
+                pro.authenticate(token, "funds:read")
+                assert False, "expired key must not authenticate"
+            except APIKeyExpired:
+                pass
+        monkeypatch.setenv("SMARTMONEY_PRO_API", "1")
+        monkeypatch.setenv("SMARTMONEY_PRO_DB", pro_db)
+        c = create_app(data_db, secure_cookies=False, open_mode=True).test_client()
+        r = c.get("/api/pro/v1/status", headers={"Authorization": "Bearer " + token})
+        assert r.status_code == 401
+        assert r.get_json()["error"] == "expired_api_key"
+        rows = sqlite3.connect(pro_db).execute(
+            "SELECT status FROM api_audit ORDER BY id"
+        ).fetchall()
+        assert rows[-1][0] == 401
+
+
+def test_pro_db_migrates_rotation_due_column_for_existing_keys():
+    with tempfile.TemporaryDirectory() as d:
+        pro_db = str(Path(d) / "legacy-pro.db")
+        conn = sqlite3.connect(pro_db)
+        conn.execute(
+            """CREATE TABLE api_keys (
+                key_id TEXT PRIMARY KEY,
+                label TEXT NOT NULL,
+                key_hash TEXT NOT NULL,
+                scopes TEXT NOT NULL,
+                tier TEXT NOT NULL DEFAULT 'pro',
+                rate_per_min INTEGER NOT NULL DEFAULT 120,
+                rate_per_day INTEGER NOT NULL DEFAULT 10000,
+                created_at TEXT NOT NULL,
+                expires_at TEXT,
+                revoked_at TEXT,
+                last_used_at TEXT
+            )"""
+        )
+        conn.commit()
+        conn.close()
+        with ProAPIStore(pro_db) as pro:
+            columns = {
+                row["name"]
+                for row in pro.conn.execute("PRAGMA table_info(api_keys)").fetchall()
+            }
+            assert "rotation_due_at" in columns
 
 
 def test_pro_api_audit_retention_prunes_only_old_rows():

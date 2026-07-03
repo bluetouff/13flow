@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
     rate_per_day INTEGER NOT NULL DEFAULT 10000,
     created_at   TEXT NOT NULL,
     expires_at   TEXT,
+    rotation_due_at TEXT,
     revoked_at   TEXT,
     last_used_at TEXT
 );
@@ -129,6 +130,11 @@ class APIKeyForbidden(APIKeyError):
     code = "insufficient_scope"
 
 
+class APIKeyExpired(APIKeyError):
+    status_code = 401
+    code = "expired_api_key"
+
+
 class APIRateLimited(APIKeyError):
     status_code = 429
     code = "rate_limited"
@@ -164,6 +170,18 @@ def _parse_token(token: str) -> tuple[str, str]:
     return parts[0], token
 
 
+def _parse_iso(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
 def _scopes_to_string(scopes) -> str:
     vals = [str(s).strip() for s in scopes if str(s).strip()]
     return " ".join(dict.fromkeys(vals or DEFAULT_SCOPES))
@@ -181,6 +199,9 @@ class APIKey:
     tier: str
     rate_per_min: int
     rate_per_day: int
+    created_at: Optional[str] = None
+    expires_at: Optional[str] = None
+    rotation_due_at: Optional[str] = None
 
 
 class ProAPIStore:
@@ -189,7 +210,16 @@ class ProAPIStore:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode = WAL")
         self.conn.executescript(SCHEMA)
+        self._migrate_schema()
         self.conn.commit()
+
+    def _migrate_schema(self) -> None:
+        columns = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(api_keys)").fetchall()
+        }
+        if "rotation_due_at" not in columns:
+            self.conn.execute("ALTER TABLE api_keys ADD COLUMN rotation_due_at TEXT")
 
     def close(self) -> None:
         self.conn.close()
@@ -208,6 +238,7 @@ class ProAPIStore:
         rate_per_min: int = 120,
         rate_per_day: int = 10000,
         expires_days: Optional[int] = None,
+        rotation_days: Optional[int] = 90,
     ) -> tuple[str, APIKey]:
         label = (label or "").strip()
         if not label:
@@ -216,20 +247,26 @@ class ProAPIStore:
         token = f"{KEY_PREFIX}_{key_id}_{secrets.token_urlsafe(32)}"
         now = _now()
         expires_at = _iso(now + timedelta(days=expires_days)) if expires_days else None
+        rotation_due_at = (
+            _iso(now + timedelta(days=rotation_days))
+            if rotation_days is not None else None
+        )
         scopes_s = _scopes_to_string(scopes)
         with self.conn:
             self.conn.execute(
                 """INSERT INTO api_keys(key_id,label,key_hash,scopes,tier,rate_per_min,
-                                        rate_per_day,created_at,expires_at)
-                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                                        rate_per_day,created_at,expires_at,rotation_due_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
                 (
                     key_id, label, _hash_key(token), scopes_s, tier,
                     int(rate_per_min), int(rate_per_day), _iso(now), expires_at,
+                    rotation_due_at,
                 ),
             )
         return token, APIKey(
             key_id=key_id, label=label, scopes=tuple(scopes_s.split()), tier=tier,
             rate_per_min=int(rate_per_min), rate_per_day=int(rate_per_day),
+            created_at=_iso(now), expires_at=expires_at, rotation_due_at=rotation_due_at,
         )
 
     def revoke_key(self, key_id: str) -> bool:
@@ -243,7 +280,7 @@ class ProAPIStore:
     def list_keys(self) -> list[dict]:
         rows = self.conn.execute(
             """SELECT key_id,label,scopes,tier,rate_per_min,rate_per_day,created_at,
-                      expires_at,revoked_at,last_used_at
+                      expires_at,rotation_due_at,revoked_at,last_used_at
                FROM api_keys ORDER BY created_at DESC"""
         ).fetchall()
         return [dict(r) for r in rows]
@@ -263,6 +300,16 @@ class ProAPIStore:
             k for k in keys
             if not k.get("revoked_at") and k.get("expires_at") and k["expires_at"] <= now_iso
         ]
+        rotation_due_keys = [
+            k for k in active_keys
+            if k.get("rotation_due_at") and k["rotation_due_at"] <= now_iso
+        ]
+        rotation_due_soon_keys = []
+        soon_cutoff = _iso(now + timedelta(days=14))
+        for k in active_keys:
+            due = k.get("rotation_due_at")
+            if due and now_iso < due <= soon_cutoff:
+                rotation_due_soon_keys.append(k)
         usage_rows = self.conn.execute(
             """SELECT u.key_id,k.label,k.tier,k.rate_per_min,k.rate_per_day,
                       SUM(CASE WHEN u.bucket=? THEN u.count ELSE 0 END) AS minute_count,
@@ -319,6 +366,11 @@ class ProAPIStore:
             warnings.append("Pro API audit contains server errors")
         if int(audit.get("rate_limited") or 0) > 0:
             warnings.append("Pro API audit contains rate-limited requests")
+        if rotation_due_keys:
+            status = "warn"
+            warnings.append("one or more active Pro API keys are due for rotation")
+        if rotation_due_soon_keys:
+            warnings.append("one or more active Pro API keys rotate within 14 days")
         return {
             "status": status,
             "warnings": warnings,
@@ -328,6 +380,8 @@ class ProAPIStore:
                 "active": len(active_keys),
                 "revoked": len([k for k in keys if k.get("revoked_at")]),
                 "expired": len(expired_keys),
+                "rotation_due": len(rotation_due_keys),
+                "rotation_due_soon": len(rotation_due_soon_keys),
                 "recent": [
                     {
                         "id": k["key_id"],
@@ -335,9 +389,12 @@ class ProAPIStore:
                         "tier": k["tier"],
                         "scopes": str(k.get("scopes") or "").split(),
                         "created_at": k["created_at"],
+                        "expires_at": k.get("expires_at"),
+                        "rotation_due_at": k.get("rotation_due_at"),
                         "last_used_at": k.get("last_used_at"),
                         "revoked": bool(k.get("revoked_at")),
                         "expired": bool(k.get("expires_at") and k["expires_at"] <= now_iso),
+                        "rotation_due": bool(k.get("rotation_due_at") and k["rotation_due_at"] <= now_iso),
                     }
                     for k in keys[:10]
                 ],
@@ -402,18 +459,17 @@ class ProAPIStore:
             raise APIKeyError("invalid API key")
         if row["revoked_at"]:
             raise APIKeyError("revoked API key")
-        if row["expires_at"]:
-            try:
-                if datetime.fromisoformat(row["expires_at"]) <= _now():
-                    raise APIKeyError("expired API key")
-            except ValueError:
-                raise APIKeyError("expired API key")
+        expires_at = _parse_iso(row["expires_at"])
+        if row["expires_at"] and (expires_at is None or expires_at <= _now()):
+            raise APIKeyExpired("expired API key")
         scopes = tuple((row["scopes"] or "").split())
         if required_scope and required_scope not in scopes:
             raise APIKeyForbidden("insufficient scope")
         key = APIKey(
             key_id=row["key_id"], label=row["label"], scopes=scopes, tier=row["tier"],
             rate_per_min=int(row["rate_per_min"]), rate_per_day=int(row["rate_per_day"]),
+            created_at=row["created_at"], expires_at=row["expires_at"],
+            rotation_due_at=row["rotation_due_at"],
         )
         self._hit_rate_limit(key)
         with self.conn:

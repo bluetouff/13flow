@@ -95,7 +95,13 @@ if curl_pro GET "/api/pro/v1/status" "$status"; then
   json_check "Pro status valid key" "$status" "
 key = data.get('key') or {}
 scopes = set(key.get('scopes') or [])
-ok = data.get('api') == '13flow-pro' and {'funds:read', 'workspace:write'} <= scopes
+lifecycle = data.get('key_lifecycle') or {}
+ok = (
+    data.get('api') == '13flow-pro'
+    and {'funds:read', 'workspace:write'} <= scopes
+    and 'rotation_due_at' in lifecycle
+    and lifecycle.get('rotation_required') in {True, False}
+)
 msg = str(data)
 "
 else
@@ -107,6 +113,7 @@ if curl_pro GET "/api/pro/v1/onboarding" "$onboarding"; then
   json_check "Pro onboarding self-diagnostic" "$onboarding" "
 key = data.get('key') or {}
 diag = data.get('diagnostic') or {}
+lifecycle = data.get('key_lifecycle') or {}
 checks = {item.get('id'): item for item in ((data.get('endpoints') or {}).get('checks') or [])}
 security = data.get('security') or {}
 truth = data.get('truth_boundary') or {}
@@ -116,6 +123,8 @@ ok = (
     and key.get('id')
     and diag.get('status') == 'ready'
     and diag.get('token_echoed') is False
+    and lifecycle.get('expired_keys_fail_closed') is True
+    and 'rotation_due_at' in lifecycle
     and diag.get('workspace_enabled') is True
     and checks.get('workspace_report', {}).get('available') is True
     and security.get('token_in_url_allowed') is False
