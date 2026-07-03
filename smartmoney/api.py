@@ -850,6 +850,16 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                       "404": {"description": "Not found"}},
                     },
                 },
+                "/api/pro/v1/workspace/watchlists/{watchlist_id}/delete": {
+                    "post": {
+                        "security": security,
+                        "summary": "Delete a saved workspace watchlist using POST for strict edge proxies",
+                        "parameters": [{"name": "watchlist_id", "in": "path", "required": True,
+                                        "schema": {"type": "string"}}],
+                        "responses": {"200": {"description": "Saved watchlist deleted"},
+                                      "404": {"description": "Not found"}},
+                    },
+                },
                 "/api/pro/v1/workspace/watchlists/{watchlist_id}/preview": {
                     "get": {
                         "security": security,
@@ -2730,9 +2740,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "watchlist": item,
             })
 
-        @app.delete("/api/pro/v1/workspace/watchlists/<watchlist_id>")
-        @pro_required("workspace:write")
-        def pro_workspace_watchlists_delete_ep(watchlist_id):
+        def _delete_saved_watchlist_response(watchlist_id):
             key = request.pro_api_key
             with ProAPIStore(pro_db_path) as ps:
                 item = ps.get_watchlist(key.key_id, watchlist_id)
@@ -2756,6 +2764,16 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "deleted": True,
                 "id": watchlist_id,
             })
+
+        @app.delete("/api/pro/v1/workspace/watchlists/<watchlist_id>")
+        @pro_required("workspace:write")
+        def pro_workspace_watchlists_delete_ep(watchlist_id):
+            return _delete_saved_watchlist_response(watchlist_id)
+
+        @app.post("/api/pro/v1/workspace/watchlists/<watchlist_id>/delete")
+        @pro_required("workspace:write")
+        def pro_workspace_watchlists_post_delete_ep(watchlist_id):
+            return _delete_saved_watchlist_response(watchlist_id)
 
         @app.get("/api/pro/v1/workspace/watchlists/<watchlist_id>/preview")
         @pro_required("workspace:write")

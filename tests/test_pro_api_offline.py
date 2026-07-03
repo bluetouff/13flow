@@ -140,6 +140,7 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         assert "/api/pro/v1/workspace/alerts/{alert_id}" in doc["paths"]
         assert "/api/pro/v1/workspace/watchlists" in doc["paths"]
         assert "/api/pro/v1/workspace/watchlists/{watchlist_id}" in doc["paths"]
+        assert "/api/pro/v1/workspace/watchlists/{watchlist_id}/delete" in doc["paths"]
         assert "/api/pro/v1/workspace/watchlists/{watchlist_id}/preview" in doc["paths"]
         assert "/api/pro/v1/workspace/watchlists/{watchlist_id}/signals" in doc["paths"]
         assert "/api/pro/v1/workspace/watchlists/{watchlist_id}/signals/snapshot" in doc["paths"]
@@ -462,8 +463,8 @@ def test_pro_workspace_watchlists_are_saved_per_api_key(monkeypatch):
             event["event_type"] for event in watchlist_activity.get_json()["activity"]
         }
 
-        deleted = c.delete(
-            f"/api/pro/v1/workspace/watchlists/{watchlist_id}",
+        deleted = c.post(
+            f"/api/pro/v1/workspace/watchlists/{watchlist_id}/delete",
             headers={"Authorization": "Bearer " + token},
         )
         assert deleted.status_code == 200

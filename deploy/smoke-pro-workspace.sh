@@ -16,7 +16,7 @@ EXPECTED_SHA=${EXPECTED_SHA:-}
 tmpdir=$(mktemp -d)
 cleanup() {
   if [[ -n "${watchlist_id:-}" && -n "${PRO_TOKEN:-}" ]]; then
-    curl -fsS --max-time 10 -X DELETE "$SITE/api/pro/v1/workspace/watchlists/$watchlist_id" \
+    curl -fsS --max-time 10 -X POST "$SITE/api/pro/v1/workspace/watchlists/$watchlist_id/delete" \
       -H "Authorization: Bearer $PRO_TOKEN" >/dev/null 2>&1 || true
   fi
   rm -rf "$tmpdir"
@@ -175,7 +175,7 @@ msg = str(data)[:1000]
   fi
 
   deleted="$tmpdir/deleted.json"
-  if curl_pro DELETE "/api/pro/v1/workspace/watchlists/$watchlist_id" "$deleted"; then
+  if curl_pro POST "/api/pro/v1/workspace/watchlists/$watchlist_id/delete" "$deleted"; then
     json_check "workspace watchlist delete" "$deleted" "ok = data.get('deleted') is True; msg = str(data)"
     watchlist_id=""
   else
