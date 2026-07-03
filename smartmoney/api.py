@@ -718,6 +718,21 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "get": {"security": security, "summary": "Validate an API key",
                             "responses": {"200": {"description": "API key metadata"}}}
                 },
+                "/api/pro/v1/usage": {
+                    "get": {
+                        "security": security,
+                        "summary": "Customer-safe usage, quota and recent request telemetry",
+                        "parameters": [
+                            {"name": "recent_limit", "in": "query", "required": False,
+                             "schema": {"type": "integer", "minimum": 1, "maximum": 100,
+                                        "default": 25}},
+                            {"name": "route_limit", "in": "query", "required": False,
+                             "schema": {"type": "integer", "minimum": 1, "maximum": 50,
+                                        "default": 15}},
+                        ],
+                        "responses": {"200": {"description": "Usage and quota report"}},
+                    }
+                },
                 "/api/pro/v1/onboarding": {
                     "get": {"security": security, "summary": "Authenticated Pro integration self-diagnostic",
                             "responses": {"200": {"description": "Pro onboarding checklist"}}}
@@ -2689,6 +2704,31 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "workspace_limits": _pro_workspace_limits_payload(),
             })
 
+        @app.get("/api/pro/v1/usage")
+        @pro_required("funds:read")
+        def pro_usage_ep():
+            key = request.pro_api_key
+            recent_limit = clean_int(request.args.get("recent_limit"), 25, 1, 100)
+            route_limit = clean_int(request.args.get("route_limit"), 15, 1, 50)
+            with ProAPIStore(pro_db_path) as ps:
+                report = ps.usage_report(
+                    key.key_id,
+                    recent_limit=recent_limit,
+                    route_limit=route_limit,
+                )
+            return jsonify({
+                "meta": {
+                    "api": "13flow-pro",
+                    "version": "v1",
+                    "git_sha": _git_sha(),
+                    "request": {
+                        "recent_limit": recent_limit,
+                        "route_limit": route_limit,
+                    },
+                },
+                "usage": report,
+            })
+
         @app.get("/api/pro/v1/onboarding")
         @pro_required("funds:read")
         def pro_onboarding_ep():
@@ -2709,6 +2749,13 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "id": "funds",
                     "method": "GET",
                     "path": "/funds",
+                    "available": True,
+                    "required_scope": "funds:read",
+                },
+                {
+                    "id": "usage",
+                    "method": "GET",
+                    "path": "/usage",
                     "available": True,
                     "required_scope": "funds:read",
                 },
@@ -2792,6 +2839,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 },
                 "quick_checks": [
                     f"curl -fsS {base_url}/status -H 'Authorization: Bearer $PRO_TOKEN'",
+                    f"curl -fsS {base_url}/usage -H 'Authorization: Bearer $PRO_TOKEN'",
                     f"curl -fsS {base_url}/funds -H 'Authorization: Bearer $PRO_TOKEN'",
                     f"curl -fsS {base_url}/workspace/overview -H 'Authorization: Bearer $PRO_TOKEN'",
                 ],

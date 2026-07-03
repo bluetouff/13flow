@@ -85,6 +85,44 @@ def test_pro_api_responses_are_not_cacheable(monkeypatch):
         assert {"Authorization", "X-13FLOW-Key"} <= vary
 
 
+def test_pro_usage_report_is_customer_safe_and_bounded(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        c, token, key, pro_db = _client(monkeypatch, d, rate_per_min=120)
+        hdr = {
+            "Authorization": "Bearer " + token,
+            "User-Agent": "Secret Desk Agent/1.0",
+            "X-Forwarded-For": "198.51.100.99",
+        }
+
+        assert c.get("/api/pro/v1/status", headers=hdr).status_code == 200
+        assert c.get("/api/pro/v1/funds", headers=hdr).status_code == 200
+        r = c.get("/api/pro/v1/usage?recent_limit=2&route_limit=2", headers=hdr)
+
+        assert r.status_code == 200
+        payload = r.get_json()
+        assert payload["meta"]["api"] == "13flow-pro"
+        usage = payload["usage"]
+        assert usage["scope"] == "api_key"
+        assert usage["key"]["id"] == key.key_id
+        assert usage["quota"]["minute"]["limit"] == 120
+        assert usage["quota"]["minute"]["used"] >= 3
+        assert usage["quota"]["day"]["used"] >= 3
+        assert usage["quota"]["month_observed"]["used"] >= 3
+        assert usage["audit"]["total"] >= 2
+        assert len(usage["recent_requests"]) <= 2
+        assert len(usage["routes"]) <= 2
+        assert usage["privacy"] == {
+            "token_echoed": False,
+            "ip_exposed": False,
+            "user_agent_exposed": False,
+            "payloads_logged": False,
+        }
+        raw = str(payload)
+        assert token not in raw
+        assert "198.51.100.99" not in raw
+        assert "Secret Desk Agent" not in raw
+
+
 def test_pro_onboarding_self_diagnostic_redacts_token(monkeypatch):
     with tempfile.TemporaryDirectory() as d:
         c, token, key, pro_db = _client(
@@ -105,6 +143,7 @@ def test_pro_onboarding_self_diagnostic_redacts_token(monkeypatch):
         assert payload["key_lifecycle"]["expired_keys_fail_closed"] is True
         assert payload["key_lifecycle"]["rotation_due_at"]
         checks = {item["id"]: item for item in payload["endpoints"]["checks"]}
+        assert checks["usage"]["available"] is True
         assert checks["workspace_report"]["available"] is True
         assert checks["workspace_export"]["required_scope"] == "workspace:write"
         assert "validated alpha" in payload["truth_boundary"]["not_claimed"]
@@ -169,6 +208,7 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         doc = r.get_json()
         assert doc["openapi"].startswith("3.")
         assert "/api/pro/v1/onboarding" in doc["paths"]
+        assert "/api/pro/v1/usage" in doc["paths"]
         assert "/api/pro/v1/fund/{cik}" in doc["paths"]
         assert "/api/pro/v1/watchlist" in doc["paths"]
         assert "/api/pro/v1/watchlist/discover" in doc["paths"]

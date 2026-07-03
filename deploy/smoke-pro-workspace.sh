@@ -108,6 +108,34 @@ else
   bad "Pro status valid key" "curl failed"
 fi
 
+usage="$tmpdir/usage.json"
+if curl_pro GET "/api/pro/v1/usage?recent_limit=5&route_limit=5" "$usage"; then
+  json_check "Pro usage and quota report" "$usage" "
+meta = data.get('meta') or {}
+usage = data.get('usage') or {}
+quota = usage.get('quota') or {}
+privacy = usage.get('privacy') or {}
+key = usage.get('key') or {}
+raw = str(data)
+ok = (
+    meta.get('api') == '13flow-pro'
+    and usage.get('scope') == 'api_key'
+    and key.get('id')
+    and isinstance((quota.get('minute') or {}).get('used'), int)
+    and isinstance((quota.get('day') or {}).get('remaining'), int)
+    and isinstance(usage.get('recent_requests'), list)
+    and isinstance(usage.get('routes'), list)
+    and privacy.get('token_echoed') is False
+    and privacy.get('ip_exposed') is False
+    and privacy.get('user_agent_exposed') is False
+    and '$PRO_TOKEN' not in raw
+)
+msg = str(data)[:1000]
+"
+else
+  bad "Pro usage and quota report" "curl failed"
+fi
+
 onboarding="$tmpdir/onboarding.json"
 if curl_pro GET "/api/pro/v1/onboarding" "$onboarding"; then
   json_check "Pro onboarding self-diagnostic" "$onboarding" "

@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS api_audit (
     at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_api_audit_key_at ON api_audit(key_id, at);
+CREATE INDEX IF NOT EXISTS ix_api_audit_key_route_at ON api_audit(key_id, route, at);
 
 CREATE TABLE IF NOT EXISTS saved_watchlists (
     id                TEXT PRIMARY KEY,
@@ -450,6 +451,115 @@ class ProAPIStore:
             },
         }
 
+    def usage_report(self, key_id: str, *, recent_limit: int = 25,
+                     route_limit: int = 15) -> dict:
+        """Return customer-safe usage and quota telemetry for one API key."""
+        safe_recent_limit = max(1, min(100, int(recent_limit or 25)))
+        safe_route_limit = max(1, min(50, int(route_limit or 15)))
+        now = _now()
+        now_iso = _iso(now)
+        current_minute = "m:" + now.strftime("%Y%m%d%H%M")
+        current_day = "d:" + now.strftime("%Y%m%d")
+        month_prefix = "d:" + now.strftime("%Y%m")
+        row = self.conn.execute(
+            """SELECT key_id,label,scopes,tier,rate_per_min,rate_per_day,created_at,
+                      expires_at,rotation_due_at,revoked_at,last_used_at
+               FROM api_keys WHERE key_id=?""",
+            (key_id,),
+        ).fetchone()
+        if row is None:
+            raise APIKeyError("invalid API key")
+        minute_count = self._usage_count(key_id, current_minute)
+        day_count = self._usage_count(key_id, current_day)
+        month_row = self.conn.execute(
+            """SELECT COALESCE(SUM(count), 0) AS c
+               FROM api_key_usage
+               WHERE key_id=? AND bucket LIKE ?""",
+            (key_id, month_prefix + "%"),
+        ).fetchone()
+        audit_summary = self.conn.execute(
+            """SELECT COUNT(*) AS total,
+                      MAX(at) AS latest_at,
+                      SUM(CASE WHEN status BETWEEN 200 AND 399 THEN 1 ELSE 0 END) AS ok,
+                      SUM(CASE WHEN status=401 THEN 1 ELSE 0 END) AS unauthorized,
+                      SUM(CASE WHEN status=403 THEN 1 ELSE 0 END) AS forbidden,
+                      SUM(CASE WHEN status=429 THEN 1 ELSE 0 END) AS rate_limited,
+                      SUM(CASE WHEN status>=500 THEN 1 ELSE 0 END) AS server_errors
+               FROM api_audit
+               WHERE key_id=?""",
+            (key_id,),
+        ).fetchone()
+        route_rows = self.conn.execute(
+            """SELECT route, method, COUNT(*) AS count, MAX(at) AS latest_at,
+                      SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END) AS errors
+               FROM api_audit
+               WHERE key_id=?
+               GROUP BY route, method
+               ORDER BY count DESC, latest_at DESC
+               LIMIT ?""",
+            (key_id, safe_route_limit),
+        ).fetchall()
+        recent_rows = self.conn.execute(
+            """SELECT method,route,status,at
+               FROM api_audit
+               WHERE key_id=?
+               ORDER BY at DESC, id DESC
+               LIMIT ?""",
+            (key_id, safe_recent_limit),
+        ).fetchall()
+        audit = dict(audit_summary or {})
+        minute_limit = int(row["rate_per_min"] or 0)
+        day_limit = int(row["rate_per_day"] or 0)
+        def quota(count: int, limit: int) -> dict:
+            remaining = max(0, limit - count) if limit else 0
+            pct = round((count / limit) * 100.0, 2) if limit else None
+            return {"used": count, "limit": limit, "remaining": remaining,
+                    "used_pct": pct}
+        return {
+            "generated_at": now_iso,
+            "scope": "api_key",
+            "key": {
+                "id": row["key_id"],
+                "label": row["label"],
+                "tier": row["tier"],
+                "scopes": str(row["scopes"] or "").split(),
+                "created_at": row["created_at"],
+                "expires_at": row["expires_at"],
+                "rotation_due_at": row["rotation_due_at"],
+                "last_used_at": row["last_used_at"],
+                "revoked": bool(row["revoked_at"]),
+            },
+            "quota": {
+                "current_minute_bucket": current_minute,
+                "current_day_bucket": current_day,
+                "minute": quota(minute_count, minute_limit),
+                "day": quota(day_count, day_limit),
+                "month_observed": {
+                    "bucket_prefix": month_prefix,
+                    "used": int((month_row or {})["c"] or 0),
+                    "limit": None,
+                    "note": "monthly usage is observed for customer reporting; enforcement is per-minute and per-day",
+                },
+            },
+            "audit": {
+                "total": int(audit.get("total") or 0),
+                "latest_at": audit.get("latest_at"),
+                "ok": int(audit.get("ok") or 0),
+                "unauthorized": int(audit.get("unauthorized") or 0),
+                "forbidden": int(audit.get("forbidden") or 0),
+                "rate_limited": int(audit.get("rate_limited") or 0),
+                "server_errors": int(audit.get("server_errors") or 0),
+            },
+            "routes": [dict(r) for r in route_rows],
+            "recent_requests": [dict(r) for r in recent_rows],
+            "privacy": {
+                "token_echoed": False,
+                "ip_exposed": False,
+                "user_agent_exposed": False,
+                "payloads_logged": False,
+            },
+        }
+
     def authenticate(self, token: str, required_scope: str) -> APIKey:
         key_id, full_token = _parse_token(token)
         row = self.conn.execute("SELECT * FROM api_keys WHERE key_id=?", (key_id,)).fetchone()
@@ -509,6 +619,13 @@ class ProAPIStore:
             (count, key_id, bucket),
         )
         return count
+
+    def _usage_count(self, key_id: str, bucket: str) -> int:
+        row = self.conn.execute(
+            "SELECT count FROM api_key_usage WHERE key_id=? AND bucket=?",
+            (key_id, bucket),
+        ).fetchone()
+        return int(row["count"] or 0) if row else 0
 
     def audit(self, key_id: Optional[str], method: str, route: str, status: int,
               ip: str = "", user_agent: str = "") -> None:
