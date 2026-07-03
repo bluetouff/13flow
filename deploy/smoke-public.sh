@@ -114,6 +114,7 @@ for path in /faq /legal; do
 done
 
 redirects_to "legacy /dashboard.html redirects app" "/dashboard.html" "/app"
+redirects_to "canonical /confluence opens app Confluence" "/confluence" "/app#confluence"
 redirects_to "legacy /faq.html redirects canonical" "/faq.html" "/faq"
 redirects_to "legacy /mentions-legales redirects canonical" "/mentions-legales" "/legal"
 redirects_to "legacy /mentions-legales.html redirects canonical" "/mentions-legales.html" "/legal"

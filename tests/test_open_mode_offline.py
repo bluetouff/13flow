@@ -137,6 +137,8 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
         assert "uses_synthetic_data=false" in html
         assert "/api/funds serves 1 funds" in html
         assert "latest 13F quarter 2026-03-31" in html
+        assert "Open Confluence" in html
+        assert 'href="/confluence"' in html
         assert "Open research app" in html
         assert 'href="/app"' in html
         assert 'href="/developers"' in html
@@ -268,12 +270,13 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
 
         for path, target in (
             ("/dashboard.html", "/app"),
+            ("/confluence", "/app#confluence"),
             ("/faq.html", "/faq"),
             ("/mentions-legales", "/legal"),
             ("/mentions-legales.html", "/legal"),
         ):
             r = c.get(path, follow_redirects=False)
-            assert r.status_code == 301, path
+            assert r.status_code in {301, 302}, path
             assert r.headers["Location"] == target, path
 
         doc = c.get("/api/openapi.json").get_json()

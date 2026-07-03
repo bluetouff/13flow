@@ -2255,7 +2255,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         nonce = secrets.token_urlsafe(16)
         nav = (
             '<nav class="topnav"><a class="brand" href="/">13<span>FL</span><b>OW</b></a>'
-            '<div class="navlinks"><a href="/funds">Funds</a><a href="/stocks">Stocks</a>'
+            '<div class="navlinks"><a href="/confluence">Confluence</a><a href="/funds">Funds</a><a href="/stocks">Stocks</a>'
             '<a href="/signals">Signals</a><a href="/status">Status</a><a href="/validation">Validation</a><a href="/methodology">Methodology</a>'
             '<a href="/developers">Developers</a><a href="/pro">Pro API</a><a href="/faq">FAQ</a>'
             '<a href="/legal">Legal</a></div></nav>'
@@ -2264,7 +2264,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             '<footer class="site-footer"><div class="foot-grid">'
             '<div><h4>13FLOW</h4><p>SEC EDGAR-derived 13F and Form 4 research surfaces '
             'for analysts, APIs and agent workflows.</p></div>'
-            '<div><h4>Product</h4><a href="/funds">Funds</a><a href="/stocks">Stocks</a>'
+            '<div><h4>Product</h4><a href="/confluence">Confluence</a><a href="/funds">Funds</a><a href="/stocks">Stocks</a>'
             '<a href="/signals">Signals</a><a href="/validation">Validation</a><a href="/pro">Pro API</a></div>'
             '<div><h4>Method</h4><a href="/methodology">Overview</a>'
             '<a href="/methodology/app">Application</a><a href="/methodology/mcp">MCP</a>'
@@ -2940,6 +2940,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     def app_dashboard():
         return _serve_html(dash)
 
+    @app.get("/confluence")
+    def confluence_app_alias():
+        return redirect("/app#confluence", code=302)
+
     @app.get("/")
     def index():
         live = live_status_payload()
@@ -2975,6 +2979,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<p><a class=\"pill\" href=\"/funds\">Funds</a> "
             "<a class=\"pill\" href=\"/stocks\">Stocks</a> "
             "<a class=\"pill\" href=\"/signals\">Signals</a> "
+            "<a class=\"pill\" href=\"/confluence\">Open Confluence</a> "
             "<a class=\"pill\" href=\"/app\">Open research app</a></p></div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>What Is Not Claimed</h2>"
             "<ul><li>No validated alpha claim.</li><li>No probability or expected-return model.</li>"
