@@ -89,6 +89,25 @@ price source, delisting handling, costs, liquidity filters and neutralization st
 review before publication. `status=not_publishable` means no public performance claim is
 allowed from that artifact.
 
+The JSON report also includes `manifest.evidence`, a mechanical sanity layer for deciding
+whether a run is only a pipeline smoke test or contains the minimum raw material for a
+commercial Confluence claim. Review at least:
+
+- `feature_scope_counts`: complete Confluence evidence requires `13f_form4_joined`, not
+  only `13f_only_no_form4`;
+- `rows_with_form4_accessions` and `tickers_with_form4_accessions`: prove the dataset
+  actually joined visible Form 4 filings;
+- `rows_with_open_market_buyers`, `tickers_with_open_market_buyers` and
+  `open_market_buy_value_usd`: prove the sample contains positive insider-buy evidence,
+  not only sales, grants or empty windows;
+- `forward_return_coverage`: each published horizon must be fully populated for headline
+  metrics;
+- `data_quality_flag_counts`: `no_form4_activity_in_window`, non-priceable ticker flags and
+  similar caveats must be disclosed or removed from the headline universe.
+
+If `rows_with_open_market_buyers=0`, the artifact can test the join and negative/neutral
+insider evidence, but it is not a persuasive Confluence validation sample.
+
 Without `--validation-form4`, the builder exports the institutional 13F side
 (`feature_scope=13f_only_no_form4`). With `--validation-form4`, it exports
 `feature_scope=13f_form4_joined`, hashes the joined Form 4 accessions and fills insider

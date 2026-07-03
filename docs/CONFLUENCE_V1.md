@@ -137,6 +137,19 @@ python run.py --db /var/lib/13flow/13flow.db \
 python run.py --validation-dataset /path/to/confluence_features.csv --validation-json
 ```
 
+The JSON gate contains a `manifest.evidence` block. Treat it as the first commercial
+reality check:
+
+- `feature_scope_counts` must include `13f_form4_joined` for a complete Confluence sample;
+- `rows_with_form4_accessions` proves that visible Form 4 accessions were joined without
+  lookahead;
+- `rows_with_open_market_buyers`, `tickers_with_open_market_buyers` and
+  `open_market_buy_value_usd` prove that the sample contains positive open-market insider
+  purchases, not only sales or stock grants;
+- `forward_return_coverage` must be complete for every horizon claimed in a metric table;
+- `data_quality_flag_counts` is the disclosure list for empty Form 4 windows,
+  non-priceable names and other caveats.
+
 For imported vendor/bulk price files, validate the CSV before building features:
 
 ```bash

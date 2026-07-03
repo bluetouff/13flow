@@ -134,6 +134,13 @@ def _coerce_float(value: Any) -> float | None:
     return x
 
 
+def _split_values(value: Any) -> list[str]:
+    raw = str(value or "").strip()
+    if not raw:
+        return []
+    return [part.strip() for part in raw.split(";") if part.strip()]
+
+
 def read_feature_rows(path: str) -> list[dict[str, Any]]:
     """Read a CSV or JSONL feature table into dictionaries."""
     if path.endswith(".jsonl"):
@@ -146,6 +153,54 @@ def read_feature_rows(path: str) -> list[dict[str, Any]]:
         return rows
     with open(path, "r", encoding="utf-8", newline="") as fh:
         return list(csv.DictReader(fh))
+
+
+def dataset_evidence(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    rows = list(rows)
+    row_count = len(rows)
+    feature_scope_counts = Counter(str(row.get("feature_scope") or "unknown") for row in rows)
+    quality_flags = Counter(
+        flag
+        for row in rows
+        for flag in _split_values(row.get("data_quality_flags"))
+    )
+    tickers_with_form4 = {
+        str(row.get("ticker") or "").upper()
+        for row in rows
+        if _split_values(row.get("form4_accessions"))
+    }
+    tickers_with_buyers = {
+        str(row.get("ticker") or "").upper()
+        for row in rows
+        if (_coerce_float(row.get("open_market_buyers")) or 0.0) > 0
+    }
+    rows_with_buyers = [
+        row for row in rows
+        if (_coerce_float(row.get("open_market_buyers")) or 0.0) > 0
+    ]
+    rows_with_form4 = [row for row in rows if _split_values(row.get("form4_accessions"))]
+    total_buy_value = sum(
+        _coerce_float(row.get("open_market_buy_value_usd")) or 0.0
+        for row in rows
+    )
+    forward_return_coverage = {}
+    for horizon in HORIZONS:
+        col = f"forward_return_{horizon}d"
+        covered = sum(1 for row in rows if _coerce_float(row.get(col)) is not None)
+        forward_return_coverage[col] = {
+            "rows": covered,
+            "coverage": round(covered / row_count, 6) if row_count else 0.0,
+        }
+    return {
+        "feature_scope_counts": dict(sorted(feature_scope_counts.items())),
+        "rows_with_form4_accessions": len(rows_with_form4),
+        "tickers_with_form4_accessions": len({t for t in tickers_with_form4 if t}),
+        "rows_with_open_market_buyers": len(rows_with_buyers),
+        "tickers_with_open_market_buyers": len({t for t in tickers_with_buyers if t}),
+        "open_market_buy_value_usd": round(total_buy_value, 2),
+        "forward_return_coverage": forward_return_coverage,
+        "data_quality_flag_counts": dict(sorted(quality_flags.items())),
+    }
 
 
 def dataset_manifest(path: str, rows: Iterable[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -200,6 +255,7 @@ def dataset_manifest(path: str, rows: Iterable[dict[str, Any]] | None = None) ->
         },
         "split_counts": dict(sorted(splits.items())),
         "columns": columns,
+        "evidence": dataset_evidence(rows),
         "required_columns": list(REQUIRED_COLUMNS),
         "missing_required_columns": missing_required,
         "missing_recommended_columns": missing_recommended,
@@ -307,6 +363,22 @@ def validation_report(path: str, *, horizon: int = 60,
         for name, pair in sorted(by_split.get(split, {}).items()):
             split_reports[split][name] = _metrics(pair[0], pair[1])
 
+    evidence = manifest["evidence"]
+    notes = [
+        "Metrics are descriptive until the dataset builder, price source, costs, "
+        "liquidity rules and no-lookahead controls are independently reviewed.",
+        "The test split is frozen; do not tune parameters after reading it.",
+    ]
+    if evidence["feature_scope_counts"].get("13f_form4_joined", 0) == 0:
+        notes.append("No joined Form 4 rows are present; this artifact cannot support a "
+                     "complete 13F + Form 4 Confluence claim.")
+    if evidence["rows_with_open_market_buyers"] == 0:
+        notes.append("No row has open-market Form 4 buyers; this artifact only tests "
+                     "negative/neutral insider evidence.")
+    if manifest["row_count"] < 100:
+        notes.append("Sample size is below 100 rows; treat this as a pipeline smoke test, "
+                     "not validation evidence.")
+
     return {
         "protocol": "confluence_v1_validation",
         "status": "not_publishable" if manifest["status"] != "valid_minimum_schema"
@@ -314,9 +386,5 @@ def validation_report(path: str, *, horizon: int = 60,
         "horizon_days": horizon,
         "manifest": manifest,
         "metrics": split_reports,
-        "notes": [
-            "Metrics are descriptive until the dataset builder, price source, costs, "
-            "liquidity rules and no-lookahead controls are independently reviewed.",
-            "The test split is frozen; do not tune parameters after reading it.",
-        ],
+        "notes": notes,
     }

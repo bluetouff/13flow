@@ -14,7 +14,7 @@ from smartmoney.research import (
     WEIGHT_VERSION,
     confluence_v1_spec,
 )
-from smartmoney.validation import dataset_manifest, split_for_as_of, validation_report
+from smartmoney.validation import dataset_evidence, dataset_manifest, split_for_as_of, validation_report
 
 
 def _row(i: int, as_of: str, ticker: str, score: float, fwd60: float) -> dict:
@@ -31,6 +31,10 @@ def _row(i: int, as_of: str, ticker: str, score: float, fwd60: float) -> dict:
         "institutional_score": score * 0.8,
         "insider_score": score * 0.6,
         "funds_accumulating": i % 6,
+        "feature_scope": "13f_form4_joined",
+        "open_market_buyers": 1 if i % 3 == 0 else 0,
+        "open_market_buy_value_usd": 100000 if i % 3 == 0 else 0,
+        "form4_accessions": f"F4-{ticker}" if i % 3 == 0 else "",
         "forward_return_20d": fwd60 / 3,
         "forward_return_60d": fwd60,
         "forward_return_120d": fwd60 * 2,
@@ -64,6 +68,9 @@ def test_validation_manifest_and_metrics(tmp_path):
     assert manifest["status"] == "valid_minimum_schema"
     assert manifest["row_count"] == 30
     assert manifest["split_counts"] == {"test": 10, "train": 10, "validation": 10}
+    assert manifest["evidence"]["feature_scope_counts"] == {"13f_form4_joined": 30}
+    assert manifest["evidence"]["rows_with_open_market_buyers"] == 12
+    assert manifest["evidence"]["forward_return_coverage"]["forward_return_60d"]["coverage"] == 1.0
     assert len(manifest["sha256"]) == 64
 
     report = validation_report(str(path), horizon=60)
@@ -71,6 +78,25 @@ def test_validation_manifest_and_metrics(tmp_path):
     assert report["metrics"]["train"]["full_score"]["n"] == 10
     assert report["metrics"]["train"]["full_score"]["rank_ic"] > 0.9
     assert "quadrant_only" in report["metrics"]["test"]
+
+
+def test_dataset_evidence_flags_smoke_without_form4_buyers():
+    rows = [
+        {
+            **_row(i, "2025-06-30", f"TE{i}", 20 + i, 0.01),
+            "feature_scope": "13f_form4_joined",
+            "open_market_buyers": 0,
+            "open_market_buy_value_usd": 0,
+            "form4_accessions": "",
+            "data_quality_flags": "no_form4_activity_in_window",
+        }
+        for i in range(3)
+    ]
+
+    evidence = dataset_evidence(rows)
+    assert evidence["rows_with_open_market_buyers"] == 0
+    assert evidence["tickers_with_open_market_buyers"] == 0
+    assert evidence["data_quality_flag_counts"] == {"no_form4_activity_in_window": 3}
 
 
 def test_validation_manifest_refuses_incomplete_jsonl(tmp_path):
