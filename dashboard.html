@@ -7,7 +7,7 @@
 <link href="/assets/fonts/13flow-fonts.css" rel="stylesheet">
 <style>
   :root{
-    --bg:#0c1611; --bg-2:#0f1c16; --panel:#13241c; --panel-2:#16291f; --line:#1f3329; --line-soft:#182a20;
+    --bg:#0c1611; --bg-2:#0f1c16; --panel:#13241c; --panel-2:#16291f; --panel-3:#101f18; --line:#1f3329; --line-soft:#182a20;
     --text:#eaf5ef; --muted:#a9c4b7; --faint:#6f897d; --ink:#081310;
     --accent:#19c187; --accent-2:#36d39b; --accent-soft:rgba(25,193,135,.12);
     --amber:#e0a534; --amber-2:#c2891b; --amber-soft:rgba(224,165,52,.13);
@@ -23,10 +23,9 @@
   html,body{margin:0;height:100%}
   body{
     background:var(--bg); color:var(--text); font-family:var(--sans); font-size:14px;
-    -webkit-font-smoothing:antialiased; letter-spacing:-.005em;
+    -webkit-font-smoothing:antialiased; letter-spacing:0;
     background-image:
-      radial-gradient(58% 48% at 88% -6%, rgba(25,193,135,.16), transparent 64%),
-      radial-gradient(50% 42% at -2% 102%, rgba(224,165,52,.11), transparent 60%);
+      linear-gradient(180deg, rgba(255,255,255,.025), transparent 420px);
     background-attachment:fixed;
   }
   a{color:inherit;text-decoration:none}
@@ -34,7 +33,7 @@
   .up{color:var(--up)} .down{color:var(--down)} .gold{color:var(--accent)}
 
   /* shell */
-  .app{display:grid;grid-template-columns:248px 1fr;min-height:100vh}
+  .app{display:grid;grid-template-columns:264px 1fr;min-height:100vh}
   .rail{padding:26px 20px;position:sticky;top:0;height:100vh;
     border-right:1px solid var(--line);background:rgba(15,28,22,.55);backdrop-filter:blur(12px)}
   .brand{font-family:var(--display);font-weight:800;font-size:22px;line-height:1;letter-spacing:-.03em}
@@ -45,7 +44,8 @@
   .logo svg{filter:drop-shadow(0 2px 9px rgba(25,193,135,.28))}
   .brand-sub{font-family:var(--mono);font-size:10px;letter-spacing:.18em;color:var(--faint);
     text-transform:uppercase;margin-top:9px}
-  nav{margin-top:34px;display:flex;flex-direction:column;gap:4px}
+  nav{margin-top:28px;display:flex;flex-direction:column;gap:4px}
+  .nav-section{margin:18px 0 3px;font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
   .nav-item{display:flex;align-items:center;gap:12px;padding:10px 13px;border-radius:12px;
     color:var(--muted);font-weight:500;cursor:pointer;transition:all .15s ease}
   .nav-item:hover{color:var(--text);background:var(--panel-2)}
@@ -53,7 +53,8 @@
   .nav-item.active .ico{color:var(--accent)}
   .ico{width:18px;height:18px;display:grid;place-items:center;font-family:var(--mono);font-size:13px;color:var(--faint)}
   .rail-foot{position:absolute;bottom:22px;left:20px;right:20px;font-size:11px;color:var(--faint)}
-  .footlink{display:inline-block;margin-top:12px;color:var(--accent);font-weight:600;font-size:12px;text-decoration:none}
+  .rail-links{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:13px}
+  .footlink{display:inline-flex;align-items:center;justify-content:center;min-height:30px;color:var(--muted);font-weight:650;font-size:12px;text-decoration:none;border:1px solid var(--line);border-radius:9px;background:rgba(19,36,28,.54)}
   .footlink:hover{color:var(--accent-2)}
   .badge{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10px;
     letter-spacing:.08em;padding:5px 10px;border:1px solid var(--line);border-radius:999px;background:var(--panel-2)}
@@ -61,7 +62,8 @@
   .badge.live .led{background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 
   /* main */
-  main{padding:30px 44px 80px;max-width:1200px}
+  .mobilebar{display:none}
+  main{padding:30px 44px 0;max-width:1240px;width:100%}
   .masthead{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
   .masthead h1{font-family:var(--display);font-weight:800;font-size:30px;margin:0;letter-spacing:-.03em}
   .masthead .kicker{font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;
@@ -69,6 +71,9 @@
   .masthead .meta{text-align:right;font-family:var(--mono);font-size:11px;color:var(--muted);line-height:1.7}
   .rule-thin{height:0;margin:24px 0 26px}
   .view-title{font-size:14px;color:var(--muted);margin:2px 0 22px;max-width:640px}
+  .top-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+  .top-link{font-family:var(--mono);font-size:11px;color:var(--muted);border:1px solid var(--line);background:var(--panel-2);border-radius:999px;padding:7px 11px}
+  .top-link:hover{color:var(--accent-2);border-color:var(--accent)}
 
   /* metric strip */
   .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:30px}
@@ -165,7 +170,25 @@
   .fgrid .fcard:nth-child(3){animation-delay:.10s}.fgrid .fcard:nth-child(4){animation-delay:.14s}
   .fgrid .fcard:nth-child(5){animation-delay:.18s}.fgrid .fcard:nth-child(6){animation-delay:.22s}
   @keyframes fadeup{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-  @media (max-width:760px){.app{grid-template-columns:1fr}.rail{display:none}.cols{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}main{padding:22px}}
+  .site-footer{margin:44px 0 0;border-top:1px solid var(--line);padding:28px 0 34px;color:var(--muted)}
+  .site-footer .foot-grid{display:grid;grid-template-columns:1.4fr repeat(3,1fr);gap:26px}
+  .site-footer h4{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin:0 0 10px}
+  .site-footer p{margin:0;color:var(--muted);font-size:13px;line-height:1.55;max-width:38ch}
+  .site-footer a{display:block;color:var(--text);font-weight:600;font-size:13px;margin:7px 0}
+  .site-footer a:hover{color:var(--accent-2)}
+  .site-footer .fine{border-top:1px solid var(--line-soft);margin-top:24px;padding-top:16px;display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--faint)}
+  @media (max-width:900px){.site-footer .foot-grid{grid-template-columns:1fr 1fr}.masthead{align-items:flex-start;gap:18px}.top-actions{justify-content:flex-start}}
+  @media (max-width:760px){
+    .app{display:block}.rail{display:none}
+    .mobilebar{display:block;position:sticky;top:0;z-index:40;background:rgba(12,22,17,.94);backdrop-filter:blur(14px);border-bottom:1px solid var(--line);padding:12px 14px}
+    .mobilebar .logo{justify-content:center;margin-bottom:10px}
+    .mobile-nav{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:0}
+    .mobile-nav .nav-item{justify-content:center;gap:0;padding:8px 5px;border-radius:10px;font-size:11px;text-align:center;min-height:38px}
+    .mobile-nav .ico{display:none}
+    .cols{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,1fr)}main{padding:22px 16px 0}
+    .masthead{display:block}.masthead .meta{text-align:left;margin-top:14px}.top-actions{margin-top:14px}
+    .site-footer .foot-grid{grid-template-columns:1fr}.site-footer{margin-top:34px}
+  }
   /* auth */
   .userbox{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-family:var(--mono);font-size:11px}
   .userbox .em{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
@@ -289,6 +312,24 @@
 </head>
 <body>
 <div class="app">
+  <header class="mobilebar">
+    <a class="logo" href="/" title="13FLOW">
+      <svg width="28" height="28" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+        <path d="M7 15 C 22 15, 22 32, 37 32" stroke="#19c187" stroke-width="7.5" stroke-linecap="round"/>
+        <path d="M7 49 C 22 49, 22 32, 37 32" stroke="#e0a534" stroke-width="7.5" stroke-linecap="round"/>
+        <path d="M34 32 L 57 32" stroke="#19c187" stroke-width="8.5" stroke-linecap="round"/>
+        <circle cx="35" cy="32" r="6.4" fill="var(--bg)"/><circle cx="35" cy="32" r="2.7" fill="#fff"/>
+      </svg>
+      <span class="wm">13<span class="fl">FL</span><span class="ow">OW</span></span>
+    </a>
+    <nav class="mobile-nav nav-scope" aria-label="Mobile navigation">
+      <div class="nav-item active" data-view="consensus"><span class="ico">◎</span>Consensus</div>
+      <div class="nav-item" data-view="funds"><span class="ico">▤</span>Funds</div>
+      <div class="nav-item" data-view="compare"><span class="ico">⊞</span>Compare</div>
+      <div class="nav-item" data-view="confluence"><span class="ico">✦</span>Confluence</div>
+      <div class="nav-item" data-view="quality"><span class="ico">◇</span>Quality</div>
+    </nav>
+  </header>
   <aside class="rail">
     <a class="logo" href="/" title="13FLOW">
       <svg width="30" height="30" viewBox="0 0 64 64" fill="none" aria-hidden="true">
@@ -300,23 +341,28 @@
       <span class="wm">13<span class="fl">FL</span><span class="ow">OW</span></span>
     </a>
     <div class="brand-sub">13F × Form 4 · confluence</div>
-    <nav id="nav">
+    <nav id="nav" class="nav-scope" aria-label="Primary navigation">
+      <div class="nav-section">Research</div>
       <div class="nav-item active" data-view="consensus"><span class="ico">◎</span> Consensus</div>
       <div class="nav-item" data-view="funds"><span class="ico">▤</span> Funds</div>
       <div class="nav-item" data-view="compare"><span class="ico">⊞</span> Compare</div>
-      <div class="nav-item" data-view="alerts"><span class="ico">!</span> Alerts</div>
       <div class="nav-item" data-view="confluence"><span class="ico">✦</span> Confluence</div>
+      <div class="nav-section">Operations</div>
       <div class="nav-item" data-view="quality"><span class="ico">◇</span> Quality</div>
+      <div class="nav-item" data-view="alerts"><span class="ico">!</span> Alerts</div>
     </nav>
     <div class="rail-foot">
       <div id="authbox"></div>
       <span id="srcBadge" class="badge"><span class="led"></span><span id="srcText">VERIFYING DATA</span></span>
       <div id="srcDetail" style="margin-top:10px">Source: SEC EDGAR · public API verification pending</div>
-      <a href="faq.html" class="footlink">How it works · FAQ →</a>
-      <a href="/legal" class="footlink">Legal</a>
-      <a href="/funds" class="footlink">Static funds</a>
-      <a href="/stocks" class="footlink">Static stocks</a>
-      <a href="/signals" class="footlink">Static signals</a>
+      <div class="rail-links">
+        <a href="/faq" class="footlink">FAQ</a>
+        <a href="/methodology" class="footlink">Method</a>
+        <a href="/developers" class="footlink">Developers</a>
+        <a href="/pro" class="footlink">Pro API</a>
+        <a href="/legal" class="footlink">Legal</a>
+        <a href="/signals" class="footlink">Signals</a>
+      </div>
     </div>
   </aside>
 
@@ -326,11 +372,51 @@
         <div class="kicker">Following the trail of capital</div>
         <h1>The Filings</h1>
       </div>
-      <div class="meta" id="mast-meta"></div>
+      <div>
+        <div class="top-actions">
+          <a class="top-link" href="/developers">Developers</a>
+          <a class="top-link" href="/methodology">Methodology</a>
+          <a class="top-link" href="/pro">Request access</a>
+        </div>
+        <div class="meta" id="mast-meta"></div>
+      </div>
     </div>
     <div class="rule-thin"></div>
     <div id="crawlerState" class="crawler-state">Live data status pending. Public verification endpoints: /api/version, /api/funds, /api/data-quality.</div>
     <div id="view"></div>
+    <footer class="site-footer">
+      <div class="foot-grid">
+        <div>
+          <h4>13FLOW</h4>
+          <p>SEC EDGAR-derived 13F and Form 4 research surfaces for analysts, APIs and agent workflows.</p>
+        </div>
+        <div>
+          <h4>Product</h4>
+          <a href="/funds">Funds</a>
+          <a href="/stocks">Stocks</a>
+          <a href="/signals">Signals</a>
+          <a href="/pro">Pro API</a>
+        </div>
+        <div>
+          <h4>Method</h4>
+          <a href="/methodology">Overview</a>
+          <a href="/methodology/app">Application</a>
+          <a href="/methodology/mcp">MCP</a>
+          <a href="/api/methodology/confluence-v1">Confluence v1</a>
+        </div>
+        <div>
+          <h4>Trust</h4>
+          <a href="/developers">Developers</a>
+          <a href="/api/openapi.json">OpenAPI</a>
+          <a href="/faq">FAQ</a>
+          <a href="/legal">Legal</a>
+        </div>
+      </div>
+      <div class="fine">
+        <span>Public filings research. Not investment advice.</span>
+        <span>Source: SEC EDGAR · LIVE state exposed at /api/live-status</span>
+      </div>
+    </footer>
   </main>
 </div>
 
@@ -511,13 +597,20 @@ async function boot(){
   if(!OPEN_MODE) await handleBillingReturn();
   const want=(location.hash||"").replace("#","");
   const start=VIEWS.includes(want)?want:"consensus";
-  document.querySelectorAll(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view===start));
+  setActiveView(start);
   route(start);
 }
-document.getElementById("nav").addEventListener("click",e=>{
-  const it=e.target.closest(".nav-item"); if(!it)return;
-  document.querySelectorAll(".nav-item").forEach(n=>n.classList.toggle("active",n===it));
-  route(it.dataset.view);
+function setActiveView(view){
+  document.querySelectorAll(".nav-item").forEach(n=>n.classList.toggle("active",n.dataset.view===view));
+}
+document.querySelectorAll(".nav-scope").forEach(nav=>{
+  nav.addEventListener("click",e=>{
+    const it=e.target.closest(".nav-item"); if(!it)return;
+    const view=it.dataset.view;
+    setActiveView(view);
+    if(location.hash.replace("#","")!==view) history.replaceState(null,"","#"+view);
+    route(view);
+  });
 });
 function route(v){ ({consensus:vConsensus,funds:vFunds,compare:vCompare,alerts:vAlerts,confluence:vConfluence,quality:vQuality}[v])(); }
 

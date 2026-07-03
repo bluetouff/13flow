@@ -136,6 +136,12 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
         assert "uses_synthetic_data=false" in html
         assert "/api/funds serves 1 funds" in html
         assert "latest 13F quarter 2026-03-31" in html
+        assert 'href="/developers"' in html
+        assert 'href="/methodology"' in html
+        assert 'href="/pro"' in html
+        assert 'href="/faq"' in html
+        assert 'href="faq.html"' not in html
+        assert "Public filings research. Not investment advice." in html
 
         live = create_app(db, secure_cookies=False, open_mode=True).test_client() \
             .get("/api/live-status").get_json()
