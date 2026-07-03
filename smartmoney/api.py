@@ -12,6 +12,7 @@ Endpoints (all under /api):
   GET /pro/v1/funds                   -> Pro fund series + quality summary (API key)
   GET /pro/v1/fund/<cik>?basis=       -> Pro fund detail + moves + quality (API key)
   GET /pro/v1/data-quality            -> Pro data-quality report (API key)
+  GET /pro/v1/workspace/export        -> Pro workspace export JSON/CSV (API key)
   GET /pro/v1/openapi.json            -> Pro API OpenAPI document
   GET /subscriptions
   GET /alerts/preview/<cik>
@@ -24,6 +25,9 @@ needs a price provider and hits the network at request time, so it's opt-in.
 
 from __future__ import annotations
 
+import csv
+import io
+import json
 import os
 import re
 from datetime import datetime, timezone
@@ -773,6 +777,22 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                         "security": security,
                         "summary": "Workspace dashboard summary for the authenticated API key",
                         "responses": {"200": {"description": "Workspace overview"}},
+                    },
+                },
+                "/api/pro/v1/workspace/export": {
+                    "get": {
+                        "security": security,
+                        "summary": "Export bounded workspace watchlists, alerts and latest snapshots",
+                        "parameters": [
+                            {"name": "format", "in": "query", "required": False,
+                             "schema": {"type": "string", "enum": ["json", "csv"], "default": "json"}},
+                            {"name": "include_signals", "in": "query", "required": False,
+                             "schema": {"type": "boolean", "default": False}},
+                        ],
+                        "responses": {
+                            "200": {"description": "Workspace export"},
+                            "400": {"description": "Invalid export format"},
+                        },
                     },
                 },
                 "/api/pro/v1/workspace/activity": {
@@ -2227,6 +2247,88 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "changed_scores": changed_scores,
         }
 
+    def _workspace_export_payload(ps: ProAPIStore, key_id: str, *, include_signals: bool) -> dict:
+        watchlists = ps.list_watchlists(key_id)[:50]
+        alerts = ps.list_workspace_alerts(key_id, status=None, limit=100)
+        alerts_by_watchlist: dict[str, list[dict]] = {}
+        for alert in alerts:
+            alerts_by_watchlist.setdefault(alert["watchlist_id"], []).append(alert)
+        exported = []
+        for item in watchlists:
+            latest_rows = ps.list_signal_snapshots(
+                key_id, item["id"], limit=1, include_signals=include_signals,
+            )
+            latest = latest_rows[0] if latest_rows else None
+            exported.append({
+                "watchlist": item,
+                "latest_snapshot": latest,
+                "alerts": alerts_by_watchlist.get(item["id"], []),
+            })
+        return {
+            "meta": {
+                "api": "13flow-pro",
+                "version": "v1",
+                "git_sha": _git_sha(),
+                "generated_at": _now_iso(),
+                "workspace_scope": "api_key",
+                "format": "json",
+                "include_signals": include_signals,
+                "limits": {
+                    "watchlists": 50,
+                    "alerts": 100,
+                    "latest_snapshots_per_watchlist": 1,
+                },
+            },
+            "summary": ps.workspace_summary(key_id),
+            "watchlists": exported,
+        }
+
+    def _workspace_export_csv(payload: dict) -> str:
+        out = io.StringIO()
+        fields = [
+            "watchlist_id", "watchlist_name", "tickers", "filters", "alert_frequency",
+            "alert_enabled", "snapshot_id", "snapshot_created_at", "snapshot_tickers",
+            "alert_id", "alert_ticker", "alert_action", "alert_status", "alert_severity",
+            "alert_score", "alert_confidence", "alert_last_seen_at",
+        ]
+        writer = csv.DictWriter(out, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader()
+        for entry in payload.get("watchlists") or []:
+            watchlist = entry.get("watchlist") or {}
+            snapshot = entry.get("latest_snapshot") or {}
+            policy = watchlist.get("alert_policy") or {}
+            base = {
+                "watchlist_id": watchlist.get("id") or "",
+                "watchlist_name": watchlist.get("name") or "",
+                "tickers": ",".join(watchlist.get("tickers") or []),
+                "filters": json.dumps(
+                    watchlist.get("filters") or {}, sort_keys=True, separators=(",", ":"),
+                ),
+                "alert_frequency": policy.get("frequency") or "manual",
+                "alert_enabled": bool(policy.get("enabled")),
+                "snapshot_id": snapshot.get("id") or "",
+                "snapshot_created_at": snapshot.get("created_at") or "",
+                "snapshot_tickers": ",".join(snapshot.get("tickers") or []),
+            }
+            alerts = entry.get("alerts") or []
+            if not alerts:
+                writer.writerow(base)
+                continue
+            for alert in alerts:
+                reason = alert.get("reason") or {}
+                writer.writerow({
+                    **base,
+                    "alert_id": alert.get("id") or "",
+                    "alert_ticker": alert.get("ticker") or "",
+                    "alert_action": alert.get("action") or "",
+                    "alert_status": alert.get("status") or "",
+                    "alert_severity": alert.get("severity") or 0,
+                    "alert_score": reason.get("score") if reason.get("score") is not None else "",
+                    "alert_confidence": reason.get("confidence") or "",
+                    "alert_last_seen_at": alert.get("last_seen_at") or "",
+                })
+        return out.getvalue()
+
     def _clean_workspace_alert_status(raw, *, allow_all: bool = False) -> str | None:
         from werkzeug.exceptions import BadRequest
         value = str(raw or "open").strip().lower()
@@ -2594,6 +2696,28 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "recent_activity": recent_activity,
                 "watchlists": watchlists[:50],
             })
+
+        @app.get("/api/pro/v1/workspace/export")
+        @pro_required("workspace:write")
+        def pro_workspace_export_ep():
+            from werkzeug.exceptions import BadRequest
+            key = request.pro_api_key
+            fmt = str(request.args.get("format") or "json").strip().lower()
+            if fmt not in {"json", "csv"}:
+                raise BadRequest("format must be json or csv")
+            include_signals = clean_bool(request.args.get("include_signals"), False)
+            with ProAPIStore(pro_db_path) as ps:
+                payload = _workspace_export_payload(ps, key.key_id, include_signals=include_signals)
+            payload["meta"]["format"] = fmt
+            if fmt == "json":
+                return jsonify(payload)
+            csv_body = _workspace_export_csv(payload)
+            filename = "13flow-workspace-export.csv"
+            return Response(
+                csv_body,
+                mimetype="text/csv",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
 
         @app.get("/api/pro/v1/workspace/activity")
         @pro_required("workspace:write")
@@ -4666,6 +4790,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
       <section class="workspace-panel">
         <div class="workspace-row-top"><h2 id="workspaceSelectedTitle">Signals</h2><div class="workspace-actions">
           <button id="workspaceSnapshot" class="workspace-button primary" type="button" disabled>Snapshot</button>
+          <button id="workspaceExportJson" class="workspace-button" type="button">Export JSON</button>
+          <button id="workspaceExportCsv" class="workspace-button" type="button">Export CSV</button>
           <button id="workspaceRefresh" class="workspace-button" type="button">Refresh</button>
         </div></div>
         <div id="workspaceSignals" class="workspace-table"><p class="workspace-empty">Select a watchlist.</p></div>
@@ -4900,6 +5026,27 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     await api(`/workspace/watchlists/${state.selectedId}/signals/snapshot`, {method: "POST"});
     await refreshAll();
   }
+  async function downloadWorkspaceExport(format) {
+    if (!state.token) throw new Error("API key required");
+    const safeFormat = format === "csv" ? "csv" : "json";
+    const res = await fetch(`/api/pro/v1/workspace/export?format=${safeFormat}`, {
+      headers: {"Authorization": "Bearer " + state.token},
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || data.detail || ("HTTP " + res.status));
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `13flow-workspace-export.${safeFormat}`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setStatus(`Workspace export downloaded: ${safeFormat.toUpperCase()}`);
+  }
   async function deleteWatchlist(id) {
     const item = state.watchlists.find((w) => w.id === id);
     if (item && !window.confirm(`Delete watchlist "${item.name}"?`)) return;
@@ -4992,6 +5139,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
   });
   $("workspaceRefresh").addEventListener("click", () => refreshAll().catch((e) => setStatus(e.message, true)));
   $("workspaceSnapshot").addEventListener("click", () => snapshot().catch((e) => setStatus(e.message, true)));
+  $("workspaceExportJson").addEventListener("click", () => downloadWorkspaceExport("json").catch((e) => setStatus(e.message, true)));
+  $("workspaceExportCsv").addEventListener("click", () => downloadWorkspaceExport("csv").catch((e) => setStatus(e.message, true)));
   $("workspaceCancelEdit").addEventListener("click", resetForm);
   $("workspaceAlertStatus").addEventListener("change", (event) => {
     state.alertStatus = event.target.value;

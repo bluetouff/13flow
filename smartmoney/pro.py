@@ -427,7 +427,7 @@ class ProAPIStore:
         notes: str = "",
         max_watchlists: int = DEFAULT_MAX_WATCHLISTS_PER_KEY,
     ) -> dict:
-        now = _iso(_now())
+        now = _now().isoformat(timespec="microseconds")
         watchlist_id = secrets.token_hex(8)
         safe_max = max(1, min(500, int(max_watchlists or DEFAULT_MAX_WATCHLISTS_PER_KEY)))
         with self.conn:
@@ -533,7 +533,7 @@ class ProAPIStore:
         max_snapshots: int = 100,
     ) -> dict:
         snapshot_id = secrets.token_hex(8)
-        now = _iso(_now())
+        now = _now().isoformat(timespec="microseconds")
         items = list((signals or {}).get("items") or [])
         tickers = [
             str(item.get("ticker") or "").upper()

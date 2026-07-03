@@ -174,6 +174,38 @@ msg = str(data)[:1000]
     bad "workspace overview" "curl failed"
   fi
 
+  export_json="$tmpdir/workspace-export.json"
+  if curl_pro GET "/api/pro/v1/workspace/export" "$export_json"; then
+    json_check "workspace export JSON" "$export_json" "
+meta = data.get('meta') or {}
+items = data.get('watchlists') or []
+ok = (
+    meta.get('format') == 'json'
+    and meta.get('workspace_scope') == 'api_key'
+    and items
+    and items[0].get('watchlist', {}).get('id') == '$watchlist_id'
+    and isinstance(items[0].get('alerts'), list)
+    and 'signals' not in (items[0].get('latest_snapshot') or {})
+)
+msg = str(data)[:1000]
+"
+  else
+    bad "workspace export JSON" "curl failed"
+  fi
+
+  export_csv="$tmpdir/workspace-export.csv"
+  if curl_pro GET "/api/pro/v1/workspace/export?format=csv" "$export_csv"; then
+    python3 - "$export_csv" "$watchlist_id" <<'PY'
+import csv, sys
+rows = list(csv.DictReader(open(sys.argv[1], encoding="utf-8")))
+ok = rows and rows[0].get("watchlist_id") == sys.argv[2] and "alert_ticker" in rows[0]
+raise SystemExit(0 if ok else "invalid CSV export contract")
+PY
+    [[ $? -eq 0 ]] && ok "workspace export CSV" || bad "workspace export CSV" "invalid CSV contract"
+  else
+    bad "workspace export CSV" "curl failed"
+  fi
+
   deleted="$tmpdir/deleted.json"
   if curl_pro POST "/api/pro/v1/workspace/watchlists/$watchlist_id/delete" "$deleted"; then
     json_check "workspace watchlist delete" "$deleted" "ok = data.get('deleted') is True; msg = str(data)"

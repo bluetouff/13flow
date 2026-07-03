@@ -2,6 +2,8 @@
 Offline Pro API tests: API-key auth, scopes, persistent rate limits, and audit.
 """
 
+import csv
+import io
 import sqlite3
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -139,6 +141,7 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         assert "/api/pro/v1/watchlist" in doc["paths"]
         assert "/api/pro/v1/watchlist/discover" in doc["paths"]
         assert "/api/pro/v1/workspace/overview" in doc["paths"]
+        assert "/api/pro/v1/workspace/export" in doc["paths"]
         assert "/api/pro/v1/workspace/activity" in doc["paths"]
         assert "/api/pro/v1/workspace/alerts" in doc["paths"]
         assert "/api/pro/v1/workspace/alerts/{alert_id}" in doc["paths"]
@@ -246,6 +249,11 @@ def test_pro_workspace_watchlists_are_saved_per_api_key(monkeypatch):
             headers={"Authorization": "Bearer " + readonly_token},
         )
         assert readonly.status_code == 403
+        readonly_export = c.get(
+            "/api/pro/v1/workspace/export",
+            headers={"Authorization": "Bearer " + readonly_token},
+        )
+        assert readonly_export.status_code == 403
 
         create = c.post(
             "/api/pro/v1/workspace/watchlists",
@@ -407,6 +415,48 @@ def test_pro_workspace_watchlists_are_saved_per_api_key(monkeypatch):
         assert payload["summary"]["activity_events"] >= 4
         assert payload["recent_activity"]
         assert payload["watchlists"][0]["id"] == watchlist_id
+
+        workspace_export = c.get(
+            "/api/pro/v1/workspace/export",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert workspace_export.status_code == 200
+        payload = workspace_export.get_json()
+        assert payload["meta"]["format"] == "json"
+        assert payload["meta"]["limits"]["watchlists"] == 50
+        assert payload["summary"]["watchlists"] == 1
+        assert payload["watchlists"][0]["watchlist"]["id"] == watchlist_id
+        assert payload["watchlists"][0]["latest_snapshot"]["id"] == second_snapshot.get_json()["snapshot"]["id"]
+        assert "signals" not in payload["watchlists"][0]["latest_snapshot"]
+        assert payload["watchlists"][0]["alerts"]
+        assert payload["watchlists"][0]["alerts"][0]["ticker"] == first_alert["ticker"]
+
+        workspace_export_with_signals = c.get(
+            "/api/pro/v1/workspace/export?include_signals=1",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert workspace_export_with_signals.status_code == 200
+        payload = workspace_export_with_signals.get_json()
+        assert payload["meta"]["include_signals"] is True
+        assert payload["watchlists"][0]["latest_snapshot"]["signals"]["metadata"]["version"] == "saved_watchlist_signals_v1"
+
+        workspace_export_csv = c.get(
+            "/api/pro/v1/workspace/export?format=csv",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert workspace_export_csv.status_code == 200
+        assert workspace_export_csv.mimetype == "text/csv"
+        assert "attachment" in workspace_export_csv.headers["Content-Disposition"]
+        rows = list(csv.DictReader(io.StringIO(workspace_export_csv.get_data(as_text=True))))
+        assert rows
+        assert rows[0]["watchlist_id"] == watchlist_id
+        assert rows[0]["alert_ticker"] == first_alert["ticker"]
+
+        bad_export = c.get(
+            "/api/pro/v1/workspace/export?format=xlsx",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert bad_export.status_code == 400
 
         other_alerts = c.get(
             "/api/pro/v1/workspace/alerts?status=all",

@@ -386,6 +386,11 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Edit Watchlist" in pro_workspace_page
         assert "Save changes" in pro_workspace_page
         assert "workspaceCancelEdit" in pro_workspace_page
+        assert "Export JSON" in pro_workspace_page
+        assert "Export CSV" in pro_workspace_page
+        assert "downloadWorkspaceExport" in pro_workspace_page
+        assert "/api/pro/v1/workspace/export?format=${safeFormat}" in pro_workspace_page
+        assert "URL.createObjectURL" in pro_workspace_page
         assert "Scheduled alerts" in pro_workspace_page
         assert "alert_enabled" in pro_workspace_page
         assert "alert_frequency" in pro_workspace_page
