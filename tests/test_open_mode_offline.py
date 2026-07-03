@@ -160,6 +160,8 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
         assert product["public_state"] == "LIVE"
         assert product["data"]["uses_synthetic_data"] is False
         assert product["commercial_readiness"]["public_api"] == "live_read_only"
+        assert product["commercial_readiness"]["pro_api"] == \
+            "separate_service_expected_on_/api/pro/v1_with_api_key"
         assert product["commercial_readiness"]["mcp"] == "available_read_only"
         assert product["commercial_readiness"]["x402"] == "not_enabled"
         assert product["validation"]["current_artifact"]["publishable_as_full_validation"] is False

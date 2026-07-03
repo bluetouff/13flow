@@ -1462,7 +1462,11 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "commercial_readiness": {
                 "public_site": "live" if live["public_state"] == "LIVE" else "not_live",
                 "public_api": "live_read_only",
-                "pro_api": "available_with_api_key" if pro_enabled else "disabled",
+                "pro_api": (
+                    "enabled_in_this_service"
+                    if pro_enabled
+                    else "separate_service_expected_on_/api/pro/v1_with_api_key"
+                ),
                 "mcp": "available_read_only",
                 "x402": "not_enabled",
                 "alerts": "implemented_operator_runbook_required",
