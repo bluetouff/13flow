@@ -4601,7 +4601,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 .workspace-row p{margin:0;color:var(--muted);font-size:13px}
 .workspace-actions,.workspace-toolbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .workspace-toolbar{justify-content:space-between;margin-bottom:10px}
-.workspace-toolbar select{border:1px solid var(--line);border-radius:8px;background:var(--panel-2);color:var(--text);font:inherit;padding:10px 11px}
+.workspace-toolbar select,.workspace-toolbar input{border:1px solid var(--line);border-radius:8px;background:var(--panel-2);color:var(--text);font:inherit;padding:10px 11px}
+.workspace-toolbar input{width:120px}
 .workspace-mini{font-family:var(--mono);font-size:11px;color:var(--faint)}
 .workspace-table{display:block;overflow:auto;border-radius:8px}
 .workspace-table table{min-width:760px}
@@ -4672,6 +4673,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
       <section class="workspace-panel">
         <div class="workspace-toolbar"><h2>Alerts</h2><div class="workspace-actions">
           <select id="workspaceAlertStatus"><option value="open">Open</option><option value="acknowledged">Ack</option><option value="dismissed">Dismissed</option><option value="all">All</option></select>
+          <input id="workspaceAlertTicker" type="search" inputmode="search" maxlength="12" placeholder="Ticker" aria-label="Ticker filter">
+          <input id="workspaceAlertMinSeverity" type="number" inputmode="numeric" min="0" max="100" placeholder="Priority" aria-label="Minimum priority">
+          <input id="workspaceAlertMinScore" type="number" inputmode="decimal" min="0" max="100" placeholder="Score" aria-label="Minimum score">
+          <select id="workspaceAlertSort" aria-label="Alert sort"><option value="severity">Priority</option><option value="score">Score</option><option value="seen">Seen</option><option value="ticker">Ticker</option></select>
           <button id="workspaceAckAll" class="workspace-button" type="button">Ack visible</button>
           <button id="workspaceDismissAll" class="workspace-button warn" type="button">Dismiss visible</button>
         </div></div>
@@ -4699,7 +4704,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
   const $ = (id) => document.getElementById(id);
   const app = document.querySelector("[data-pro-workspace-app]");
   if (!app) return;
-  const state = {token: sessionStorage.getItem(TOKEN_KEY) || "", selectedId: "", editingId: "", selectedAlertId: "", watchlists: [], alerts: [], alertStatus: "open"};
+  const state = {token: sessionStorage.getItem(TOKEN_KEY) || "", selectedId: "", editingId: "", selectedAlertId: "", watchlists: [], alerts: [], allAlerts: [], alertSummary: {}, alertStatus: "open", alertTicker: "", alertMinSeverity: "", alertMinScore: "", alertSort: "severity"};
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const setStatus = (msg, bad=false) => {
     const node = $("workspaceStatus");
@@ -4776,18 +4781,49 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
       return `<tr><td><a href="/stocks/${esc(item.ticker)}">${esc(item.ticker)}</a></td><td><span class="pill">${esc(item.action)}</span></td><td class="num">${esc(score)}</td><td>${esc(moves)}</td><td>${esc(triggers)}</td></tr>`;
     }).join("")}</tbody></table><p class="workspace-mini">returned=${esc(meta.returned_count || items.length)} filtered=${esc(meta.filtered_count || items.length)}</p>`;
   }
+  function alertScore(alert) {
+    const score = (alert.reason || {}).score;
+    return Number.isFinite(Number(score)) ? Number(score) : -1;
+  }
+  function alertScoreLabel(alert) {
+    const score = (alert.reason || {}).score;
+    return Number.isFinite(Number(score)) ? String(Number(score)) : "-";
+  }
+  function alertSeverity(alert) {
+    return Number.isFinite(Number(alert.severity)) ? Number(alert.severity) : -1;
+  }
+  function visibleAlerts(items=[]) {
+    const ticker = state.alertTicker.trim().toUpperCase();
+    const minSeverity = state.alertMinSeverity === "" ? null : Number(state.alertMinSeverity);
+    const minScore = state.alertMinScore === "" ? null : Number(state.alertMinScore);
+    const filtered = items.filter((alert) => {
+      if (ticker && !String(alert.ticker || "").toUpperCase().includes(ticker)) return false;
+      if (minSeverity !== null && alertSeverity(alert) < minSeverity) return false;
+      if (minScore !== null && alertScore(alert) < minScore) return false;
+      return true;
+    });
+    return filtered.sort((a, b) => {
+      if (state.alertSort === "score") return alertScore(b) - alertScore(a) || alertSeverity(b) - alertSeverity(a);
+      if (state.alertSort === "seen") return String(b.last_seen_at || "").localeCompare(String(a.last_seen_at || ""));
+      if (state.alertSort === "ticker") return String(a.ticker || "").localeCompare(String(b.ticker || ""));
+      return alertSeverity(b) - alertSeverity(a) || alertScore(b) - alertScore(a);
+    });
+  }
   function renderAlerts(items=[], summary={}) {
-    state.alerts = items;
-    if (!items.some((a) => a.id === state.selectedAlertId)) state.selectedAlertId = items[0]?.id || "";
+    state.allAlerts = items;
+    state.alertSummary = summary || {};
+    const visible = visibleAlerts(items);
+    state.alerts = visible;
+    if (!visible.some((a) => a.id === state.selectedAlertId)) state.selectedAlertId = visible[0]?.id || "";
     const byStatus = summary.by_status || {};
-    if (!items.length) {
-      $("workspaceAlerts").innerHTML = `<p class="workspace-empty">No ${esc(state.alertStatus)} alert.</p>`;
+    if (!visible.length) {
+      $("workspaceAlerts").innerHTML = `<p class="workspace-empty">No ${esc(state.alertStatus)} alert matches the current filters.</p>`;
       renderAlertDetail(null);
       return;
     }
-    $("workspaceAlerts").innerHTML = `<p class="workspace-mini">open=${esc(number(byStatus.open))} ack=${esc(number(byStatus.acknowledged))} dismissed=${esc(number(byStatus.dismissed))}</p>
-      <table><thead><tr><th>Ticker</th><th>Priority</th><th>Status</th><th>Action</th><th>Seen</th><th></th></tr></thead><tbody>${items.map((a) => `<tr>
-      <td><a href="/stocks/${esc(a.ticker)}">${esc(a.ticker)}</a></td><td class="num">${esc(a.severity)}</td><td><span class="pill">${esc(a.status)}</span></td><td>${esc(a.action)}</td><td class="workspace-mini">${esc(a.last_seen_at)}</td>
+    $("workspaceAlerts").innerHTML = `<p class="workspace-mini">showing=${esc(number(visible.length))}/${esc(number(items.length))} open=${esc(number(byStatus.open))} ack=${esc(number(byStatus.acknowledged))} dismissed=${esc(number(byStatus.dismissed))}</p>
+      <table><thead><tr><th>Ticker</th><th>Priority</th><th>Score</th><th>Status</th><th>Action</th><th>Seen</th><th></th></tr></thead><tbody>${visible.map((a) => `<tr>
+      <td><a href="/stocks/${esc(a.ticker)}">${esc(a.ticker)}</a></td><td class="num">${esc(a.severity)}</td><td class="num">${esc(alertScoreLabel(a))}</td><td><span class="pill">${esc(a.status)}</span></td><td>${esc(a.action)}</td><td class="workspace-mini">${esc(a.last_seen_at)}</td>
       <td><div class="workspace-actions">
         <button class="workspace-button primary" type="button" data-alert-detail="${esc(a.id)}">Details</button>
         <button class="workspace-button" type="button" data-alert="${esc(a.id)}" data-status="acknowledged">Ack</button>
@@ -4795,7 +4831,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         <button class="workspace-button" type="button" data-alert="${esc(a.id)}" data-status="open">Reopen</button>
       </div></td>
     </tr>`).join("")}</tbody></table>`;
-    renderAlertDetail(state.alerts.find((a) => a.id === state.selectedAlertId) || items[0]);
+    renderAlertDetail(state.alerts.find((a) => a.id === state.selectedAlertId) || visible[0]);
   }
   function renderAlertDetail(alert) {
     if (!alert) {
@@ -4961,6 +4997,17 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     state.alertStatus = event.target.value;
     refreshAll().catch((e) => setStatus(e.message, true));
   });
+  function refreshAlertFilters() {
+    state.alertTicker = $("workspaceAlertTicker").value.trim();
+    state.alertMinSeverity = $("workspaceAlertMinSeverity").value.trim();
+    state.alertMinScore = $("workspaceAlertMinScore").value.trim();
+    state.alertSort = $("workspaceAlertSort").value;
+    renderAlerts(state.allAlerts, state.alertSummary);
+  }
+  $("workspaceAlertTicker").addEventListener("input", refreshAlertFilters);
+  $("workspaceAlertMinSeverity").addEventListener("input", refreshAlertFilters);
+  $("workspaceAlertMinScore").addEventListener("input", refreshAlertFilters);
+  $("workspaceAlertSort").addEventListener("change", refreshAlertFilters);
   async function updateVisibleAlerts(status) {
     const ids = state.alerts.map((a) => a.id).filter(Boolean).slice(0, 50);
     if (!ids.length) return;

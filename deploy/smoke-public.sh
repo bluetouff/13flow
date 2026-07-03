@@ -209,6 +209,11 @@ if fetch "/pro/workspace" "$pro_workspace_page"; then
     && grep -q "alert_policy: {enabled: alertEnabled" "$pro_workspace_page" \
     && grep -q "workspace/overview" "$pro_workspace_page" \
     && grep -q "workspaceAlertStatus" "$pro_workspace_page" \
+    && grep -q "workspaceAlertTicker" "$pro_workspace_page" \
+    && grep -q "workspaceAlertMinSeverity" "$pro_workspace_page" \
+    && grep -q "workspaceAlertMinScore" "$pro_workspace_page" \
+    && grep -q "workspaceAlertSort" "$pro_workspace_page" \
+    && grep -q "visibleAlerts" "$pro_workspace_page" \
     && grep -q "Ack visible" "$pro_workspace_page" \
     && grep -q "Dismiss visible" "$pro_workspace_page" \
     && grep -q "Alert Details" "$pro_workspace_page" \

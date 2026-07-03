@@ -399,6 +399,12 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/api/pro/v1\" + path" in pro_workspace_page
         assert "api(\"/workspace/overview\")" in pro_workspace_page
         assert "workspaceAlertStatus" in pro_workspace_page
+        assert "workspaceAlertTicker" in pro_workspace_page
+        assert "workspaceAlertMinSeverity" in pro_workspace_page
+        assert "workspaceAlertMinScore" in pro_workspace_page
+        assert "workspaceAlertSort" in pro_workspace_page
+        assert "visibleAlerts" in pro_workspace_page
+        assert "showing=${esc(number(visible.length))}" in pro_workspace_page
         assert "Ack visible" in pro_workspace_page
         assert "Dismiss visible" in pro_workspace_page
         assert "workspaceAckAll" in pro_workspace_page
