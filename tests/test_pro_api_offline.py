@@ -82,6 +82,31 @@ def test_pro_api_responses_are_not_cacheable(monkeypatch):
         assert {"Authorization", "X-13FLOW-Key"} <= vary
 
 
+def test_pro_onboarding_self_diagnostic_redacts_token(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        c, token, key, pro_db = _client(
+            monkeypatch, d, scopes=("funds:read", "quality:read", "workspace:write"),
+        )
+        r = c.get("/api/pro/v1/onboarding", headers={"Authorization": "Bearer " + token})
+        assert r.status_code == 200
+        payload = r.get_json()
+        assert payload["meta"]["api"] == "13flow-pro"
+        assert payload["key"]["id"] == key.key_id
+        assert payload["key"]["label"] == "Test Institution"
+        assert payload["diagnostic"]["status"] == "ready"
+        assert payload["diagnostic"]["token_echoed"] is False
+        assert payload["diagnostic"]["workspace_enabled"] is True
+        assert payload["diagnostic"]["quality_enabled"] is True
+        assert payload["diagnostic"]["self_serve_checkout"] is False
+        checks = {item["id"]: item for item in payload["endpoints"]["checks"]}
+        assert checks["workspace_report"]["available"] is True
+        assert checks["workspace_export"]["required_scope"] == "workspace:write"
+        assert "validated alpha" in payload["truth_boundary"]["not_claimed"]
+        assert "Authorization: Bearer <token>" in payload["security"]["credential_headers"]
+        assert payload["security"]["token_in_url_allowed"] is False
+        assert token not in str(payload)
+
+
 def test_pro_api_fund_detail_is_self_describing(monkeypatch):
     with tempfile.TemporaryDirectory() as d:
         c, token, key, pro_db = _client(monkeypatch, d)
@@ -137,6 +162,7 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         assert r.status_code == 200
         doc = r.get_json()
         assert doc["openapi"].startswith("3.")
+        assert "/api/pro/v1/onboarding" in doc["paths"]
         assert "/api/pro/v1/fund/{cik}" in doc["paths"]
         assert "/api/pro/v1/watchlist" in doc["paths"]
         assert "/api/pro/v1/watchlist/discover" in doc["paths"]

@@ -704,6 +704,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "get": {"security": security, "summary": "Validate an API key",
                             "responses": {"200": {"description": "API key metadata"}}}
                 },
+                "/api/pro/v1/onboarding": {
+                    "get": {"security": security, "summary": "Authenticated Pro integration self-diagnostic",
+                            "responses": {"200": {"description": "Pro onboarding checklist"}}}
+                },
                 "/api/pro/v1/funds": {
                     "get": {"security": security, "summary": "List funds with AUM series and quality flags",
                             "responses": {"200": {"description": "Fund list"}}}
@@ -2660,6 +2664,117 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "rate_per_day": key.rate_per_day,
                 },
                 "workspace_limits": _pro_workspace_limits_payload(),
+            })
+
+        @app.get("/api/pro/v1/onboarding")
+        @pro_required("funds:read")
+        def pro_onboarding_ep():
+            key = request.pro_api_key
+            scopes = set(key.scopes)
+            workspace_enabled = "workspace:write" in scopes
+            quality_enabled = "quality:read" in scopes
+            base_url = request.url_root.rstrip("/") + "/api/pro/v1"
+            endpoint_checks = [
+                {
+                    "id": "status",
+                    "method": "GET",
+                    "path": "/status",
+                    "available": True,
+                    "required_scope": "funds:read",
+                },
+                {
+                    "id": "funds",
+                    "method": "GET",
+                    "path": "/funds",
+                    "available": True,
+                    "required_scope": "funds:read",
+                },
+                {
+                    "id": "data_quality",
+                    "method": "GET",
+                    "path": "/data-quality",
+                    "available": quality_enabled,
+                    "required_scope": "quality:read",
+                },
+                {
+                    "id": "workspace_overview",
+                    "method": "GET",
+                    "path": "/workspace/overview",
+                    "available": workspace_enabled,
+                    "required_scope": "workspace:write",
+                },
+                {
+                    "id": "workspace_report",
+                    "method": "GET",
+                    "path": "/workspace/report",
+                    "available": workspace_enabled,
+                    "required_scope": "workspace:write",
+                },
+                {
+                    "id": "workspace_export",
+                    "method": "GET",
+                    "path": "/workspace/export",
+                    "available": workspace_enabled,
+                    "required_scope": "workspace:write",
+                },
+            ]
+            next_actions = [
+                "Store the token server-side or in a secret manager; never place it in a URL.",
+                "Run the status check and confirm the returned key id matches your onboarding note.",
+                "Start with bounded read calls before enabling scheduled workspace snapshots.",
+                "Keep the validation boundary visible: 13FLOW does not claim validated alpha.",
+            ]
+            if workspace_enabled:
+                next_actions.append("Create a first workspace watchlist and snapshot it manually before scheduling alerts.")
+            else:
+                next_actions.append("Ask the operator to add workspace:write before using saved watchlists, reports or exports.")
+            return jsonify({
+                "meta": {
+                    "api": "13flow-pro",
+                    "version": "v1",
+                    "git_sha": _git_sha(),
+                    "generated_at": _now_iso(),
+                    "workspace_scope": "api_key",
+                },
+                "key": {
+                    "id": key.key_id,
+                    "label": key.label,
+                    "tier": key.tier,
+                    "scopes": list(key.scopes),
+                    "rate_per_min": key.rate_per_min,
+                    "rate_per_day": key.rate_per_day,
+                },
+                "diagnostic": {
+                    "status": "ready",
+                    "token_echoed": False,
+                    "workspace_enabled": workspace_enabled,
+                    "quality_enabled": quality_enabled,
+                    "self_serve_checkout": False,
+                    "human_review_required_for_routine_publication": False,
+                },
+                "limits": _pro_workspace_limits_payload(),
+                "endpoints": {
+                    "base_url": base_url,
+                    "openapi": f"{base_url}/openapi.json",
+                    "checks": endpoint_checks,
+                },
+                "quick_checks": [
+                    f"curl -fsS {base_url}/status -H 'Authorization: Bearer $PRO_TOKEN'",
+                    f"curl -fsS {base_url}/funds -H 'Authorization: Bearer $PRO_TOKEN'",
+                    f"curl -fsS {base_url}/workspace/overview -H 'Authorization: Bearer $PRO_TOKEN'",
+                ],
+                "next_actions": next_actions,
+                "security": {
+                    "credential_headers": ["Authorization: Bearer <token>", "X-13FLOW-Key: <token>"],
+                    "token_in_url_allowed": False,
+                    "browser_storage": "sessionStorage only for the optional cockpit UI; server integrations should use secret storage",
+                    "audit": "accepted, denied and rate-limited Pro API requests create audit rows",
+                },
+                "truth_boundary": {
+                    "source": "SEC EDGAR-derived filings",
+                    "not_investment_advice": True,
+                    "not_claimed": ["validated alpha", "complete shorts", "real-time holdings"],
+                },
             })
 
         @app.get("/api/pro/v1/funds")

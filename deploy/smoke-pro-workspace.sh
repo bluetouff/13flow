@@ -102,6 +102,32 @@ else
   bad "Pro status valid key" "curl failed"
 fi
 
+onboarding="$tmpdir/onboarding.json"
+if curl_pro GET "/api/pro/v1/onboarding" "$onboarding"; then
+  json_check "Pro onboarding self-diagnostic" "$onboarding" "
+key = data.get('key') or {}
+diag = data.get('diagnostic') or {}
+checks = {item.get('id'): item for item in ((data.get('endpoints') or {}).get('checks') or [])}
+security = data.get('security') or {}
+truth = data.get('truth_boundary') or {}
+raw = str(data)
+ok = (
+    data.get('meta', {}).get('api') == '13flow-pro'
+    and key.get('id')
+    and diag.get('status') == 'ready'
+    and diag.get('token_echoed') is False
+    and diag.get('workspace_enabled') is True
+    and checks.get('workspace_report', {}).get('available') is True
+    and security.get('token_in_url_allowed') is False
+    and 'validated alpha' in (truth.get('not_claimed') or [])
+    and '$PRO_TOKEN' not in raw
+)
+msg = str(data)[:1000]
+"
+else
+  bad "Pro onboarding self-diagnostic" "curl failed"
+fi
+
 create_body='{"name":"Codex smoke workspace","tickers":["AAPL","MSFT"],"filters":{"action":"alert","min_score":30},"alert_policy":{"enabled":false,"frequency":"manual"},"notes":"temporary smoke test"}'
 created="$tmpdir/watchlist-created.json"
 if curl_pro POST "/api/pro/v1/workspace/watchlists" "$created" "$create_body"; then
