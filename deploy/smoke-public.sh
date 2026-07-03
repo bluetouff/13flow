@@ -211,6 +211,8 @@ if fetch "/pro/workspace" "$pro_workspace_page"; then
     && grep -q "workspaceAlertStatus" "$pro_workspace_page" \
     && grep -q "Ack visible" "$pro_workspace_page" \
     && grep -q "Dismiss visible" "$pro_workspace_page" \
+    && grep -q "Alert Details" "$pro_workspace_page" \
+    && grep -q "data-alert-detail" "$pro_workspace_page" \
     && grep -q 'method: "PATCH"' "$pro_workspace_page" \
     && grep -q 'method: "PUT"' "$pro_workspace_page" \
     && ! grep -qi "localStorage" "$pro_workspace_page" \

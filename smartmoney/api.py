@@ -4613,8 +4613,12 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 .workspace-form-head h2{margin:0}
 .workspace-toggle{display:flex!important;align-items:center;gap:8px;text-transform:none!important;letter-spacing:0!important;font-family:var(--sans)!important;font-size:13px!important;color:var(--muted)!important}
 .workspace-toggle input{width:auto!important}
+.workspace-detail-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+.workspace-detail-grid div{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);padding:10px;min-width:0}
+.workspace-detail-grid b{display:block;font-family:var(--mono);font-size:16px;line-height:1.1}
+.workspace-detail-grid span{display:block;color:var(--faint);font-size:11px;margin-top:4px}
 @media(max-width:980px){.workspace-grid,.workspace-bar{grid-template-columns:1fr}.workspace-kpis{grid-template-columns:1fr 1fr}.workspace-form{grid-template-columns:1fr}}
-@media(max-width:700px){.workspace-kpis{grid-template-columns:1fr}}
+@media(max-width:700px){.workspace-kpis,.workspace-detail-grid{grid-template-columns:1fr}}
 </style>
 <section class="doc-hero"><div class="doc-copy"><div class="kicker">Pro workspace</div>
 <h1>Workspace Cockpit</h1>
@@ -4674,6 +4678,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         <div id="workspaceAlerts" class="workspace-table"><p class="workspace-empty">No alerts loaded.</p></div>
       </section>
       <section class="workspace-panel">
+        <h2>Alert Details</h2>
+        <div id="workspaceAlertDetail" class="workspace-list"><p class="workspace-empty">Select an alert.</p></div>
+      </section>
+      <section class="workspace-panel">
         <h2>History</h2>
         <div id="workspaceHistory" class="workspace-table"><p class="workspace-empty">No history loaded.</p></div>
       </section>
@@ -4691,7 +4699,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
   const $ = (id) => document.getElementById(id);
   const app = document.querySelector("[data-pro-workspace-app]");
   if (!app) return;
-  const state = {token: sessionStorage.getItem(TOKEN_KEY) || "", selectedId: "", editingId: "", watchlists: [], alerts: [], alertStatus: "open"};
+  const state = {token: sessionStorage.getItem(TOKEN_KEY) || "", selectedId: "", editingId: "", selectedAlertId: "", watchlists: [], alerts: [], alertStatus: "open"};
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const setStatus = (msg, bad=false) => {
     const node = $("workspaceStatus");
@@ -4770,20 +4778,44 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
   }
   function renderAlerts(items=[], summary={}) {
     state.alerts = items;
+    if (!items.some((a) => a.id === state.selectedAlertId)) state.selectedAlertId = items[0]?.id || "";
     const byStatus = summary.by_status || {};
     if (!items.length) {
       $("workspaceAlerts").innerHTML = `<p class="workspace-empty">No ${esc(state.alertStatus)} alert.</p>`;
+      renderAlertDetail(null);
       return;
     }
     $("workspaceAlerts").innerHTML = `<p class="workspace-mini">open=${esc(number(byStatus.open))} ack=${esc(number(byStatus.acknowledged))} dismissed=${esc(number(byStatus.dismissed))}</p>
       <table><thead><tr><th>Ticker</th><th>Priority</th><th>Status</th><th>Action</th><th>Seen</th><th></th></tr></thead><tbody>${items.map((a) => `<tr>
       <td><a href="/stocks/${esc(a.ticker)}">${esc(a.ticker)}</a></td><td class="num">${esc(a.severity)}</td><td><span class="pill">${esc(a.status)}</span></td><td>${esc(a.action)}</td><td class="workspace-mini">${esc(a.last_seen_at)}</td>
       <td><div class="workspace-actions">
+        <button class="workspace-button primary" type="button" data-alert-detail="${esc(a.id)}">Details</button>
         <button class="workspace-button" type="button" data-alert="${esc(a.id)}" data-status="acknowledged">Ack</button>
         <button class="workspace-button warn" type="button" data-alert="${esc(a.id)}" data-status="dismissed">Dismiss</button>
         <button class="workspace-button" type="button" data-alert="${esc(a.id)}" data-status="open">Reopen</button>
       </div></td>
     </tr>`).join("")}</tbody></table>`;
+    renderAlertDetail(state.alerts.find((a) => a.id === state.selectedAlertId) || items[0]);
+  }
+  function renderAlertDetail(alert) {
+    if (!alert) {
+      $("workspaceAlertDetail").innerHTML = '<p class="workspace-empty">Select an alert.</p>';
+      return;
+    }
+    const reason = alert.reason || {};
+    const summary = reason.movement_summary || {};
+    const triggers = reason.triggers || [];
+    const moves = reason.movement_codes || [];
+    $("workspaceAlertDetail").innerHTML = `<div class="workspace-detail-grid">
+      <div><b>${esc(alert.ticker)}</b><span>Ticker</span></div>
+      <div><b>${esc(reason.score ?? "-")}</b><span>Score</span></div>
+      <div><b>${esc(alert.severity)}</b><span>Priority</span></div>
+      <div><b>${esc(reason.confidence || "-")}</b><span>Confidence</span></div>
+    </div>
+    <p>${moves.map((x) => `<span class="pill">${esc(x)}</span>`).join("") || '<span class="pill">no move code</span>'}</p>
+    <p class="workspace-mini">holders=${esc(number(summary.holder_count))} buyers=${esc(number(summary.buyers_count))} sellers=${esc(number(summary.sellers_count))} new=${esc(number(summary.new_positions))} exits=${esc(number(summary.exits))}</p>
+    <div class="workspace-list">${triggers.length ? triggers.map((t) => `<article class="workspace-row"><h3>${esc(t.code || t.severity || "trigger")}</h3><p>${esc(t.detail || "")}</p><p><span class="pill">${esc(t.severity || "-")}</span></p></article>`).join("") : '<p class="workspace-empty">No trigger detail.</p>'}</div>
+    <p class="workspace-mini">watchlist=${esc(alert.watchlist_id)} snapshot=${esc(alert.snapshot_id)} latest_13f=${esc(reason.latest_13f_quarter || "-")}</p>`;
   }
   function renderActivity(items=[]) {
     $("workspaceActivity").innerHTML = items.length ? items.map((e) => `<article class="workspace-row">
@@ -4917,6 +4949,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     renderWatchlists([]);
     renderSignals({items: []});
     renderAlerts([]);
+    renderAlertDetail(null);
     renderActivity([]);
     renderHistory([]);
     setStatus("Disconnected");
@@ -4966,6 +4999,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
       if (button.dataset.action === "edit") editWatchlist(button.dataset.id);
       if (button.dataset.action === "snapshot") await snapshot(button.dataset.id);
       if (button.dataset.action === "delete") await deleteWatchlist(button.dataset.id);
+      if (button.dataset.alertDetail) {
+        state.selectedAlertId = button.dataset.alertDetail;
+        renderAlertDetail(state.alerts.find((a) => a.id === state.selectedAlertId));
+      }
       if (button.dataset.alert) {
         await api(`/workspace/alerts/${button.dataset.alert}`, {method: "PATCH", body: JSON.stringify({status: button.dataset.status})});
         await refreshAll();

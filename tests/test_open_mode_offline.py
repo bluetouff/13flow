@@ -403,6 +403,11 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Dismiss visible" in pro_workspace_page
         assert "workspaceAckAll" in pro_workspace_page
         assert "workspaceDismissAll" in pro_workspace_page
+        assert "Alert Details" in pro_workspace_page
+        assert "workspaceAlertDetail" in pro_workspace_page
+        assert "data-alert-detail" in pro_workspace_page
+        assert "renderAlertDetail" in pro_workspace_page
+        assert "watchlist=${esc(alert.watchlist_id)}" in pro_workspace_page
         assert "status=${encodeURIComponent(state.alertStatus)}&limit=50" in pro_workspace_page
         assert "updateVisibleAlerts(\"acknowledged\")" in pro_workspace_page
         assert "updateVisibleAlerts(\"dismissed\")" in pro_workspace_page
