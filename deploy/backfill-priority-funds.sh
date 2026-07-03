@@ -85,14 +85,15 @@ systemctl restart "$SERVICE"
 sleep 1
 curl -fsS http://127.0.0.1:8000/api/live-status | "$VENV_PY" -m json.tool >/tmp/13flow-live-status.json
 curl -fsS http://127.0.0.1:8000/api/data-quality | "$VENV_PY" -m json.tool >/tmp/13flow-data-quality.json
-"$VENV_PY" - <<'PY'
+MIN_FUNDS="$MIN_FUNDS" "$VENV_PY" - <<'PY'
 import json
+import os
 status = json.load(open("/tmp/13flow-live-status.json"))
 quality = json.load(open("/tmp/13flow-data-quality.json"))
 print("    funds:", status["counts"]["funds"])
 print("    latest_13f_quarter:", status.get("latest_13f_quarter"))
 print("    quality:", quality["summary"])
-min_funds = int("'"$MIN_FUNDS"'")
+min_funds = int(os.environ["MIN_FUNDS"])
 if status["counts"]["funds"] < min_funds:
     raise SystemExit(f"expected at least {min_funds} public funds after priority backfill")
 if status.get("uses_synthetic_data"):
