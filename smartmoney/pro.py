@@ -100,6 +100,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_saved_workspace_alerts_current
     ON saved_workspace_alerts(key_id, watchlist_id, ticker, action);
 CREATE INDEX IF NOT EXISTS ix_saved_workspace_alerts_key_status_last_seen
     ON saved_workspace_alerts(key_id, status, last_seen_at DESC);
+
+CREATE TABLE IF NOT EXISTS saved_workspace_activity (
+    id           TEXT PRIMARY KEY,
+    key_id       TEXT NOT NULL,
+    event_type   TEXT NOT NULL,
+    entity_type  TEXT NOT NULL,
+    entity_id    TEXT NOT NULL,
+    title        TEXT NOT NULL,
+    detail_json  TEXT NOT NULL DEFAULT '{}',
+    created_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_saved_workspace_activity_key_created
+    ON saved_workspace_activity(key_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS ix_saved_workspace_activity_key_event_created
+    ON saved_workspace_activity(key_id, event_type, created_at DESC);
 """
 
 
@@ -641,12 +656,100 @@ class ProAPIStore:
                WHERE key_id=?""",
             (key_id,),
         ).fetchone()
+        activity = self.conn.execute(
+            """SELECT COUNT(*) AS c, MAX(created_at) AS latest
+               FROM saved_workspace_activity
+               WHERE key_id=?""",
+            (key_id,),
+        ).fetchone()
         return {
             "watchlists": int((watchlists or {})["c"] or 0),
             "signal_snapshots": int((snapshots or {})["c"] or 0),
             "latest_snapshot_at": (snapshots or {})["latest"],
             "alerts": self.workspace_alert_summary(key_id),
+            "activity_events": int((activity or {})["c"] or 0),
+            "latest_activity_at": (activity or {})["latest"],
         }
+
+    def _workspace_activity_row(self, row) -> dict:
+        return {
+            "id": row["id"],
+            "event_type": row["event_type"],
+            "entity_type": row["entity_type"],
+            "entity_id": row["entity_id"],
+            "title": row["title"],
+            "detail": json.loads(row["detail_json"] or "{}"),
+            "created_at": row["created_at"],
+        }
+
+    def record_workspace_activity(
+        self,
+        key_id: str,
+        event_type: str,
+        entity_type: str,
+        entity_id: str,
+        title: str,
+        detail: Optional[dict] = None,
+        max_events: int = 500,
+    ) -> dict:
+        event_id = secrets.token_hex(8)
+        now = _now().isoformat(timespec="microseconds")
+        keep = max(50, min(2000, int(max_events or 500)))
+        with self.conn:
+            self.conn.execute(
+                """INSERT INTO saved_workspace_activity(
+                       id,key_id,event_type,entity_type,entity_id,title,detail_json,created_at
+                   ) VALUES (?,?,?,?,?,?,?,?)""",
+                (
+                    event_id, key_id, str(event_type)[:80], str(entity_type)[:80],
+                    str(entity_id)[:120], str(title)[:240],
+                    _json_compact(detail or {}), now,
+                ),
+            )
+            self.conn.execute(
+                """DELETE FROM saved_workspace_activity
+                   WHERE key_id=?
+                     AND id NOT IN (
+                         SELECT id FROM saved_workspace_activity
+                         WHERE key_id=?
+                         ORDER BY created_at DESC, id DESC
+                         LIMIT ?
+                     )""",
+                (key_id, key_id, keep),
+            )
+        row = self.conn.execute(
+            "SELECT * FROM saved_workspace_activity WHERE key_id=? AND id=?",
+            (key_id, event_id),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("workspace activity event was not persisted")
+        return self._workspace_activity_row(row)
+
+    def list_workspace_activity(
+        self,
+        key_id: str,
+        limit: int = 50,
+        event_type: Optional[str] = None,
+        entity_type: Optional[str] = None,
+    ) -> list[dict]:
+        safe_limit = max(1, min(100, int(limit or 50)))
+        clauses = ["key_id=?"]
+        params: list[object] = [key_id]
+        if event_type:
+            clauses.append("event_type=?")
+            params.append(event_type)
+        if entity_type:
+            clauses.append("entity_type=?")
+            params.append(entity_type)
+        params.append(safe_limit)
+        rows = self.conn.execute(
+            f"""SELECT * FROM saved_workspace_activity
+                WHERE {' AND '.join(clauses)}
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?""",
+            tuple(params),
+        ).fetchall()
+        return [self._workspace_activity_row(r) for r in rows]
 
     def prune_audit(self, retention_days: int) -> dict:
         days = int(retention_days)

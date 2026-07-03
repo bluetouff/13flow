@@ -135,6 +135,7 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         assert "/api/pro/v1/watchlist" in doc["paths"]
         assert "/api/pro/v1/watchlist/discover" in doc["paths"]
         assert "/api/pro/v1/workspace/overview" in doc["paths"]
+        assert "/api/pro/v1/workspace/activity" in doc["paths"]
         assert "/api/pro/v1/workspace/alerts" in doc["paths"]
         assert "/api/pro/v1/workspace/alerts/{alert_id}" in doc["paths"]
         assert "/api/pro/v1/workspace/watchlists" in doc["paths"]
@@ -259,6 +260,16 @@ def test_pro_workspace_watchlists_are_saved_per_api_key(monkeypatch):
         assert created["filters"]["action"] == ["alert"]
         assert created["alert_policy"] == {"enabled": True, "frequency": "daily"}
 
+        activity = c.get(
+            "/api/pro/v1/workspace/activity?limit=5",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert activity.status_code == 200
+        payload = activity.get_json()
+        assert payload["activity"][0]["event_type"] == "watchlist.created"
+        assert payload["activity"][0]["entity_id"] == watchlist_id
+        assert payload["activity"][0]["detail"]["tickers"] == ["AAPL", "MSFT"]
+
         listed = c.get(
             "/api/pro/v1/workspace/watchlists",
             headers={"Authorization": "Bearer " + token},
@@ -327,6 +338,16 @@ def test_pro_workspace_watchlists_are_saved_per_api_key(monkeypatch):
         assert payload["delta"]["removed_tickers"] == []
         assert payload["delta"]["changed_actions"] == []
 
+        snapshot_activity = c.get(
+            "/api/pro/v1/workspace/activity?event_type=signals.snapshot",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert snapshot_activity.status_code == 200
+        payload = snapshot_activity.get_json()
+        assert len(payload["activity"]) == 2
+        assert payload["activity"][0]["detail"]["signal_count"] >= 1
+        assert payload["activity"][0]["detail"]["alerts"]["candidates"] >= 1
+
         alerts = c.get(
             "/api/pro/v1/workspace/alerts?limit=10",
             headers={"Authorization": "Bearer " + token},
@@ -359,6 +380,15 @@ def test_pro_workspace_watchlists_are_saved_per_api_key(monkeypatch):
         payload = acknowledged_list.get_json()
         assert first_alert["id"] in {a["id"] for a in payload["alerts"]}
 
+        alert_activity = c.get(
+            "/api/pro/v1/workspace/activity?event_type=alert.acknowledged",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert alert_activity.status_code == 200
+        payload = alert_activity.get_json()
+        assert payload["activity"][0]["entity_id"] == first_alert["id"]
+        assert payload["activity"][0]["detail"]["ticker"] == first_alert["ticker"]
+
         overview = c.get(
             "/api/pro/v1/workspace/overview",
             headers={"Authorization": "Bearer " + token},
@@ -369,6 +399,8 @@ def test_pro_workspace_watchlists_are_saved_per_api_key(monkeypatch):
         assert payload["summary"]["watchlists"] == 1
         assert payload["summary"]["signal_snapshots"] == 2
         assert payload["summary"]["alerts"]["by_status"]["acknowledged"] >= 1
+        assert payload["summary"]["activity_events"] >= 4
+        assert payload["recent_activity"]
         assert payload["watchlists"][0]["id"] == watchlist_id
 
         other_alerts = c.get(
@@ -421,6 +453,15 @@ def test_pro_workspace_watchlists_are_saved_per_api_key(monkeypatch):
         assert updated["tickers"] == ["MSFT"]
         assert updated["alert_policy"] == {"enabled": False, "frequency": "weekly"}
 
+        watchlist_activity = c.get(
+            "/api/pro/v1/workspace/activity?entity_type=watchlist&limit=10",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert watchlist_activity.status_code == 200
+        assert "watchlist.updated" in {
+            event["event_type"] for event in watchlist_activity.get_json()["activity"]
+        }
+
         deleted = c.delete(
             f"/api/pro/v1/workspace/watchlists/{watchlist_id}",
             headers={"Authorization": "Bearer " + token},
@@ -432,6 +473,21 @@ def test_pro_workspace_watchlists_are_saved_per_api_key(monkeypatch):
             headers={"Authorization": "Bearer " + token},
         )
         assert gone.status_code == 404
+
+        activity_after_delete = c.get(
+            "/api/pro/v1/workspace/activity?entity_type=watchlist&limit=10",
+            headers={"Authorization": "Bearer " + token},
+        )
+        assert activity_after_delete.status_code == 200
+        event_types = {event["event_type"] for event in activity_after_delete.get_json()["activity"]}
+        assert {"watchlist.created", "watchlist.updated", "watchlist.deleted"} <= event_types
+
+        other_activity = c.get(
+            "/api/pro/v1/workspace/activity",
+            headers={"Authorization": "Bearer " + other_token},
+        )
+        assert other_activity.status_code == 200
+        assert other_activity.get_json()["activity"] == []
 
 
 def test_pro_api_rate_limit_is_persistent(monkeypatch):
