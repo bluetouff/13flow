@@ -2595,7 +2595,13 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         audit = health.get("audit") or {}
         critical: list[str] = []
         warnings: list[str] = []
+        notices: list[str] = []
         actions: list[str] = []
+        quality_gate_status = quality.get("quality_gate_status")
+        trusted_funds = int(quality.get("trusted_funds") or 0)
+        signal_eligible_funds = int(quality.get("signal_eligible_funds") or 0)
+        degraded_funds = int(quality.get("degraded_funds") or 0)
+        quarantined_funds = int(quality.get("quarantined_funds") or 0)
 
         if live.get("public_state") != "LIVE":
             critical.append("public_state is not LIVE")
@@ -2603,14 +2609,26 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             critical.append("synthetic data is enabled")
         if int(counts.get("funds") or 0) <= 0:
             critical.append("no public fund coverage")
-        if int(quality.get("trusted_funds") or 0) <= 0:
+        if trusted_funds <= 0:
             critical.append("no trusted funds available for signals")
         if int(keys.get("active") or 0) <= 0:
             critical.append("no active Pro API key")
 
-        if quality.get("quality_gate_status") not in {None, "ok"}:
-            warnings.append(f"quality gate status is {quality.get('quality_gate_status')}")
-        if int(quality.get("quarantined_funds") or 0) > 0:
+        stale_only_fail_closed = (
+            quality_gate_status == "gated"
+            and trusted_funds > 0
+            and signal_eligible_funds > 0
+            and degraded_funds == 0
+            and quarantined_funds == 0
+        )
+        if quality_gate_status not in {None, "ok"}:
+            if stale_only_fail_closed:
+                notices.append("quality gate is gated because stale funds are excluded fail-closed")
+            else:
+                warnings.append(f"quality gate status is {quality_gate_status}")
+        if degraded_funds > 0:
+            warnings.append("one or more funds are degraded by the quality gate")
+        if quarantined_funds > 0:
             warnings.append("one or more funds are quarantined by the quality gate")
         if int(audit.get("server_errors") or 0) > 0:
             warnings.append("Pro API audit contains server errors")
@@ -2636,7 +2654,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             actions.append("Rotate due Pro API keys and confirm replacement tokens with customers.")
         if int(audit.get("server_errors") or 0) > 0:
             actions.append("Inspect recent Pro 5xx routes before expanding customer traffic.")
-        if quality.get("quality_gate_status") not in {None, "ok"}:
+        if quality_gate_status not in {None, "ok"}:
             actions.append("Check /api/data-quality and keep quality disclosures visible.")
         actions.extend([
             "Run deploy/smoke-public.sh after each public deploy.",
@@ -2651,6 +2669,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "status": status,
                 "critical": critical,
                 "warnings": warnings,
+                "notices": notices,
                 "operator_actions": actions,
             },
             "public_data": {
@@ -3741,6 +3760,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "quality_gate_status": gate["summary"]["status"],
                 "trusted_funds": gate["summary"]["trusted_funds"],
                 "signal_eligible_funds": gate["summary"]["signal_eligible_funds"],
+                "degraded_funds": gate["summary"]["degraded_funds"],
                 "quarantined_funds": gate["summary"]["quarantined_funds"],
             },
             "public_endpoints": ["/api/live-status", "/api/version", "/api/funds", "/api/data-quality"],
@@ -6308,6 +6328,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     </article>` +
       ((verdict.critical || []).map((x) => `<article class="admin-row"><h3>Critical</h3><p>${esc(x)}</p></article>`).join("")) +
       ((verdict.warnings || []).map((x) => `<article class="admin-row"><h3>Warning</h3><p>${esc(x)}</p></article>`).join("")) +
+      ((verdict.notices || []).map((x) => `<article class="admin-row"><h3>Notice</h3><p>${esc(x)}</p></article>`).join("")) +
       (actions.length ? actions.slice(0, 8).map((x) => `<article class="admin-row"><h3>Action</h3><p>${esc(x)}</p></article>`).join("") : '<p class="admin-empty">No operator action.</p>');
   }
   function renderHealth(payload={}) {

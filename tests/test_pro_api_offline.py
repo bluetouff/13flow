@@ -811,6 +811,57 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
         assert "pytest" not in ops_body
 
 
+def test_pro_admin_ops_treats_stale_only_quality_gate_as_notice(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        data_db = str(Path(d) / "ops-stale-data.db")
+        pro_db = str(Path(d) / "ops-stale-pro.db")
+        store = Store(data_db)
+        try:
+            _save(store, "0000000001", "Trusted Fund", "PM1", "T1", "13F-HR",
+                  "2026-02-14", "2025-12-31",
+                  [("APPLE INC", AAPL, 1_000, 100, "")])
+            _save(store, "0000000001", "Trusted Fund", "PM1", "T2", "13F-HR",
+                  "2026-05-15", "2026-03-31",
+                  [("APPLE INC", AAPL, 1_100, 110, "")])
+            _save(store, "0000000002", "Stale Fund", "PM2", "S1", "13F-HR",
+                  "2025-11-14", "2025-09-30",
+                  [("MICROSOFT", MSFT, 1_000, 50, "")])
+        finally:
+            store.close()
+        with ProAPIStore(pro_db) as pro:
+            admin_token, admin_key = pro.create_key(
+                "Ops admin", scopes=("admin:read",),
+                rate_per_min=120, rate_per_day=10000,
+            )
+        monkeypatch.setenv("SMARTMONEY_PRO_API", "1")
+        monkeypatch.setenv("SMARTMONEY_PRO_DB", pro_db)
+        c = create_app(data_db, secure_cookies=False, open_mode=True).test_client()
+
+        r = c.get(
+            "/api/pro/v1/admin/ops",
+            headers={"Authorization": "Bearer " + admin_token},
+        )
+        assert r.status_code == 200
+        payload = r.get_json()
+        assert payload["meta"]["admin_key_id"] == admin_key.key_id
+        ops = payload["ops"]
+        assert ops["status"] == "ok"
+        assert ops["public_data"]["quality_summary"]["quality_gate_status"] == "gated"
+        assert ops["public_data"]["quality_summary"]["trusted_funds"] == 1
+        assert ops["public_data"]["quality_summary"]["signal_eligible_funds"] == 1
+        assert ops["public_data"]["quality_summary"]["stale_funds"] == 1
+        assert ops["public_data"]["quality_summary"]["degraded_funds"] == 0
+        assert ops["public_data"]["quality_summary"]["quarantined_funds"] == 0
+        assert ops["verdict"]["critical"] == []
+        assert ops["verdict"]["warnings"] == []
+        assert ops["verdict"]["notices"] == [
+            "quality gate is gated because stale funds are excluded fail-closed"
+        ]
+        assert "Check /api/data-quality and keep quality disclosures visible." in (
+            ops["verdict"]["operator_actions"]
+        )
+
+
 def test_pro_api_audit_uses_trusted_proxy_xff(monkeypatch):
     with tempfile.TemporaryDirectory() as d:
         c, token, key, pro_db = _client(monkeypatch, d)
