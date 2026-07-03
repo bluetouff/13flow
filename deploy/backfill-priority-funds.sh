@@ -21,6 +21,7 @@ WEB_USER=${WEB_USER:-flowapp}
 MAXQ=${MAXQ:-8}
 FORCE=${FORCE:-0}
 REPORT_DATE=${REPORT_DATE:-}
+MIN_FUNDS=${MIN_FUNDS:-45}
 SMARTMONEY_EDGAR_RATE_PER_SEC=${SMARTMONEY_EDGAR_RATE_PER_SEC:-0.5}
 SMARTMONEY_SYNC_SLEEP_SEC=${SMARTMONEY_SYNC_SLEEP_SEC:-45}
 FUND_LABELS=${FUND_LABELS:-"Renaissance Tech,Citadel Advisors,Millennium,AQR Capital,Two Sigma,D. E. Shaw,Point72,Farallon"}
@@ -91,8 +92,9 @@ quality = json.load(open("/tmp/13flow-data-quality.json"))
 print("    funds:", status["counts"]["funds"])
 print("    latest_13f_quarter:", status.get("latest_13f_quarter"))
 print("    quality:", quality["summary"])
-if status["counts"]["funds"] < 46:
-    raise SystemExit("expected at least 46 funds after priority backfill")
+min_funds = int("'"$MIN_FUNDS"'")
+if status["counts"]["funds"] < min_funds:
+    raise SystemExit(f"expected at least {min_funds} public funds after priority backfill")
 if status.get("uses_synthetic_data"):
     raise SystemExit("synthetic data unexpectedly enabled")
 PY
