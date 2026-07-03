@@ -146,6 +146,23 @@ else
   bad "/readiness evidence page" "curl failed"
 fi
 
+buyer_pack_page="$tmpdir/buyer-pack.html"
+if fetch "/buyer-pack" "$buyer_pack_page"; then
+  grep -q "13FLOW Buyer Review Pack" "$buyer_pack_page" \
+    && grep -q "Proof Points" "$buyer_pack_page" \
+    && grep -q "Buyer Checklist" "$buyer_pack_page" \
+    && grep -q "Qualification Questions" "$buyer_pack_page" \
+    && grep -q "Terms Boundary" "$buyer_pack_page" \
+    && grep -q "/api/buyer-pack" "$buyer_pack_page" \
+    && grep -q "/pro/onboarding" "$buyer_pack_page" \
+    && grep -q "not a performance claim" "$buyer_pack_page" \
+    && ok "/buyer-pack review page" \
+    || bad "/buyer-pack review page" "missing buyer pack contract"
+  contains_none "/buyer-pack has no legacy/auth/checkout copy" "$buyer_pack_page" "${legacy_forbidden[@]}"
+else
+  bad "/buyer-pack review page" "curl failed"
+fi
+
 validation_page="$tmpdir/validation.html"
 if fetch "/validation" "$validation_page"; then
   grep -q "Current Confluence evidence pack" "$validation_page" \
@@ -205,6 +222,7 @@ if fetch "/pro" "$pro_page"; then
     && grep -q "Technical pilot review" "$pro_page" \
     && grep -q "Operator lead kit" "$pro_page" \
     && grep -q "not publicly quoted" "$pro_page" \
+    && grep -q "/buyer-pack" "$pro_page" \
     && grep -q "/pro/onboarding" "$pro_page" \
     && ! grep -q "490 EUR / month" "$pro_page" \
     && ok "/pro offer page" \
@@ -392,6 +410,30 @@ else
   bad "/api/commercial-readiness fetch" "curl failed"
 fi
 
+buyer_pack="$tmpdir/buyer-pack.json"
+if fetch "/api/buyer-pack" "$buyer_pack"; then
+  json_check "/api/buyer-pack contract" "$buyer_pack" "
+snapshot = data.get('snapshot') or {}
+terms = data.get('terms_boundary') or {}
+links = {item.get('href') for item in (data.get('evidence_links') or [])}
+ok = (
+    data.get('status') in {'controlled_pilot_ready', 'controlled_pilot_ready_with_disclosures'}
+    and data.get('sales_motion') == 'controlled_pilot_only'
+    and data.get('self_serve_checkout') is False
+    and data.get('public_quote_ready') is False
+    and int(snapshot.get('trusted_funds') or 0) > 0
+    and terms.get('operator_review_required') is True
+    and 'validated alpha' in (data.get('do_not_claim_yet') or [])
+    and '/pro/onboarding' in links
+    and '/api/commercial-readiness' in links
+    and any('Pro API keys are scoped' in item for item in (data.get('proof_points') or []))
+)
+msg = str(data)[:1000]
+"
+else
+  bad "/api/buyer-pack fetch" "curl failed"
+fi
+
 offer="$tmpdir/pro-offer.json"
 if fetch "/api/pro-offer" "$offer"; then
   json_check "/api/pro-offer packaging" "$offer" "
@@ -534,7 +576,7 @@ openapi="$tmpdir/_api_openapi.json"
 if [[ -s "$openapi" ]]; then
   json_check "/api/openapi.json public paths" "$openapi" "
 paths = data.get('paths') or {}
-required = ['/api/live-status', '/api/product-status', '/api/commercial-readiness', '/api/pro-offer', '/api/funds', '/api/watchlist/discover', '/api/mcp', '/api/methodology/confluence-v1']
+required = ['/api/live-status', '/api/product-status', '/api/commercial-readiness', '/api/buyer-pack', '/api/pro-offer', '/api/funds', '/api/watchlist/discover', '/api/mcp', '/api/methodology/confluence-v1']
 missing = [p for p in required if p not in paths]
 ok = not missing
 msg = 'missing paths: ' + ', '.join(missing)

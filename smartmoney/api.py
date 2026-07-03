@@ -593,6 +593,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                                 "responses": {"200": {"description": "Product status"}}}},
                 "/api/commercial-readiness": {"get": {"summary": "Commercial readiness checklist and sales boundary",
                                                        "responses": {"200": {"description": "Commercial readiness"}}}},
+                "/api/buyer-pack": {"get": {"summary": "Shareable buyer review pack",
+                                             "responses": {"200": {"description": "Buyer review pack"}}}},
                 "/api/pro-offer": {"get": {"summary": "Pro offer packaging and onboarding runbook",
                                            "responses": {"200": {"description": "Pro offer"}}}},
                 "/api/funds": {"get": {"summary": "List tracked funds with AUM series",
@@ -3818,6 +3820,87 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     def commercial_readiness_ep():
         return jsonify(commercial_readiness_payload())
 
+    def buyer_pack_payload() -> dict:
+        product = product_status_payload()
+        readiness = commercial_readiness_payload()
+        offer = pro_offer_payload()
+        snapshot = readiness.get("snapshot") or {}
+        quality = snapshot.get("quality_gate") or {}
+        validation = product.get("validation") or {}
+        artifact = validation.get("current_artifact") or {}
+        commercial = offer.get("commercial_model") or {}
+        return {
+            "app": "13flow",
+            "generated_at": _now_iso(),
+            "git_sha": _git_sha(),
+            "title": "13FLOW buyer review pack",
+            "status": readiness.get("status"),
+            "sales_motion": readiness.get("sales_motion"),
+            "public_quote_ready": readiness.get("public_quote_ready"),
+            "self_serve_checkout": readiness.get("self_serve_checkout"),
+            "one_liner": (
+                "Source-linked SEC EDGAR-derived 13F research surfaces, scoped Pro API "
+                "access, workspace tooling and explicit validation boundaries for a "
+                "controlled technical pilot."
+            ),
+            "audience": offer["offer"]["audience"],
+            "proof_points": [
+                "LIVE public EDGAR-derived data surface with synthetic mode disabled.",
+                "Trusted-fund quality gate and quarantined-fund exclusion are machine-readable.",
+                "Pro API keys are scoped, rate-limited, audited and no-store.",
+                "Workspace watchlists, snapshots, alerts, reports and exports are available behind Pro scopes.",
+                "MCP Pro tools fail closed without payment or a valid key.",
+                "Validation page separates mechanical evidence from alpha claims.",
+            ],
+            "snapshot": {
+                "public_state": snapshot.get("public_state"),
+                "data_as_of": snapshot.get("data_as_of"),
+                "latest_13f_quarter": snapshot.get("latest_13f_quarter"),
+                "funds": (snapshot.get("counts") or {}).get("funds"),
+                "trusted_funds": quality.get("trusted_funds"),
+                "signal_eligible_funds": quality.get("signal_eligible_funds"),
+                "quarantined_funds": quality.get("quarantined_funds"),
+                "review_items": quality.get("review_items"),
+                "validation_status": snapshot.get("validation_status"),
+                "artifact_rows": artifact.get("row_count"),
+                "artifact_tickers": artifact.get("ticker_count"),
+            },
+            "pilot_packages": commercial.get("recommended_packages") or [],
+            "buyer_checklist": offer["buyer_checklist"],
+            "qualification_questions": offer["sales_packet"]["qualification_questions"],
+            "pilot_handoff": offer["sales_packet"]["pilot_handoff"],
+            "evidence_links": [
+                {"label": "Commercial readiness", "href": "/api/commercial-readiness"},
+                {"label": "Product status", "href": "/api/product-status"},
+                {"label": "Validation boundary", "href": "/validation"},
+                {"label": "Public status", "href": "/status"},
+                {"label": "Pro offer", "href": "/api/pro-offer"},
+                {"label": "Pro OpenAPI", "href": "/api/pro/v1/openapi.json"},
+                {"label": "Onboarding diagnostic", "href": "/pro/onboarding"},
+                {"label": "Workspace cockpit", "href": "/pro/workspace"},
+            ],
+            "sell_now": readiness.get("sell_now") or [],
+            "do_not_claim_yet": readiness.get("do_not_claim_yet") or [],
+            "next_steps": [
+                "Review the evidence links and current validation boundary.",
+                "Answer the qualification questions and confirm expected request volume.",
+                "Run the public readiness and Pro OpenAPI checks.",
+                "Use /pro/onboarding with the issued key before wiring production code.",
+                "Start with a bounded technical pilot before any recurring access discussion.",
+            ],
+            "terms_boundary": {
+                "pricing": commercial.get("pricing_status"),
+                "redistribution": "not included without a custom agreement",
+                "investment_advice": False,
+                "managed_service_sla": False,
+                "operator_review_required": True,
+            },
+        }
+
+    @app.get("/api/buyer-pack")
+    def buyer_pack_ep():
+        return jsonify(buyer_pack_payload())
+
     @app.get("/status")
     def status_page():
         live = live_status_payload()
@@ -3981,6 +4064,61 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<a class=\"pill\" href=\"/validation\">Validation boundary</a></p>"
         )
         return _html_response("Commercial Readiness", body)
+
+    @app.get("/buyer-pack")
+    def buyer_pack_page():
+        payload = buyer_pack_payload()
+        snapshot = payload["snapshot"]
+        terms = payload["terms_boundary"]
+        proof_points = "".join(f"<li>{html_escape(item)}</li>" for item in payload["proof_points"])
+        checklist = "".join(f"<li>{html_escape(item)}</li>" for item in payload["buyer_checklist"])
+        questions = "".join(f"<li>{html_escape(item)}</li>" for item in payload["qualification_questions"])
+        handoff = "".join(f"<li>{html_escape(item)}</li>" for item in payload["pilot_handoff"])
+        next_steps = "".join(f"<li>{html_escape(item)}</li>" for item in payload["next_steps"])
+        do_not = "".join(f"<li>{html_escape(item)}</li>" for item in payload["do_not_claim_yet"])
+        evidence = "".join(
+            f"<li><a href=\"{html_escape(item['href'], quote=True)}\">{html_escape(item['label'])}</a></li>"
+            for item in payload["evidence_links"]
+        )
+        packages = "".join(
+            "<article class=\"card\">"
+            f"<h3>{html_escape(pkg.get('name') or 'Pilot')}</h3>"
+            f"<p>{html_escape(pkg.get('term') or 'bounded evaluation')}</p>"
+            f"<p><span class=\"pill\">{html_escape(pkg.get('price_eur_per_month') or 'not publicly quoted')}</span></p>"
+            f"<p class=\"meta\">{html_escape(pkg.get('sell_when') or '')}</p>"
+            "</article>"
+            for pkg in payload["pilot_packages"]
+        )
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Buyer pack</div>"
+            "<h1>13FLOW Buyer Review Pack</h1>"
+            f"<p class=\"doc-lede\">{html_escape(payload['one_liner'])}</p></div>"
+            f"<aside class=\"doc-panel\"><h3>Status</h3><p><span class=\"pill\">{html_escape(payload['status'])}</span></p>"
+            f"<p class=\"meta\">sales_motion={html_escape(payload['sales_motion'])} · public_quote_ready={str(payload['public_quote_ready']).lower()}</p></aside></section>"
+            "<section class=\"doc-metrics\">"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('funds') or 0))}</b><span>tracked funds</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('trusted_funds') or 0))}</b><span>trusted funds</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('latest_13f_quarter') or '-'))}</b><span>latest 13F</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('artifact_tickers') or 0))}</b><span>validation tickers</span></div>"
+            "</section>"
+            "<div class=\"split\"><section class=\"panel\"><h2>Proof Points</h2><ul>" + proof_points + "</ul></section>"
+            "<section class=\"panel\"><h2>Do Not Claim Yet</h2><ul>" + do_not + "</ul></section></div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Pilot Package</h2><div class=\"grid\">" + packages + "</div></div>"
+            "<div class=\"split\" style=\"margin-top:18px\"><section class=\"panel\"><h2>Buyer Checklist</h2><ul>" + checklist + "</ul></section>"
+            "<section class=\"panel\"><h2>Qualification Questions</h2><ul>" + questions + "</ul></section></div>"
+            "<div class=\"split\" style=\"margin-top:18px\"><section class=\"panel\"><h2>Pilot Handoff</h2><ul>" + handoff + "</ul></section>"
+            "<section class=\"panel\"><h2>Next Steps</h2><ul>" + next_steps + "</ul></section></div>"
+            "<div class=\"split\" style=\"margin-top:18px\"><section class=\"panel\"><h2>Evidence Links</h2><ul>" + evidence + "</ul></section>"
+            "<section class=\"panel\"><h2>Terms Boundary</h2>"
+            f"<p><span class=\"pill\">pricing:{html_escape(str(terms.get('pricing')))}</span></p>"
+            f"<p><span class=\"pill\">redistribution:{html_escape(str(terms.get('redistribution')))}</span></p>"
+            f"<p><span class=\"pill\">operator_review:{str(terms.get('operator_review_required')).lower()}</span></p>"
+            "<p class=\"meta\">This pack is not investment advice, not a performance claim and not a public price quote.</p></section></div>"
+            "<p class=\"lede\"><a class=\"pill\" href=\"/api/buyer-pack\">Machine-readable buyer pack</a> "
+            "<a class=\"pill\" href=\"/pro/onboarding\">Pro onboarding diagnostic</a> "
+            "<a class=\"pill\" href=\"/readiness\">Commercial readiness</a></p>"
+        )
+        return _html_response("Buyer Review Pack", body)
 
     @app.get("/validation")
     def validation_page():
@@ -6093,6 +6231,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<div class=\"card\"><h3>Verification</h3>"
             "<p><a href=\"/api/pro-offer\">/api/pro-offer</a> · "
             "<a href=\"/api/product-status\">/api/product-status</a> · "
+            "<a href=\"/buyer-pack\">Buyer pack</a> · "
             "<a href=\"/validation\">/validation</a> · "
             "<a href=\"/status\">/status</a> · "
             "<a href=\"/api/pro/v1/openapi.json\">Pro OpenAPI</a> · "

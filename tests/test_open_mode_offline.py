@@ -48,6 +48,7 @@ def test_open_mode_hides_private_surface_and_keeps_public():
                      "/api/coverage", "/api/data-quality",
                      "/api/live-status", "/api/product-status",
                      "/api/commercial-readiness",
+                     "/api/buyer-pack",
                      "/api/version", "/healthz", "/"):
             assert c.get(path).status_code == 200, path
         # Confluence no longer serves demo data implicitly. It needs a cache, live provider,
@@ -234,6 +235,21 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
         )
         assert "validated alpha" in readiness["do_not_claim_yet"]
 
+        buyer_pack = create_app(db, secure_cookies=False, open_mode=True).test_client() \
+            .get("/api/buyer-pack").get_json()
+        assert buyer_pack["status"] in {
+            "controlled_pilot_ready",
+            "controlled_pilot_ready_with_disclosures",
+        }
+        assert buyer_pack["sales_motion"] == "controlled_pilot_only"
+        assert buyer_pack["public_quote_ready"] is False
+        assert buyer_pack["self_serve_checkout"] is False
+        assert buyer_pack["snapshot"]["trusted_funds"] >= 1
+        assert buyer_pack["terms_boundary"]["operator_review_required"] is True
+        assert "validated alpha" in buyer_pack["do_not_claim_yet"]
+        assert any(item["href"] == "/pro/onboarding" for item in buyer_pack["evidence_links"])
+        assert any("Pro API keys are scoped" in item for item in buyer_pack["proof_points"])
+
 
 def test_dashboard_source_does_not_embed_legacy_retail_chrome():
     html = (Path(__file__).resolve().parents[1] / "dashboard.html").read_text(encoding="utf-8")
@@ -286,6 +302,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             ("/signals/AAPL", "Latest 13F holders"),
             ("/status", "Evidence status"),
             ("/readiness", "Readiness Checklist"),
+            ("/buyer-pack", "13FLOW Buyer Review Pack"),
             ("/pro", "13FLOW Pro API"),
             ("/pro/onboarding", "Integration Diagnostic"),
             ("/developers", "MCP tools/list"),
@@ -316,6 +333,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/api/mcp" in doc["paths"]
         assert "/api/product-status" in doc["paths"]
         assert "/api/commercial-readiness" in doc["paths"]
+        assert "/api/buyer-pack" in doc["paths"]
         assert "/api/pro-offer" in doc["paths"]
         assert "/api/methodology/confluence-v1" in doc["paths"]
         assert "/api/methodology/app" in doc["paths"]
@@ -399,6 +417,8 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "bounded_operator_review_before_any_quote" in pro_page
         assert "Quiver Quantitative" in pro_page
         assert "Evidence pack" in pro_page
+        assert 'href="/buyer-pack"' in pro_page
+        assert "Buyer pack" in pro_page
         assert 'href="/validation"' in pro_page
         assert 'href="/pro/onboarding"' in pro_page
         assert "Onboarding diagnostic" in pro_page
@@ -528,6 +548,18 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/api/commercial-readiness" in readiness_page
         assert "/pro/admin" in readiness_page
         assert "validated alpha" in readiness_page
+
+        buyer_pack_page = c.get("/buyer-pack").get_data(as_text=True)
+        assert "13FLOW Buyer Review Pack" in buyer_pack_page
+        assert "Proof Points" in buyer_pack_page
+        assert "Buyer Checklist" in buyer_pack_page
+        assert "Qualification Questions" in buyer_pack_page
+        assert "Pilot Handoff" in buyer_pack_page
+        assert "Terms Boundary" in buyer_pack_page
+        assert "/api/buyer-pack" in buyer_pack_page
+        assert "/pro/onboarding" in buyer_pack_page
+        assert "not a performance claim" in buyer_pack_page
+        assert "validated alpha" in buyer_pack_page
 
         developers = c.get("/developers").get_data(as_text=True)
         assert "/status" in developers
