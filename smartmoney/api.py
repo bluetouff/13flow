@@ -1512,6 +1512,18 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             return "watch"
         return "monitor"
 
+    def _watchlist_rank_basis() -> list[str]:
+        return [
+            "action severity",
+            "ticker flow score",
+            "buyers count",
+            "new positions",
+            "conviction funds",
+            "holder count",
+            "trusted 13F reported value",
+            "ticker",
+        ]
+
     def _watchlist_rank_key(item: dict) -> tuple:
         summary = item.get("movement_summary") or {}
         rank = {"alert": 0, "watch": 1, "monitor": 2, "blocked": 3}
@@ -1557,6 +1569,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "input_count": len(tickers),
                 "human_review_required_for_routine_publication": False,
                 "source": "trusted_ticker_flow",
+                "rank_basis": _watchlist_rank_basis(),
             },
             "summary": {
                 "alerts": len([i for i in items if i["action"] == "alert"]),
@@ -1727,6 +1740,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "returned_count": 0,
                     "filtered_count": 0,
                     "filters": _discovery_filters_payload(filters),
+                    "rank_basis": _watchlist_rank_basis(),
                     "quality_gate": gate.get("summary", {}),
                     "quality_gate_detail": {
                         "policy": gate.get("policy", {}),
@@ -1907,6 +1921,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "returned_count": len(items),
                 "filtered_count": filtered_count,
                 "filters": _discovery_filters_payload(filters),
+                "rank_basis": _watchlist_rank_basis(),
                 "quality_gate": gate_summary,
                 "quality_gate_detail": {
                     "policy": gate.get("policy", {}),

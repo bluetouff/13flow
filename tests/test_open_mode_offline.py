@@ -548,6 +548,7 @@ def test_ticker_flow_payload_explains_quarter_moves_and_confidence():
         watchlist = c.get("/api/watchlist/preview?tickers=AAPL,MSFT").get_json()
         assert watchlist["metadata"]["version"] == "watchlist_preview_v1"
         assert watchlist["metadata"]["human_review_required_for_routine_publication"] is False
+        assert "buyers count" in watchlist["metadata"]["rank_basis"]
         assert watchlist["summary"]["alerts"] >= 1
         by_ticker = {item["ticker"]: item for item in watchlist["items"]}
         assert by_ticker["AAPL"]["action"] in {"alert", "watch"}
@@ -558,6 +559,7 @@ def test_ticker_flow_payload_explains_quarter_moves_and_confidence():
         assert discovery["metadata"]["version"] == "watchlist_discovery_v1"
         assert discovery["metadata"]["human_review_required_for_routine_publication"] is False
         assert discovery["metadata"]["source"] == "trusted_ticker_flow"
+        assert "new positions" in discovery["metadata"]["rank_basis"]
         assert discovery["metadata"]["returned_count"] <= 5
         assert discovery["metadata"]["quality_gate"]["trusted_funds"] == 3
         assert "quality_gate_detail" in discovery["metadata"]
