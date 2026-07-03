@@ -1,0 +1,10 @@
+[Unit]
+Description=Schedule 13FLOW Pro workspace signal snapshots
+
+[Timer]
+OnCalendar=*-*-* 07:45:00
+Persistent=true
+RandomizedDelaySec=1200
+
+[Install]
+WantedBy=timers.target
