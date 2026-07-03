@@ -49,7 +49,7 @@ def test_open_mode_hides_private_surface_and_keeps_public():
                      "/api/live-status", "/api/product-status",
                      "/api/commercial-readiness",
                      "/api/buyer-pack",
-                     "/api/version", "/healthz", "/"):
+                     "/api/version", "/healthz", "/", "/coverage"):
             assert c.get(path).status_code == 200, path
         # Confluence no longer serves demo data implicitly. It needs a cache, live provider,
         # or explicit SMARTMONEY_CONFLUENCE_DEMO=1.
@@ -301,6 +301,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             ("/signals", "test signal"),
             ("/signals/AAPL", "Latest 13F holders"),
             ("/status", "Evidence status"),
+            ("/coverage", "Trusted Fund Coverage"),
             ("/readiness", "Readiness Checklist"),
             ("/buyer-pack", "13FLOW Buyer Review Pack"),
             ("/pro", "13FLOW Pro API"),
@@ -559,9 +560,19 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Pilot Handoff" in buyer_pack_page
         assert "Terms Boundary" in buyer_pack_page
         assert "/api/buyer-pack" in buyer_pack_page
+        assert "/coverage" in buyer_pack_page
         assert "/pro/onboarding" in buyer_pack_page
         assert "not a performance claim" in buyer_pack_page
         assert "validated alpha" in buyer_pack_page
+
+        coverage_page = c.get("/coverage").get_data(as_text=True)
+        assert "Trusted Fund Coverage" in coverage_page
+        assert "Signal Eligibility Rule" in coverage_page
+        assert "Excluded Funds" in coverage_page
+        assert "Trusted Sample" in coverage_page
+        assert "/api/data-quality" in coverage_page
+        assert "/methodology" in coverage_page
+        assert "not a performance claim" in coverage_page
 
         developers = c.get("/developers").get_data(as_text=True)
         assert "/status" in developers
@@ -774,6 +785,13 @@ def test_ticker_flow_uses_trusted_universe_and_exposes_automatic_exclusions():
         excluded = {f["label"]: f for f in payload["quality_gate"]["excluded_funds"]}
         assert excluded["Pershing Square"]["status"] == "quarantined"
         assert any(r["code"] == "current_aum_jump" for r in excluded["Pershing Square"]["reasons"])
+
+        coverage_page = c.get("/coverage").get_data(as_text=True)
+        assert "Trusted Fund Coverage" in coverage_page
+        assert "Pershing Square" in coverage_page
+        assert "quarantined" in coverage_page
+        assert "current_aum_jump" in coverage_page
+        assert "Berkshire Hathaway" in coverage_page
 
 
 if __name__ == "__main__":

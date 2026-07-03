@@ -132,6 +132,23 @@ else
   bad "/status evidence page" "curl failed"
 fi
 
+coverage_page="$tmpdir/coverage.html"
+if fetch "/coverage" "$coverage_page"; then
+  grep -q "Trusted Fund Coverage" "$coverage_page" \
+    && grep -q "Signal Eligibility Rule" "$coverage_page" \
+    && grep -q "Excluded Funds" "$coverage_page" \
+    && grep -q "Trusted Sample" "$coverage_page" \
+    && grep -q "automated_fail_closed" "$coverage_page" \
+    && grep -q "/api/data-quality" "$coverage_page" \
+    && grep -q "/methodology" "$coverage_page" \
+    && grep -q "not a performance claim" "$coverage_page" \
+    && ok "/coverage quality page" \
+    || bad "/coverage quality page" "missing coverage quality contract"
+  contains_none "/coverage has no legacy/auth/checkout copy" "$coverage_page" "${legacy_forbidden[@]}"
+else
+  bad "/coverage quality page" "curl failed"
+fi
+
 readiness_page="$tmpdir/readiness.html"
 if fetch "/readiness" "$readiness_page"; then
   grep -q "Readiness Checklist" "$readiness_page" \

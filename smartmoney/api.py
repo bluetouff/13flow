@@ -4097,6 +4097,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "evidence_links": [
                 {"label": "Commercial readiness", "href": "/api/commercial-readiness"},
                 {"label": "Product status", "href": "/api/product-status"},
+                {"label": "Coverage and quality", "href": "/coverage"},
                 {"label": "Validation boundary", "href": "/validation"},
                 {"label": "Public status", "href": "/status"},
                 {"label": "Pro offer", "href": "/api/pro-offer"},
@@ -4125,6 +4126,139 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     @app.get("/api/buyer-pack")
     def buyer_pack_ep():
         return jsonify(buyer_pack_payload())
+
+    def coverage_quality_payload() -> dict:
+        live = live_status_payload()
+        s = store()
+        try:
+            active = _public_active_ciks(s)
+            report = data_quality_report(s, limit=500, active_ciks=active)
+            gate = quality_gate_report(s, active_ciks=active)
+        finally:
+            s.close()
+        excluded = [f for f in gate.get("funds", []) if not f.get("signal_eligible")]
+        trusted = [f for f in gate.get("funds", []) if f.get("signal_eligible")]
+        return {
+            "app": "13flow",
+            "generated_at": _now_iso(),
+            "git_sha": _git_sha(),
+            "public_state": live.get("public_state"),
+            "data_as_of": live.get("data_as_of"),
+            "latest_13f_quarter": live.get("latest_13f_quarter"),
+            "counts": live.get("counts") or {},
+            "summary": gate.get("summary") or {},
+            "policy": gate.get("policy") or {},
+            "excluded_funds": excluded,
+            "trusted_sample": trusted[:12],
+            "quality_report_summary": report.get("summary") or {},
+            "source_links": {
+                "data_quality_api": "/api/data-quality",
+                "funds_api": "/api/funds",
+                "methodology": "/methodology",
+                "live_status": "/api/live-status",
+            },
+            "commercial_boundary": {
+                "signals_use_trusted_funds_only": True,
+                "human_review_required_for_routine_publication": False,
+                "fail_closed": True,
+                "not_a_performance_claim": True,
+            },
+        }
+
+    @app.get("/coverage")
+    def coverage_page():
+        payload = coverage_quality_payload()
+        summary = payload["summary"]
+        policy = payload["policy"]
+        excluded = payload["excluded_funds"]
+        trusted = payload["trusted_sample"]
+        counts = payload["counts"]
+        metrics = [
+            ("Active funds", summary.get("active_funds")),
+            ("Trusted funds", summary.get("trusted_funds")),
+            ("Signal eligible", summary.get("signal_eligible_funds")),
+            ("Excluded", len(excluded)),
+            ("Stale", summary.get("stale_funds")),
+            ("Degraded", summary.get("degraded_funds")),
+            ("Quarantined", summary.get("quarantined_funds")),
+            ("Latest 13F", payload.get("latest_13f_quarter")),
+        ]
+        metrics_html = "".join(
+            f"<div class=\"doc-metric\"><b>{html_escape(str(value if value is not None else '-'))}</b>"
+            f"<span>{html_escape(label)}</span></div>"
+            for label, value in metrics
+        )
+        def reason_text(item: dict) -> str:
+            reasons = []
+            for reason in item.get("reasons") or []:
+                code = reason.get("code") or "unknown"
+                detail = {
+                    k: v for k, v in reason.items()
+                    if k != "code" and v is not None
+                }
+                if detail:
+                    reasons.append(f"{code}: " + ", ".join(f"{k}={v}" for k, v in detail.items()))
+                else:
+                    reasons.append(code)
+            return "; ".join(reasons) or "excluded by automated quality gate"
+        excluded_rows = "".join(
+            "<tr>"
+            f"<td>{html_escape(f.get('label') or '-')}<br><span class=\"meta\">CIK {html_escape(f.get('cik') or '-')}</span></td>"
+            f"<td><span class=\"pill\">{html_escape(f.get('status') or '-')}</span></td>"
+            f"<td>{html_escape(((f.get('latest_filing') or {}).get('report_date')) or '-')}</td>"
+            f"<td>{html_escape(reason_text(f))}</td>"
+            "</tr>"
+            for f in excluded
+        ) or "<tr><td colspan=\"4\">No excluded fund in the current quality gate.</td></tr>"
+        trusted_rows = "".join(
+            "<tr>"
+            f"<td>{html_escape(f.get('label') or '-')}<br><span class=\"meta\">CIK {html_escape(f.get('cik') or '-')}</span></td>"
+            f"<td>{html_escape(((f.get('latest_filing') or {}).get('report_date')) or '-')}</td>"
+            f"<td>{html_escape(str(f.get('series_points') or 0))}</td>"
+            "</tr>"
+            for f in trusted
+        )
+        source_links = payload["source_links"]
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Coverage & quality</div>"
+            "<h1>Trusted Fund Coverage</h1>"
+            "<p class=\"doc-lede\">13FLOW publishes current signals only from funds that pass an automated fail-closed quality gate. "
+            "Stale, degraded or quarantined funds remain visible for audit, but they are excluded from product scores, consensus screens and watchlists.</p></div>"
+            "<aside class=\"doc-panel\"><h3>Commercial boundary</h3>"
+            "<p>This is not a performance claim. It is an operating disclosure: the signal universe is deliberately narrower than the raw database when a fund is stale or fails quality checks.</p>"
+            f"<p><span class=\"pill\">status:{html_escape(str(summary.get('status') or '-'))}</span>"
+            f"<span class=\"pill\">mode:{html_escape(str(policy.get('mode') or '-'))}</span>"
+            f"<span class=\"pill\">human_review:false</span></p></aside></section>"
+            f"<section class=\"doc-metrics\">{metrics_html}</section>"
+            "<section class=\"doc-section\"><h2>Signal Eligibility Rule</h2>"
+            f"<p>{html_escape(policy.get('signal_rule') or 'Only trusted funds are eligible for product signals.')}</p>"
+            "<div class=\"mini-list\">"
+            "<div><b>Trusted</b> eligible for product signals.</div>"
+            "<div><b>Stale</b> visible for audit/history, excluded from current signals.</div>"
+            "<div><b>Degraded</b> visible for audit, excluded from product signals.</div>"
+            "<div><b>Quarantined</b> retained in DB, excluded from product signals.</div>"
+            "</div></section>"
+            "<section class=\"doc-section\"><h2>Excluded Funds</h2>"
+            "<p>These funds are not used in current scores, consensus screens or watchlist discovery until they pass the gate again.</p>"
+            "<table><thead><tr><th>Fund</th><th>Status</th><th>Latest fund quarter</th><th>Reason</th></tr></thead>"
+            f"<tbody>{excluded_rows}</tbody></table></section>"
+            "<section class=\"doc-section\"><h2>Trusted Sample</h2>"
+            "<p>Sample of funds currently eligible for product signals. The full machine-readable list is exposed in the data-quality API.</p>"
+            "<table><thead><tr><th>Fund</th><th>Latest fund quarter</th><th>Series points</th></tr></thead>"
+            f"<tbody>{trusted_rows}</tbody></table></section>"
+            "<section class=\"doc-section\"><h2>Audit Links</h2>"
+            "<p>"
+            f"<a class=\"pill\" href=\"{html_escape(source_links['data_quality_api'])}\">Data-quality JSON</a>"
+            f"<a class=\"pill\" href=\"{html_escape(source_links['funds_api'])}\">Funds JSON</a>"
+            f"<a class=\"pill\" href=\"{html_escape(source_links['live_status'])}\">Live status</a>"
+            f"<a class=\"pill\" href=\"{html_escape(source_links['methodology'])}\">Methodology</a>"
+            "</p>"
+            f"<p class=\"meta\">public_state={html_escape(str(payload.get('public_state') or '-'))}; "
+            f"data_as_of={html_escape(str(payload.get('data_as_of') or '-'))}; "
+            f"funds={html_escape(str(counts.get('funds') or 0))}; generated_at={html_escape(payload['generated_at'])}</p>"
+            "</section>"
+        )
+        return _html_response("Coverage & Quality", body)
 
     @app.get("/status")
     def status_page():
@@ -4953,7 +5087,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             '<nav class="topnav"><a class="brand" href="/">13<span>FL</span><b>OW</b></a>'
             '<div class="navlinks"><a class="primary" href="/app">Cockpit</a><a href="/confluence">Confluence</a>'
             '<a href="/funds">Funds</a><a href="/stocks">Stocks</a><a href="/signals">Signals</a>'
-            '<a href="/status">Status</a><a href="/validation">Validation</a><a href="/methodology">Methodology</a>'
+            '<a href="/status">Status</a><a href="/coverage">Coverage</a><a href="/validation">Validation</a><a href="/methodology">Methodology</a>'
             '<a href="/developers">API</a><a href="/pro">Pro</a><a href="/about">About</a></div></nav>'
         )
         footer = (
@@ -4965,7 +5099,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             '<div><h4>Method</h4><a href="/methodology">Overview</a>'
             '<a href="/methodology/app">Application</a><a href="/methodology/mcp">MCP</a>'
             '<a href="/api/methodology/confluence-v1">Confluence v1</a></div>'
-            '<div><h4>Trust</h4><a href="/status">Status</a><a href="/about">About</a><a href="/developers">Developers</a>'
+            '<div><h4>Trust</h4><a href="/status">Status</a><a href="/coverage">Coverage</a><a href="/about">About</a><a href="/developers">Developers</a>'
             '<a href="/api/openapi.json">OpenAPI</a><a href="/api/live-status">Live status</a>'
             '<a href="/legal">Legal</a></div>'
             '</div><div class="fine"><span>Public filings research. Not investment advice.</span>'
