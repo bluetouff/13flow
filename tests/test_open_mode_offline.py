@@ -437,6 +437,18 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "?token=" not in pro_workspace_page
         assert "checkout" not in pro_workspace_page.lower()
 
+        pro_admin_page = c.get("/pro/admin").get_data(as_text=True)
+        assert "Admin Health" in pro_admin_page
+        assert "data-pro-admin-app" in pro_admin_page
+        assert "admin:read" in pro_admin_page
+        assert "13flow.pro.admin.token" in pro_admin_page
+        assert "/api/pro/v1\" + path" in pro_admin_page
+        assert "/admin/health" in pro_admin_page
+        assert "sessionStorage" in pro_admin_page
+        assert "Authorization" in pro_admin_page
+        assert "localStorage" not in pro_admin_page
+        assert "?token=" not in pro_admin_page
+
         validation_page = c.get("/validation").get_data(as_text=True)
         assert "Current Confluence evidence pack" in validation_page
         assert "Mechanical Evidence" in validation_page

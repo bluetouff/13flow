@@ -949,6 +949,14 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                       "404": {"description": "Not found"}},
                     },
                 },
+                "/api/pro/v1/admin/health": {
+                    "get": {
+                        "security": security,
+                        "summary": "Admin-only Pro control-plane health and usage summary",
+                        "responses": {"200": {"description": "Pro admin health"},
+                                      "403": {"description": "Insufficient scope"}},
+                    },
+                },
                 "/api/pro/v1/openapi.json": {
                     "get": {"summary": "OpenAPI document for the Pro API",
                             "responses": {"200": {"description": "OpenAPI JSON"}}}
@@ -3241,6 +3249,23 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "history": history,
             })
 
+        @app.get("/api/pro/v1/admin/health")
+        @pro_required("admin:read")
+        def pro_admin_health_ep():
+            key = request.pro_api_key
+            with ProAPIStore(pro_db_path) as ps:
+                health = ps.admin_health()
+            return jsonify({
+                "meta": {
+                    "api": "13flow-pro",
+                    "version": "v1",
+                    "git_sha": _git_sha(),
+                    "admin_key_id": key.key_id,
+                    "scope": "admin:read",
+                },
+                "health": health,
+            })
+
         @app.get("/api/pro/v1/openapi.json")
         def pro_openapi_ep():
             return jsonify(pro_openapi_doc())
@@ -5426,6 +5451,122 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 })();
 """
         return _html_response("Pro Workspace", body, script=script)
+
+    @app.get("/pro/admin")
+    def static_pro_admin():
+        body = """
+<style>
+.admin-app{display:grid;gap:14px}
+.admin-bar{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:end;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px}
+.admin-panel{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px;min-width:0}
+.admin-panel h2,.admin-panel h3{font-size:18px;margin:0 0 10px}
+.admin-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.admin-kpi{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);padding:10px;min-width:0}
+.admin-kpi b{display:block;font-family:var(--mono);font-size:18px;line-height:1.1}
+.admin-kpi span{display:block;color:var(--faint);font-size:11px;margin-top:4px}
+.admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.admin-list{display:grid;gap:8px}
+.admin-row{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);padding:10px;display:grid;gap:7px}
+.admin-row-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.admin-row h3{font-size:15px;margin:0;overflow-wrap:anywhere}
+.admin-row p{margin:0;color:var(--muted);font-size:13px}
+.admin-status{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel);padding:10px;color:var(--muted);font-size:13px}
+.admin-button{border:1px solid var(--line);border-radius:8px;background:var(--panel-2);color:var(--text);padding:10px 13px;font:inherit;cursor:pointer}
+.admin-button.primary{background:var(--accent);color:#05120d;border-color:transparent}
+.admin-mini{font-family:var(--mono);font-size:11px;color:var(--faint)}
+.admin-empty{color:var(--faint);font-size:13px;margin:0}
+@media(max-width:900px){.admin-bar,.admin-grid{grid-template-columns:1fr}.admin-kpis{grid-template-columns:1fr 1fr}}
+@media(max-width:640px){.admin-kpis{grid-template-columns:1fr}}
+</style>
+<section class="doc-hero"><div class="doc-copy"><div class="kicker">Pro admin</div>
+<h1>Admin Health</h1>
+<p class="doc-lede">Control-plane health for Pro API keys, usage, audit rows and saved workspaces.</p></div>
+<aside class="doc-panel"><h3>Security boundary</h3><p>Requires a Pro key with admin:read. Tokens stay in tab session storage and are sent only as Authorization headers.</p></aside></section>
+<main class="admin-app" data-pro-admin-app>
+  <section class="admin-bar" aria-label="Pro admin access">
+    <label>Admin API key <input id="adminToken" type="password" autocomplete="off" spellcheck="false" placeholder="13flow_live_..."></label>
+    <button id="adminConnect" class="admin-button primary" type="button">Connect</button>
+    <button id="adminForget" class="admin-button" type="button">Forget</button>
+  </section>
+  <div id="adminStatus" class="admin-status">Disconnected</div>
+  <section class="admin-kpis" id="adminKpis">
+    <div class="admin-kpi"><b>-</b><span>Active keys</span></div>
+    <div class="admin-kpi"><b>-</b><span>Audit rows</span></div>
+    <div class="admin-kpi"><b>-</b><span>Open alerts</span></div>
+    <div class="admin-kpi"><b>-</b><span>Server errors</span></div>
+  </section>
+  <section class="admin-grid">
+    <section class="admin-panel"><h2>Keys & Usage</h2><div id="adminKeys" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
+    <section class="admin-panel"><h2>Audit</h2><div id="adminAudit" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
+    <section class="admin-panel"><h2>Workspace</h2><div id="adminWorkspace" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
+    <section class="admin-panel"><h2>External Checks</h2><div id="adminExternal" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
+  </section>
+</main>
+"""
+        script = r"""
+(() => {
+  const TOKEN_KEY = "13flow.pro.admin.token";
+  const $ = (id) => document.getElementById(id);
+  const app = document.querySelector("[data-pro-admin-app]");
+  if (!app) return;
+  const state = {token: sessionStorage.getItem(TOKEN_KEY) || ""};
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const number = (v) => Number.isFinite(Number(v)) ? String(Number(v)) : "-";
+  const setStatus = (msg, bad=false) => {
+    const node = $("adminStatus");
+    node.textContent = msg;
+    node.style.borderColor = bad ? "rgba(239,106,82,.55)" : "var(--line-soft)";
+  };
+  async function adminApi(path) {
+    if (!state.token) throw new Error("Admin API key required");
+    const res = await fetch("/api/pro/v1" + path, {headers: {"Authorization": "Bearer " + state.token}});
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || data.detail || ("HTTP " + res.status));
+    return data;
+  }
+  function renderHealth(payload={}) {
+    const health = payload.health || {};
+    const keys = health.keys || {};
+    const audit = health.audit || {};
+    const workspace = health.workspace || {};
+    $("adminKpis").innerHTML = [
+      ["Active keys", keys.active],
+      ["Audit rows", audit.total],
+      ["Open alerts", workspace.open_alerts],
+      ["Server errors", audit.server_errors],
+    ].map(([label, value]) => `<div class="admin-kpi"><b>${esc(number(value))}</b><span>${esc(label)}</span></div>`).join("");
+    $("adminKeys").innerHTML = (health.usage?.keys || []).length ? (health.usage.keys || []).map((k) => `<article class="admin-row">
+      <div class="admin-row-top"><h3>${esc(k.label || k.key_id)}</h3><span class="admin-mini">${esc(k.key_id)}</span></div>
+      <p><span class="pill">minute ${esc(k.minute_count)}/${esc(k.minute_limit)}</span><span class="pill">day ${esc(k.day_count)}/${esc(k.day_limit)}</span><span class="pill">${esc(k.tier)}</span></p>
+    </article>`).join("") : '<p class="admin-empty">No key usage bucket yet.</p>';
+    $("adminAudit").innerHTML = `<article class="admin-row"><h3>Status</h3><p><span class="pill">${esc(health.status || "unknown")}</span><span class="pill">401:${esc(number(audit.unauthorized))}</span><span class="pill">403:${esc(number(audit.forbidden))}</span><span class="pill">429:${esc(number(audit.rate_limited))}</span></p><p class="admin-mini">latest=${esc(audit.latest_at || "-")}</p></article>` +
+      ((audit.recent_errors || []).map((e) => `<article class="admin-row"><div class="admin-row-top"><h3>${esc(e.status)} ${esc(e.method)}</h3><span class="admin-mini">${esc(e.at)}</span></div><p>${esc(e.route)}</p></article>`).join("") || '<p class="admin-empty">No recent error.</p>');
+    $("adminWorkspace").innerHTML = `<article class="admin-row"><h3>Workspace totals</h3><p><span class="pill">watchlists:${esc(number(workspace.watchlists))}</span><span class="pill">snapshots:${esc(number(workspace.signal_snapshots))}</span><span class="pill">alerts:${esc(number(workspace.alerts))}</span><span class="pill">activity:${esc(number(workspace.activity_events))}</span></p><p class="admin-mini">latest_snapshot=${esc(workspace.latest_snapshot_at || "-")}</p></article>`;
+    const external = health.external_checks || {};
+    $("adminExternal").innerHTML = `<article class="admin-row"><h3>Out-of-process checks</h3><p>${esc(external.reason || "")}</p><p>${(external.expected_units || []).map((x) => `<span class="pill">${esc(x)}</span>`).join("")}</p><p>${(external.expected_smokes || []).map((x) => `<span class="pill">${esc(x)}</span>`).join("")}</p></article>`;
+    setStatus(`Connected: admin key ${payload.meta?.admin_key_id || "-"} · ${health.status || "unknown"} · generated ${health.generated_at || "-"}`);
+  }
+  async function refresh() {
+    setStatus("Loading admin health...");
+    renderHealth(await adminApi("/admin/health"));
+  }
+  $("adminToken").value = state.token;
+  $("adminConnect").addEventListener("click", async () => {
+    state.token = $("adminToken").value.trim();
+    sessionStorage.setItem(TOKEN_KEY, state.token);
+    try { await refresh(); } catch (e) { setStatus(e.message, true); }
+  });
+  $("adminForget").addEventListener("click", () => {
+    state.token = "";
+    sessionStorage.removeItem(TOKEN_KEY);
+    $("adminToken").value = "";
+    renderHealth({});
+    setStatus("Disconnected");
+  });
+  if (state.token) refresh().catch(() => setStatus("Stored tab key could not authenticate.", true));
+})();
+"""
+        return _html_response("Pro Admin Health", body, script=script)
 
     @app.get("/pro")
     def static_pro_offer():

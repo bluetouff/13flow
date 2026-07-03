@@ -248,6 +248,151 @@ class ProAPIStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def admin_health(self) -> dict:
+        """Return bounded Pro control-plane health without exposing secrets."""
+        now = _now()
+        now_iso = _iso(now)
+        current_minute = "m:" + now.strftime("%Y%m%d%H%M")
+        current_day = "d:" + now.strftime("%Y%m%d")
+        keys = self.list_keys()
+        active_keys = [
+            k for k in keys
+            if not k.get("revoked_at") and (not k.get("expires_at") or k["expires_at"] > now_iso)
+        ]
+        expired_keys = [
+            k for k in keys
+            if not k.get("revoked_at") and k.get("expires_at") and k["expires_at"] <= now_iso
+        ]
+        usage_rows = self.conn.execute(
+            """SELECT u.key_id,k.label,k.tier,k.rate_per_min,k.rate_per_day,
+                      SUM(CASE WHEN u.bucket=? THEN u.count ELSE 0 END) AS minute_count,
+                      SUM(CASE WHEN u.bucket=? THEN u.count ELSE 0 END) AS day_count
+               FROM api_keys k
+               LEFT JOIN api_key_usage u ON u.key_id=k.key_id
+               GROUP BY k.key_id
+               ORDER BY day_count DESC, minute_count DESC, k.created_at DESC
+               LIMIT 25""",
+            (current_minute, current_day),
+        ).fetchall()
+        audit_summary = self.conn.execute(
+            """SELECT COUNT(*) AS total,
+                      MAX(at) AS latest_at,
+                      SUM(CASE WHEN status BETWEEN 200 AND 399 THEN 1 ELSE 0 END) AS ok,
+                      SUM(CASE WHEN status=401 THEN 1 ELSE 0 END) AS unauthorized,
+                      SUM(CASE WHEN status=403 THEN 1 ELSE 0 END) AS forbidden,
+                      SUM(CASE WHEN status=429 THEN 1 ELSE 0 END) AS rate_limited,
+                      SUM(CASE WHEN status>=500 THEN 1 ELSE 0 END) AS server_errors
+               FROM api_audit"""
+        ).fetchone()
+        recent_errors = self.conn.execute(
+            """SELECT key_id,method,route,status,at
+               FROM api_audit
+               WHERE status >= 400
+               ORDER BY at DESC, id DESC
+               LIMIT 10"""
+        ).fetchall()
+        route_rows = self.conn.execute(
+            """SELECT route, COUNT(*) AS count, MAX(at) AS latest_at
+               FROM api_audit
+               GROUP BY route
+               ORDER BY latest_at DESC
+               LIMIT 15"""
+        ).fetchall()
+        workspace = self.conn.execute(
+            """SELECT
+                   (SELECT COUNT(*) FROM saved_watchlists) AS watchlists,
+                   (SELECT COUNT(*) FROM saved_watchlist_signal_snapshots) AS signal_snapshots,
+                   (SELECT MAX(created_at) FROM saved_watchlist_signal_snapshots) AS latest_snapshot_at,
+                   (SELECT COUNT(*) FROM saved_workspace_alerts) AS alerts,
+                   (SELECT COUNT(*) FROM saved_workspace_alerts WHERE status='open') AS open_alerts,
+                   (SELECT COUNT(*) FROM saved_workspace_activity) AS activity_events,
+                   (SELECT MAX(created_at) FROM saved_workspace_activity) AS latest_activity_at"""
+        ).fetchone()
+        audit = dict(audit_summary or {})
+        status = "ok"
+        warnings: list[str] = []
+        if not active_keys:
+            status = "warn"
+            warnings.append("no active Pro API key")
+        if int(audit.get("server_errors") or 0) > 0:
+            status = "warn"
+            warnings.append("Pro API audit contains server errors")
+        if int(audit.get("rate_limited") or 0) > 0:
+            warnings.append("Pro API audit contains rate-limited requests")
+        return {
+            "status": status,
+            "warnings": warnings,
+            "generated_at": now_iso,
+            "keys": {
+                "total": len(keys),
+                "active": len(active_keys),
+                "revoked": len([k for k in keys if k.get("revoked_at")]),
+                "expired": len(expired_keys),
+                "recent": [
+                    {
+                        "id": k["key_id"],
+                        "label": k["label"],
+                        "tier": k["tier"],
+                        "scopes": str(k.get("scopes") or "").split(),
+                        "created_at": k["created_at"],
+                        "last_used_at": k.get("last_used_at"),
+                        "revoked": bool(k.get("revoked_at")),
+                        "expired": bool(k.get("expires_at") and k["expires_at"] <= now_iso),
+                    }
+                    for k in keys[:10]
+                ],
+            },
+            "usage": {
+                "current_minute_bucket": current_minute,
+                "current_day_bucket": current_day,
+                "keys": [
+                    {
+                        "key_id": r["key_id"],
+                        "label": r["label"],
+                        "tier": r["tier"],
+                        "minute_count": int(r["minute_count"] or 0),
+                        "minute_limit": int(r["rate_per_min"] or 0),
+                        "day_count": int(r["day_count"] or 0),
+                        "day_limit": int(r["rate_per_day"] or 0),
+                    }
+                    for r in usage_rows if r["key_id"]
+                ],
+            },
+            "audit": {
+                "total": int(audit.get("total") or 0),
+                "latest_at": audit.get("latest_at"),
+                "ok": int(audit.get("ok") or 0),
+                "unauthorized": int(audit.get("unauthorized") or 0),
+                "forbidden": int(audit.get("forbidden") or 0),
+                "rate_limited": int(audit.get("rate_limited") or 0),
+                "server_errors": int(audit.get("server_errors") or 0),
+                "recent_errors": [dict(r) for r in recent_errors],
+                "recent_routes": [dict(r) for r in route_rows],
+            },
+            "workspace": {
+                "watchlists": int(workspace["watchlists"] or 0),
+                "signal_snapshots": int(workspace["signal_snapshots"] or 0),
+                "latest_snapshot_at": workspace["latest_snapshot_at"],
+                "alerts": int(workspace["alerts"] or 0),
+                "open_alerts": int(workspace["open_alerts"] or 0),
+                "activity_events": int(workspace["activity_events"] or 0),
+                "latest_activity_at": workspace["latest_activity_at"],
+            },
+            "external_checks": {
+                "collected_by_web_process": False,
+                "reason": "systemd timers, encrypted backups and smoke outputs are verified outside the web worker",
+                "expected_units": [
+                    "13flow-pro-backup.timer",
+                    "13flow-pro-workspace-snapshot.timer",
+                ],
+                "expected_smokes": [
+                    "deploy/smoke-public.sh",
+                    "deploy/smoke-pro-workspace.sh",
+                    "deploy/verify-pro-db-backup.sh",
+                ],
+            },
+        }
+
     def authenticate(self, token: str, required_scope: str) -> APIKey:
         key_id, full_token = _parse_token(token)
         row = self.conn.execute("SELECT * FROM api_keys WHERE key_id=?", (key_id,)).fetchone()

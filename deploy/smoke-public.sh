@@ -234,6 +234,23 @@ else
   bad "/pro/workspace cockpit page" "curl failed"
 fi
 
+pro_admin_page="$tmpdir/pro-admin.html"
+if fetch "/pro/admin" "$pro_admin_page"; then
+  grep -q "Admin Health" "$pro_admin_page" \
+    && grep -q "data-pro-admin-app" "$pro_admin_page" \
+    && grep -q "admin:read" "$pro_admin_page" \
+    && grep -q "13flow.pro.admin.token" "$pro_admin_page" \
+    && grep -q "/admin/health" "$pro_admin_page" \
+    && grep -q "sessionStorage" "$pro_admin_page" \
+    && grep -q "Authorization" "$pro_admin_page" \
+    && ! grep -qi "localStorage" "$pro_admin_page" \
+    && ! grep -qi "checkout" "$pro_admin_page" \
+    && ok "/pro/admin health page" \
+    || bad "/pro/admin health page" "missing admin health contract"
+else
+  bad "/pro/admin health page" "curl failed"
+fi
+
 version="$tmpdir/version.json"
 if fetch "/api/version" "$version"; then
   json_check "/api/version contract" "$version" "

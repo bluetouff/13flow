@@ -153,6 +153,7 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         assert "/api/pro/v1/workspace/watchlists/{watchlist_id}/signals" in doc["paths"]
         assert "/api/pro/v1/workspace/watchlists/{watchlist_id}/signals/snapshot" in doc["paths"]
         assert "/api/pro/v1/workspace/watchlists/{watchlist_id}/signals/history" in doc["paths"]
+        assert "/api/pro/v1/admin/health" in doc["paths"]
 
 
 def test_pro_watchlist_feed_uses_ticker_flow(monkeypatch):
@@ -635,6 +636,55 @@ def test_pro_api_rate_limit_is_persistent(monkeypatch):
         rows = sqlite3.connect(pro_db).execute(
             "SELECT status FROM api_audit ORDER BY id").fetchall()
         assert [r[0] for r in rows] == [200, 429]
+
+
+def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        data_db = str(Path(d) / "admin-data.db")
+        pro_db = str(Path(d) / "admin-pro.db")
+        store = _seed_quality_db(data_db)
+        store.close()
+        with ProAPIStore(pro_db) as pro:
+            workspace_token, workspace_key = pro.create_key(
+                "Workspace only", scopes=("funds:read", "workspace:write"),
+                rate_per_min=120, rate_per_day=10000,
+            )
+            admin_token, admin_key = pro.create_key(
+                "Ops admin", scopes=("admin:read",),
+                rate_per_min=120, rate_per_day=10000,
+            )
+            pro.audit(workspace_key.key_id, "GET", "/api/pro/v1/status", 200,
+                      "127.0.0.1", "pytest")
+            pro.audit(workspace_key.key_id, "GET", "/api/pro/v1/funds", 500,
+                      "127.0.0.1", "pytest")
+        monkeypatch.setenv("SMARTMONEY_PRO_API", "1")
+        monkeypatch.setenv("SMARTMONEY_PRO_DB", pro_db)
+        c = create_app(data_db, secure_cookies=False, open_mode=True).test_client()
+
+        forbidden = c.get(
+            "/api/pro/v1/admin/health",
+            headers={"Authorization": "Bearer " + workspace_token},
+        )
+        assert forbidden.status_code == 403
+
+        ok = c.get(
+            "/api/pro/v1/admin/health",
+            headers={"Authorization": "Bearer " + admin_token},
+        )
+        assert ok.status_code == 200
+        payload = ok.get_json()
+        assert payload["meta"]["admin_key_id"] == admin_key.key_id
+        assert payload["meta"]["scope"] == "admin:read"
+        health = payload["health"]
+        assert health["keys"]["active"] == 2
+        assert health["audit"]["server_errors"] == 1
+        assert health["external_checks"]["collected_by_web_process"] is False
+        assert "13flow-pro-backup.timer" in health["external_checks"]["expected_units"]
+        body = ok.get_data(as_text=True)
+        assert admin_token not in body
+        assert "key_hash" not in body
+        assert "127.0.0.1" not in body
+        assert "pytest" not in body
 
 
 def test_pro_api_audit_uses_trusted_proxy_xff(monkeypatch):
