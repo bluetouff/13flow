@@ -364,6 +364,32 @@ else
   bad "/api/funds fetch" "curl failed"
 fi
 
+watchlist_discover="$tmpdir/watchlist-discover.json"
+if fetch "/api/watchlist/discover?limit=10" "$watchlist_discover"; then
+  json_check "/api/watchlist/discover contract" "$watchlist_discover" "
+meta = data.get('metadata') or {}
+items = data.get('items') or []
+summary = data.get('summary') or {}
+ok = (
+    meta.get('version') == 'watchlist_discovery_v1'
+    and meta.get('source') == 'trusted_ticker_flow'
+    and meta.get('human_review_required_for_routine_publication') is False
+    and int(meta.get('returned_count') or 0) <= 10
+    and isinstance(items, list)
+    and set(summary.keys()) >= {'alerts', 'watch', 'monitor', 'blocked'}
+    and (not items or (
+        bool(items[0].get('ticker'))
+        and items[0].get('action') in {'alert', 'watch', 'monitor', 'blocked'}
+        and bool(items[0].get('score'))
+        and bool(items[0].get('discovery'))
+    ))
+)
+msg = str(data)[:1000]
+"
+else
+  bad "/api/watchlist/discover fetch" "curl failed"
+fi
+
 for path in /api/data-quality /api/methodology/confluence-v1 /api/openapi.json; do
   out="$tmpdir/${path//\//_}.json"
   if fetch "$path" "$out"; then
@@ -377,7 +403,7 @@ openapi="$tmpdir/_api_openapi.json"
 if [[ -s "$openapi" ]]; then
   json_check "/api/openapi.json public paths" "$openapi" "
 paths = data.get('paths') or {}
-required = ['/api/live-status', '/api/product-status', '/api/pro-offer', '/api/funds', '/api/mcp', '/api/methodology/confluence-v1']
+required = ['/api/live-status', '/api/product-status', '/api/pro-offer', '/api/funds', '/api/watchlist/discover', '/api/mcp', '/api/methodology/confluence-v1']
 missing = [p for p in required if p not in paths]
 ok = not missing
 msg = 'missing paths: ' + ', '.join(missing)

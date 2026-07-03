@@ -28,6 +28,7 @@ import os
 import re
 from datetime import datetime, timezone
 from html import escape as html_escape
+from types import SimpleNamespace
 from typing import Optional
 
 import functools
@@ -1583,11 +1584,159 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "summary": {"alerts": 0, "watch": 0, "monitor": 0, "blocked": 0},
                 "items": [],
             }
-        payload = _watchlist_payload([c["ticker"] for c in candidates], limit=candidate_limit)
         candidate_by_ticker = {c["ticker"]: c for c in candidates}
-        items = payload["items"][:safe_limit]
-        for item in items:
-            item["discovery"] = candidate_by_ticker.get(item["ticker"], {})
+        tickers = tuple(candidate_by_ticker)
+        trusted = tuple(sorted(set(gate.get("trusted_ciks") or [])))
+        current_rows: list[dict] = []
+        previous_rows: list[dict] = []
+        if trusted and tickers and latest:
+            s = store()
+            try:
+                current_rows = [dict(r) for r in s.conn.execute(
+                    f"""
+                    SELECT fn.label, lf.cik, lf.report_date, f.accession, f.filing_date,
+                           f.form, f.total_value, f.n_positions,
+                           h.cusip, UPPER(TRIM(h.ticker)) AS ticker, h.issuer,
+                           h.title_of_class, h.value_usd, h.shares, h.weight
+                    FROM latest_filings lf
+                    JOIN filings f ON f.accession = lf.accession
+                    JOIN holdings h ON h.accession = lf.accession AND h.put_call = ''
+                    JOIN funds fn ON fn.cik = lf.cik
+                    WHERE lf.report_date = ?
+                      AND lf.cik IN ({_placeholders(trusted)})
+                      AND UPPER(TRIM(h.ticker)) IN ({_placeholders(tickers)})
+                    """,
+                    (latest, *trusted, *tickers),
+                ).fetchall()]
+                previous_rows = [dict(r) for r in s.conn.execute(
+                    f"""
+                    WITH previous_latest AS (
+                        SELECT cik, MAX(report_date) AS report_date
+                        FROM latest_filings
+                        WHERE report_date < ?
+                          AND cik IN ({_placeholders(trusted)})
+                        GROUP BY cik
+                    )
+                    SELECT fn.label, lf.cik, lf.report_date, f.accession, f.filing_date,
+                           f.form, f.total_value, f.n_positions,
+                           h.cusip, UPPER(TRIM(h.ticker)) AS ticker, h.issuer,
+                           h.title_of_class, h.value_usd, h.shares, h.weight
+                    FROM previous_latest pl
+                    JOIN latest_filings lf ON lf.cik = pl.cik AND lf.report_date = pl.report_date
+                    JOIN filings f ON f.accession = lf.accession
+                    JOIN holdings h ON h.accession = lf.accession AND h.put_call = ''
+                    JOIN funds fn ON fn.cik = lf.cik
+                    WHERE UPPER(TRIM(h.ticker)) IN ({_placeholders(tickers)})
+                    """,
+                    (latest, *trusted, *tickers),
+                ).fetchall()]
+            finally:
+                s.close()
+
+        current_by_ticker: dict[str, list[dict]] = {}
+        current_by_key: dict[tuple[str, str], dict] = {}
+        previous_by_key: dict[tuple[str, str], dict] = {}
+        for row in current_rows:
+            ticker = row["ticker"]
+            current_by_ticker.setdefault(ticker, []).append(row)
+            current_by_key[(row["cik"], ticker)] = row
+        for row in previous_rows:
+            previous_by_key[(row["cik"], row["ticker"])] = row
+
+        excluded_funds = [d for d in gate.get("funds", []) if not d.get("signal_eligible")]
+        items = []
+        for ticker, candidate in candidate_by_ticker.items():
+            holders = current_by_ticker.get(ticker, [])
+            movements = []
+            keys = sorted(
+                {key for key in current_by_key if key[1] == ticker}
+                | {key for key in previous_by_key if key[1] == ticker}
+            )
+            for key in keys:
+                curr = current_by_key.get(key)
+                prev = previous_by_key.get(key)
+                move = _stock_move(
+                    SimpleNamespace(**prev) if prev else None,
+                    SimpleNamespace(**curr) if curr else None,
+                )
+                if move == "NONE":
+                    continue
+                filing = filing_payload(curr) if curr else None
+                movements.append({
+                    "cik": key[0],
+                    "label": (curr or prev or {}).get("label") or key[0],
+                    "move": move,
+                    "previous_quarter": (prev or {}).get("report_date"),
+                    "current_quarter": latest,
+                    "prev_value_usd": (prev or {}).get("value_usd") or 0.0,
+                    "curr_value_usd": (curr or {}).get("value_usd") or 0.0,
+                    "prev_shares": (prev or {}).get("shares") or 0.0,
+                    "curr_shares": (curr or {}).get("shares") or 0.0,
+                    "curr_weight": (curr or {}).get("weight") or 0.0,
+                    "filing": filing,
+                    "sec_filing_url": (
+                        sec_accession_url(key[0], curr["accession"])
+                        if curr and curr.get("accession") else None
+                    ),
+                })
+            movements.sort(
+                key=lambda m: (
+                    m["move"] not in (Move.NEW.value, Move.ADD.value),
+                    -float(m["curr_value_usd"] or m["prev_value_usd"] or 0),
+                    m["label"],
+                )
+            )
+            buyers = [m for m in movements if m["move"] in (Move.NEW.value, Move.ADD.value)]
+            sellers = [m for m in movements if m["move"] in (Move.TRIM.value, Move.EXIT.value)]
+            conviction_funds = [
+                m for m in movements
+                if m["move"] == Move.NEW.value or float(m.get("curr_weight") or 0.0) >= 0.05
+            ]
+            holder_weights = [float(r["weight"] or 0.0) for r in holders]
+            summary = {
+                "holder_count": len(holders),
+                "buyers_count": len(buyers),
+                "sellers_count": len(sellers),
+                "new_positions": len([m for m in movements if m["move"] == Move.NEW.value]),
+                "exits": len([m for m in movements if m["move"] == Move.EXIT.value]),
+                "conviction_funds": len(conviction_funds),
+                "avg_weight_pct": (sum(holder_weights) / len(holder_weights) * 100.0) if holder_weights else 0.0,
+                "total_value_usd": sum(r["value_usd"] or 0 for r in holders),
+            }
+            confidence = _stock_confidence_status(holders, movements, [])
+            score = _stock_score(summary, confidence)
+            stock = {"movement_summary": summary, "confidence": confidence, "score": score}
+            triggers = _watchlist_triggers(stock)
+            action = _watchlist_action(triggers)
+            items.append({
+                "ticker": ticker,
+                "action": action,
+                "triggers": triggers,
+                "score": score,
+                "confidence": confidence,
+                "latest_13f_quarter": latest,
+                "movement_summary": summary,
+                "quality_gate": {
+                    "summary": gate.get("summary", {}),
+                    "policy": gate.get("policy", {}),
+                    "excluded_funds": excluded_funds[:25],
+                },
+                "top_movements": movements[:8],
+                "links": {
+                    "api": f"/api/stocks/{ticker}",
+                    "page": f"/stocks/{ticker}",
+                    "sec_company_search": f"https://www.sec.gov/edgar/search/#/q={ticker}",
+                },
+                "discovery": candidate,
+            })
+
+        rank = {"alert": 0, "watch": 1, "monitor": 2, "blocked": 3}
+        items.sort(key=lambda i: (
+            rank.get(i["action"], 9),
+            -float((i.get("score") or {}).get("score") or 0.0),
+            i["ticker"],
+        ))
+        items = items[:safe_limit]
         return {
             "metadata": {
                 "version": "watchlist_discovery_v1",
