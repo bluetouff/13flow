@@ -114,18 +114,28 @@ sudo nano /etc/13flow/13flow-pro-backup.env
 sudo install -d -o flowpro -g flowpro -m 700 /var/backups/13flow-pro
 sudo install -d -o flowpro -g flowpro -m 700 /var/lib/13flow-pro-backup/gnupg
 sudo install -d -o flowpro -g flowpro -m 700 /var/lib/13flow-pro-backup/tmp
+sudo install -d -o flowpro -g flowpro -m 700 /var/lib/13flow-pro-backup/verify
 sudo -u flowpro gpg --homedir /var/lib/13flow-pro-backup/gnupg \
   --import /path/to/backup-public-key.asc
 
 sudo install -o root -g root -m 755 /opt/13flow/deploy/backup-pro-db.sh \
   /opt/13flow/deploy/backup-pro-db.sh
+sudo install -o root -g root -m 755 /opt/13flow/deploy/verify-pro-db-backup.sh \
+  /opt/13flow/deploy/verify-pro-db-backup.sh
 sudo install -o root -g root -m 644 /opt/13flow/deploy/13flow-pro-backup.service \
   /etc/systemd/system/13flow-pro-backup.service
+sudo install -o root -g root -m 644 /opt/13flow/deploy/13flow-pro-backup-verify.service \
+  /etc/systemd/system/13flow-pro-backup-verify.service
 sudo install -o root -g root -m 644 /opt/13flow/deploy/13flow-pro-backup.timer \
   /etc/systemd/system/13flow-pro-backup.timer
 
 sudo systemctl daemon-reload
 sudo systemctl start 13flow-pro-backup.service
+
+# Run this only on a host that can decrypt the archive: either the symmetric
+# passphrase file is configured, or the matching private backup key is present.
+sudo systemctl start 13flow-pro-backup-verify.service
+
 sudo systemctl enable --now 13flow-pro-backup.timer
 sudo systemctl list-timers | grep 13flow-pro-backup
 ```
@@ -133,6 +143,13 @@ sudo systemctl list-timers | grep 13flow-pro-backup
 The backup script uses SQLite `.backup`, writes a manifest with integrity,
 Pro/workspace table counts and SHA-256, encrypts with GPG, and deletes old
 encrypted archives after `BACKUP_RETENTION_DAYS`.
+The restore verifier decrypts the selected encrypted archive into a private temporary
+directory, validates the manifest hash, runs SQLite `PRAGMA integrity_check`, checks
+the expected Pro/workspace tables and then deletes the plaintext restore copy. With
+public-key encryption, run the verifier only on a host that has the matching private
+backup key; the production server may deliberately hold only the public key. In that
+model, copy one encrypted archive to the restore host and run
+`verify-pro-db-backup.sh` there before enabling routine audit pruning.
 The systemd unit runs as `flowpro` and keeps `/var/lib/13flow-pro` in `ReadWritePaths`
 because SQLite WAL sidecar access may be required even though the script opens the DB in
 `mode=ro`.

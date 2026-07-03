@@ -103,7 +103,9 @@ Operational requirements:
   screenshots. Prefer a vault and rotate keys per institution.
 - Back up `SMARTMONEY_PRO_DB` with encryption only. The bundled `deploy/backup-pro-db.sh`
   refuses plaintext backups and supports GPG public-key encryption or a symmetric
-  passphrase file fallback.
+  passphrase file fallback. Verify at least one restore with
+  `deploy/verify-pro-db-backup.sh` before pruning Pro audit rows; for public-key
+  backups, perform that restore check only on a host with the matching private key.
 - Define a retention window for Pro audit rows. A practical starting point is 180 days
   online plus encrypted backups retained according to the legal/commercial policy.
 - Keep edge rate limiting in front of the app as a second layer. The app-level limiter is a

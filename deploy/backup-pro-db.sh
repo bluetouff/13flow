@@ -74,7 +74,7 @@ fi
 if [[ -n "$GPG_RECIPIENT" ]]; then
   gpg "${gpg_args[@]}" --recipient "$GPG_RECIPIENT" --encrypt "$archive"
 else
-  gpg "${gpg_args[@]}" --symmetric --cipher-algo AES256 \
+  gpg "${gpg_args[@]}" --symmetric --cipher-algo AES256 --no-symkey-cache \
     --pinentry-mode loopback --passphrase-file "$BACKUP_PASSPHRASE_FILE" "$archive"
 fi
 
