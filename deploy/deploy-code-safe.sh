@@ -36,6 +36,22 @@ if [[ ! -d "$APP_DIR/mcp-server/node_modules/@modelcontextprotocol/sdk" ]]; then
   exit 3
 fi
 
+wait_url() {
+  local label=$1 url=$2 attempts=${3:-20} sleep_s=${4:-1}
+  local i
+  for ((i=1; i<=attempts; i++)); do
+    if curl -fsS --max-time 5 "$url"; then
+      echo
+      return 0
+    fi
+    if (( i < attempts )); then
+      sleep "$sleep_s"
+    fi
+  done
+  echo "Service did not become ready: $label ($url)" >&2
+  return 1
+}
+
 backup="$BACKUP_DIR/13flow-backup-before-safe-deploy-$SHA-$(date -u +%Y%m%dT%H%M%SZ)"
 echo "==> [1/6] Backup current tree to $backup"
 cp -a "$APP_DIR" "$backup"
@@ -80,8 +96,7 @@ systemctl reset-failed 13flow 13flow-mcp || true
 systemctl restart 13flow
 systemctl restart 13flow-mcp
 
-curl -fsS http://127.0.0.1:8000/api/version
-curl -fsS http://127.0.0.1:8849/healthz
-echo
+wait_url "13flow API" "http://127.0.0.1:8000/api/version" 20 1
+wait_url "13flow MCP" "http://127.0.0.1:8849/healthz" 20 1
 echo "Safe deploy complete. Run:"
 echo "  EXPECTED_SHA=$SHA sudo $APP_DIR/deploy/smoke-public.sh"
