@@ -40,6 +40,21 @@ def _filing_payload(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _fund_rows(store) -> list[dict[str, Any]]:
+    rows = store.conn.execute(
+        "SELECT cik, label, manager FROM funds ORDER BY label, cik"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def _current_rows_by_fund(store) -> dict[str, dict[str, Any]]:
+    current: dict[str, dict[str, Any]] = {}
+    for cik, seq in _latest_rows_by_fund(store).items():
+        if seq:
+            current[cik] = seq[-1]
+    return current
+
+
 def _severity(ratio: float) -> str:
     if ratio >= 1000:
         return "critical"
@@ -79,6 +94,97 @@ def aum_jump_warnings(store, threshold: float = 100.0) -> list[dict[str, Any]]:
                 "status": "review_required",
             })
     warnings.sort(key=lambda w: w["ratio"], reverse=True)
+    return warnings
+
+
+def stale_fund_warnings(store) -> list[dict[str, Any]]:
+    """Funds whose latest selected filing lags the dataset's latest 13F quarter."""
+    dates = [
+        r["report_date"] for r in store.conn.execute(
+            "SELECT DISTINCT report_date FROM latest_filings ORDER BY report_date"
+        ).fetchall()
+    ]
+    if not dates:
+        return []
+    latest_date = dates[-1]
+    date_rank = {d: i for i, d in enumerate(dates)}
+    current = _current_rows_by_fund(store)
+    warnings: list[dict[str, Any]] = []
+    for fund in _fund_rows(store):
+        row = current.get(fund["cik"])
+        if row is None:
+            warnings.append({
+                "type": "stale_fund",
+                "severity": "high",
+                "fund": {
+                    "cik": fund["cik"],
+                    "label": fund["label"],
+                    "manager": fund.get("manager"),
+                },
+                "latest_dataset_quarter": latest_date,
+                "latest_fund_quarter": None,
+                "quarters_behind": len(dates),
+                "filing": None,
+                "status": "review_required",
+            })
+            continue
+        if row["report_date"] == latest_date:
+            continue
+        warnings.append({
+            "type": "stale_fund",
+            "severity": "high",
+            "fund": {
+                "cik": fund["cik"],
+                "label": fund["label"],
+                "manager": fund.get("manager"),
+            },
+            "latest_dataset_quarter": latest_date,
+            "latest_fund_quarter": row["report_date"],
+            "quarters_behind": date_rank[latest_date] - date_rank.get(row["report_date"], -1),
+            "filing": _filing_payload(row),
+            "status": "review_required",
+        })
+    return warnings
+
+
+def duplicate_label_warnings(store) -> list[dict[str, Any]]:
+    """Labels that map to several CIKs on the public surface."""
+    current = _current_rows_by_fund(store)
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for fund in _fund_rows(store):
+        key = " ".join(str(fund["label"] or "").lower().split())
+        if not key:
+            continue
+        groups.setdefault(key, []).append(fund)
+
+    warnings: list[dict[str, Any]] = []
+    for key, funds in groups.items():
+        if len(funds) < 2:
+            continue
+        latest_quarters = [
+            current[f["cik"]]["report_date"] for f in funds if f["cik"] in current
+        ]
+        warnings.append({
+            "type": "duplicate_label",
+            "severity": "high",
+            "label": funds[0]["label"],
+            "normalized_label": key,
+            "funds": [
+                {
+                    "cik": f["cik"],
+                    "label": f["label"],
+                    "manager": f.get("manager"),
+                    "filing": (
+                        _filing_payload(current[f["cik"]])
+                        if f["cik"] in current else None
+                    ),
+                }
+                for f in funds
+            ],
+            "latest_quarters": sorted(set(latest_quarters)),
+            "status": "review_required",
+        })
+    warnings.sort(key=lambda w: (w["label"], w["normalized_label"]))
     return warnings
 
 
@@ -138,24 +244,33 @@ def data_quality_report(
 ) -> dict[str, Any]:
     by_fund = _latest_rows_by_fund(store)
     warnings = aum_jump_warnings(store, threshold=aum_jump_threshold)
+    stale = stale_fund_warnings(store)
+    duplicates = duplicate_label_warnings(store)
     candidates = unit_scale_candidates(store)
     limit = max(1, min(int(limit), 500))
+    review_items = len(warnings) + len(stale) + len(duplicates) + len(candidates)
     return {
         "summary": {
-            "status": "review" if warnings else "ok",
+            "status": "review" if review_items else "ok",
             "funds_scanned": len(by_fund),
             "series_points": sum(len(seq) for seq in by_fund.values()),
             "aum_jump_warnings": len(warnings),
+            "stale_funds": len(stale),
+            "duplicate_labels": len(duplicates),
             "unit_scale_candidates": len(candidates),
+            "review_items": review_items,
         },
         "parameters": {
             "aum_jump_threshold": float(aum_jump_threshold),
             "limit": limit,
         },
         "warnings": warnings[:limit],
+        "freshness_warnings": stale[:limit],
+        "duplicate_label_warnings": duplicates[:limit],
         "unit_scale_candidates": candidates[:limit],
         "notes": [
             "Warnings are read-only data-quality signals, not automatic corrections.",
+            "Stale funds and duplicate labels are public-surface quality issues for Pro review.",
             "Unit-scale candidates require operator review before any DB repair.",
         ],
     }

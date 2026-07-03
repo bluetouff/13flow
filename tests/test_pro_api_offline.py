@@ -91,6 +91,8 @@ def test_pro_api_fund_detail_is_self_describing(monkeypatch):
         assert payload["moves"]["previous_report_date"] == "2024-06-30"
         assert payload["moves"]["counts"]["HOLD"] == 1
         assert payload["quality"]["summary"]["fund_warnings"] == 2
+        assert "global_stale_funds" in payload["quality"]["summary"]
+        assert "global_duplicate_labels" in payload["quality"]["summary"]
 
         historical = c.get("/api/pro/v1/fund/1?basis=2024-06-30", headers=hdr)
         assert historical.status_code == 200

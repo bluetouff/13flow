@@ -51,6 +51,34 @@ def test_data_quality_report_flags_aum_jumps_and_strict_unit_candidates():
     assert candidate["status"] == "operator_review_required"
 
 
+def test_data_quality_report_flags_stale_funds_and_duplicate_labels():
+    with tempfile.TemporaryDirectory() as d:
+        store = Store(str(Path(d) / "surface.db"))
+        try:
+            _save(store, "0000000001", "Duplicate Fund", "PM1", "A1", "13F-HR",
+                  "2024-05-15", "2024-03-31",
+                  [("APPLE INC", AAPL, 1_000, 100, "")])
+            _save(store, "0000000002", "Duplicate Fund", "PM2", "B1", "13F-HR",
+                  "2024-05-15", "2024-03-31",
+                  [("COCA COLA", KO, 1_000, 50, "")])
+            _save(store, "0000000002", "Duplicate Fund", "PM2", "B2", "13F-HR",
+                  "2024-08-14", "2024-06-30",
+                  [("COCA COLA", KO, 1_100, 50, "")])
+            report = data_quality_report(store, aum_jump_threshold=100, limit=10)
+        finally:
+            store.close()
+
+    assert report["summary"]["status"] == "review"
+    assert report["summary"]["stale_funds"] == 1
+    assert report["summary"]["duplicate_labels"] == 1
+    assert report["summary"]["review_items"] == 2
+    assert report["freshness_warnings"][0]["fund"]["cik"] == "0000000001"
+    assert report["freshness_warnings"][0]["latest_dataset_quarter"] == "2024-06-30"
+    duplicate = report["duplicate_label_warnings"][0]
+    assert duplicate["label"] == "Duplicate Fund"
+    assert {f["cik"] for f in duplicate["funds"]} == {"0000000001", "0000000002"}
+
+
 def test_data_quality_endpoint_is_public_read_only_and_validates_params():
     with tempfile.TemporaryDirectory() as d:
         db = str(Path(d) / "quality-api.db")

@@ -68,6 +68,15 @@ SUPERINVESTORS: list[Fund] = [
     Fund("Altimeter",        "Brad Gerstner",       "1541617", "Altimeter Capital"),
     Fund("D1 Capital",       "Dan Sundheim",        "1747057", "D1 Capital Partners"),
     Fund("Light Street",     "Glen Kacher",         "1569049", "Light Street Capital"),
+    # --- quant / multistrat / market structure (coverage-critical for Pro) ---
+    Fund("Renaissance Tech",  "Jim Simons (firm)",   "1037389", "Renaissance Technologies"),
+    Fund("Citadel Advisors",  "Ken Griffin",         "1423053", "Citadel Advisors"),
+    Fund("Millennium",        "Izzy Englander",      "1273087", "Millennium Management"),
+    Fund("AQR Capital",       "Cliff Asness",        "1167557", "AQR Capital Management"),
+    Fund("Two Sigma",         "Two Sigma",           "1179392", "Two Sigma Investments"),
+    Fund("D. E. Shaw",        "D. E. Shaw",          "1009207", "D. E. Shaw & Co."),
+    Fund("Point72",           "Steve Cohen",         "1603466", "Point72 Asset Management"),
+    Fund("Farallon",          "Farallon",            "0909661", "Farallon Capital Management"),
 ]
 
 

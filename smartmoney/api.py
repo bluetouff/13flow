@@ -1204,6 +1204,11 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 warnings_by_cik = {}
                 for w in quality["warnings"]:
                     warnings_by_cik.setdefault(w["fund"]["cik"], []).append(w)
+                for w in quality.get("freshness_warnings", []):
+                    warnings_by_cik.setdefault(w["fund"]["cik"], []).append(w)
+                for w in quality.get("duplicate_label_warnings", []):
+                    for f in w.get("funds", []):
+                        warnings_by_cik.setdefault(f["cik"], []).append(w)
                 out = []
                 for r in rows:
                     cik = r["cik"]
@@ -1257,6 +1262,14 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 fund_warnings = [
                     w for w in quality["warnings"] if w["fund"]["cik"] == cik
                 ]
+                fund_warnings.extend(
+                    w for w in quality.get("freshness_warnings", [])
+                    if w["fund"]["cik"] == cik
+                )
+                fund_warnings.extend(
+                    w for w in quality.get("duplicate_label_warnings", [])
+                    if any(f["cik"] == cik for f in w.get("funds", []))
+                )
                 frow = s.fund_row(cik) or {}
                 positions = sorted(pf.positions.values(), key=lambda p: p.value_usd, reverse=True)
                 changes = sorted(
@@ -1308,6 +1321,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                         "summary": {
                             "fund_warnings": len(fund_warnings),
                             "global_aum_jump_warnings": quality["summary"]["aum_jump_warnings"],
+                            "global_stale_funds": quality["summary"]["stale_funds"],
+                            "global_duplicate_labels": quality["summary"]["duplicate_labels"],
                             "global_unit_scale_candidates": quality["summary"]["unit_scale_candidates"],
                         },
                         "warnings": fund_warnings,
@@ -1453,7 +1468,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "quality_summary": {
                 "status": quality["status"],
                 "aum_jump_warnings": quality["aum_jump_warnings"],
+                "stale_funds": quality["stale_funds"],
+                "duplicate_labels": quality["duplicate_labels"],
                 "unit_scale_candidates": quality["unit_scale_candidates"],
+                "review_items": quality["review_items"],
             },
             "public_endpoints": ["/api/live-status", "/api/version", "/api/funds", "/api/data-quality"],
         }
