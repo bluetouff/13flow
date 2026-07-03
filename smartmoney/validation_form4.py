@@ -180,6 +180,7 @@ def build_validation_form4_file(
     new_rows: list[dict[str, str]] = []
     no_cik: list[str] = []
     no_filings: list[str] = []
+    issuer_mismatches: list[dict[str, str]] = []
     errors: list[dict[str, str]] = []
     cached = 0
     fetched = 0
@@ -206,6 +207,17 @@ def build_validation_form4_file(
             for meta in metas:
                 xml = f4.fetch_ownership_xml(meta["accession"], cik)
                 form = parse_form4(xml, accession=meta["accession"], filing_date=meta["filing_date"])
+                if str(form.issuer_cik or "").zfill(10) != str(cik).zfill(10):
+                    issuer_mismatches.append({
+                        "ticker": ticker,
+                        "expected_issuer_cik": str(cik).zfill(10),
+                        "actual_issuer_cik": str(form.issuer_cik or "").zfill(10),
+                        "actual_issuer_name": form.issuer_name,
+                        "owner_cik": form.owner_cik,
+                        "owner_name": form.owner_name,
+                        "accession": meta["accession"],
+                    })
+                    continue
                 rows = _form_rows(ticker, form, start=start, end=end)
                 new_rows.extend(rows)
                 filings_seen += 1
@@ -231,6 +243,7 @@ def build_validation_form4_file(
         "tickers_fetched": fetched,
         "tickers_without_cik": len(no_cik),
         "tickers_without_filings": len(no_filings),
+        "issuer_mismatch_filings": len(issuer_mismatches),
         "tickers_with_errors": len(errors),
         "coverage": round(usable / len(tickers), 6) if tickers else 0.0,
         "filings_seen": filings_seen,
@@ -241,6 +254,7 @@ def build_validation_form4_file(
         "checkpoint": checkpoint,
         "no_cik_sample": no_cik[:50],
         "no_filings_sample": no_filings[:50],
+        "issuer_mismatch_sample": issuer_mismatches[:20],
         "errors_sample": errors[:20],
         "resume_policy": "existing ticker rows are reused unless --validation-form4-force is set",
     }

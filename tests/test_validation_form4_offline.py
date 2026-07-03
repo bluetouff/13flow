@@ -47,17 +47,56 @@ FORM4_XML = """<?xml version="1.0"?>
   </nonDerivativeTable>
 </ownershipDocument>"""
 
+REPORTING_OWNER_XML = """<?xml version="1.0"?>
+<ownershipDocument>
+  <documentType>4</documentType>
+  <periodOfReport>2024-09-01</periodOfReport>
+  <issuer>
+    <issuerCik>0001680247</issuerCik>
+    <issuerName>PROPETRO HOLDING CORP.</issuerName>
+    <issuerTradingSymbol>PUMP</issuerTradingSymbol>
+  </issuer>
+  <reportingOwner>
+    <reportingOwnerId>
+      <rptOwnerCik>0001045810</rptOwnerCik>
+      <rptOwnerName>NVIDIA CORP</rptOwnerName>
+    </reportingOwnerId>
+    <reportingOwnerRelationship>
+      <isDirector>0</isDirector>
+      <isOfficer>0</isOfficer>
+      <isTenPercentOwner>1</isTenPercentOwner>
+    </reportingOwnerRelationship>
+  </reportingOwner>
+  <nonDerivativeTable>
+    <nonDerivativeTransaction>
+      <securityTitle><value>Common Stock</value></securityTitle>
+      <transactionDate><value>2024-09-01</value></transactionDate>
+      <transactionCoding><transactionFormType>4</transactionFormType><transactionCode>S</transactionCode></transactionCoding>
+      <transactionAmounts>
+        <transactionShares><value>100</value></transactionShares>
+        <transactionPricePerShare><value>12</value></transactionPricePerShare>
+        <transactionAcquiredDisposedCode><value>D</value></transactionAcquiredDisposedCode>
+      </transactionAmounts>
+      <postTransactionAmounts><sharesOwnedFollowingTransaction><value>0</value></sharesOwnedFollowingTransaction></postTransactionAmounts>
+      <ownershipNature><directOrIndirectOwnership><value>D</value></directOrIndirectOwnership></ownershipNature>
+    </nonDerivativeTransaction>
+  </nonDerivativeTable>
+</ownershipDocument>"""
+
 
 class FakeForm4Client:
     def list_form4_accessions(self, issuer_cik, *, since=None, limit=100):
         if issuer_cik == "0001045810":
             return [
                 {"accession": "0001045810-24-000004", "filing_date": "2024-08-02"},
+                {"accession": "0001680247-24-000009", "filing_date": "2024-09-03"},
                 {"accession": "0001045810-25-000099", "filing_date": "2025-01-03"},
             ][:limit]
         return []
 
     def fetch_ownership_xml(self, accession, cik):
+        if accession == "0001680247-24-000009":
+            return REPORTING_OWNER_XML
         return FORM4_XML
 
 
@@ -82,6 +121,9 @@ def test_build_validation_form4_file_exports_normalized_rows_without_network(tmp
     assert summary["tickers_fetched"] == 1
     assert summary["tickers_without_cik"] == 1
     assert summary["filings_seen"] == 1
+    assert summary["issuer_mismatch_filings"] == 1
+    assert summary["issuer_mismatch_sample"][0]["actual_issuer_cik"] == "0001680247"
+    assert summary["issuer_mismatch_sample"][0]["owner_cik"] == "0001045810"
     assert summary["rows_total"] == 1
 
     with out.open("r", encoding="utf-8", newline="") as fh:
