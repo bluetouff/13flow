@@ -1512,6 +1512,20 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             return "watch"
         return "monitor"
 
+    def _watchlist_rank_key(item: dict) -> tuple:
+        summary = item.get("movement_summary") or {}
+        rank = {"alert": 0, "watch": 1, "monitor": 2, "blocked": 3}
+        return (
+            rank.get(item.get("action"), 9),
+            -float((item.get("score") or {}).get("score") or 0.0),
+            -int(summary.get("buyers_count") or 0),
+            -int(summary.get("new_positions") or 0),
+            -int(summary.get("conviction_funds") or 0),
+            -int(summary.get("holder_count") or 0),
+            -float(summary.get("total_value_usd") or 0.0),
+            item.get("ticker") or "",
+        )
+
     def _watchlist_payload(raw_tickers, limit: int = 25) -> dict:
         tickers = _clean_watchlist_tickers(raw_tickers, limit=limit)
         items = []
@@ -1536,12 +1550,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "sec_company_search": stock.get("sec_company_search"),
                 },
             })
-        rank = {"alert": 0, "watch": 1, "monitor": 2, "blocked": 3}
-        items.sort(key=lambda i: (
-            rank.get(i["action"], 9),
-            -float((i.get("score") or {}).get("score") or 0.0),
-            i["ticker"],
-        ))
+        items.sort(key=_watchlist_rank_key)
         return {
             "metadata": {
                 "version": "watchlist_preview_v1",
@@ -1883,12 +1892,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 
         if _discovery_filter_active(filters):
             items = [item for item in items if _discovery_item_matches_filters(item, filters)]
-        rank = {"alert": 0, "watch": 1, "monitor": 2, "blocked": 3}
-        items.sort(key=lambda i: (
-            rank.get(i["action"], 9),
-            -float((i.get("score") or {}).get("score") or 0.0),
-            i["ticker"],
-        ))
+        items.sort(key=_watchlist_rank_key)
         filtered_count = len(items)
         items = items[:safe_limit]
         return {
