@@ -423,6 +423,10 @@ function buildServer(context = {}) {
     return fetchJson('/api/live-status');
   }
 
+  async function getProductStatus() {
+    return fetchJson('/api/product-status');
+  }
+
   async function getFunds() {
     const rows = await fetchJson('/api/funds');
     return { funds: rows, count: Array.isArray(rows) ? rows.length : 0, source: `${SITE}/api/funds` };
@@ -521,6 +525,9 @@ function buildServer(context = {}) {
   server.registerResource('live-status', '13flow://live-status',
     { title: 'Live status', description: 'Public LIVE/DEMO/DEGRADED proof from 13FLOW.', mimeType: 'application/json' },
     async (uri) => resourceJson(uri.toString(), await getLiveStatus()));
+  server.registerResource('product-status', '13flow://product-status',
+    { title: 'Product status', description: 'Go-to-market readiness, offer boundary and validation proof state.', mimeType: 'application/json' },
+    async (uri) => resourceJson(uri.toString(), await getProductStatus()));
   server.registerResource('openapi', '13flow://openapi',
     { title: 'OpenAPI', description: 'Public OpenAPI document.', mimeType: 'application/json' },
     async (uri) => resourceJson(uri.toString(), await getOpenapi()));
@@ -559,6 +566,13 @@ function buildServer(context = {}) {
     outputSchema: StatusOutput,
     annotations: { readOnlyHint: true },
   }, async () => reply(await getLiveStatus()));
+
+  server.registerTool('get_product_status', {
+    description: 'Return go-to-market readiness, sellable boundaries, validation status and blocked full-quant artifact.',
+    inputSchema: {},
+    outputSchema: ToolOutput,
+    annotations: { readOnlyHint: true },
+  }, async () => reply(await getProductStatus()));
 
   server.registerTool('list_funds', {
     description: 'List the public tracked 13F manager universe with latest public fields.',

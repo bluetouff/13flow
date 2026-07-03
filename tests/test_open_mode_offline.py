@@ -46,7 +46,8 @@ def test_open_mode_hides_private_surface_and_keeps_public():
         # public, read-only endpoints are present
         for path in ("/api/funds", "/api/consensus/buys", "/api/compare",
                      "/api/coverage", "/api/data-quality",
-                     "/api/live-status", "/api/version", "/healthz", "/"):
+                     "/api/live-status", "/api/product-status",
+                     "/api/version", "/healthz", "/"):
             assert c.get(path).status_code == 200, path
         # Confluence no longer serves demo data implicitly. It needs a cache, live provider,
         # or explicit SMARTMONEY_CONFLUENCE_DEMO=1.
@@ -154,6 +155,17 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
         assert live["counts"]["funds"] == 1
         assert live["latest_13f_quarter"] == "2026-03-31"
 
+        product = create_app(db, secure_cookies=False, open_mode=True).test_client() \
+            .get("/api/product-status").get_json()
+        assert product["public_state"] == "LIVE"
+        assert product["data"]["uses_synthetic_data"] is False
+        assert product["commercial_readiness"]["public_api"] == "live_read_only"
+        assert product["commercial_readiness"]["mcp"] == "available_read_only"
+        assert product["commercial_readiness"]["x402"] == "not_enabled"
+        assert product["validation"]["current_artifact"]["publishable_as_full_validation"] is False
+        assert "validated alpha" in product["offer_boundary"]["do_not_claim_yet"]
+        assert "verifiable SEC EDGAR-derived 13F data" in product["offer_boundary"]["sell_now"]
+
 
 def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
     import json
@@ -195,6 +207,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
 
         doc = c.get("/api/openapi.json").get_json()
         assert "/api/mcp" in doc["paths"]
+        assert "/api/product-status" in doc["paths"]
         assert "/api/methodology/confluence-v1" in doc["paths"]
         assert "/api/stocks/{ticker}" in doc["paths"]
 
@@ -206,6 +219,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}
         }).get_json()
         assert any(t["name"] == "stocks.get" for t in mcp["result"]["tools"])
+        assert any(t["name"] == "product.status" for t in mcp["result"]["tools"])
 
         stock = c.post("/api/mcp", json={
             "jsonrpc": "2.0", "id": 2, "method": "tools/call",
@@ -213,6 +227,14 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         }).get_json()
         assert stock["result"]["structuredContent"]["ticker"] == "AAPL"
         assert stock["result"]["structuredContent"]["holder_count"] == 1
+
+        product = c.post("/api/mcp", json={
+            "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+            "params": {"name": "product.status", "arguments": {}},
+        }).get_json()
+        assert product["result"]["structuredContent"]["validation"]["current_artifact"][
+            "publishable_as_full_validation"
+        ] is False
 
 
 if __name__ == "__main__":

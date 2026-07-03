@@ -514,6 +514,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                           "responses": {"200": {"description": "Version metadata"}}}},
                 "/api/live-status": {"get": {"summary": "Verifiable live/demo/degraded data state",
                                              "responses": {"200": {"description": "Live status"}}}},
+                "/api/product-status": {"get": {"summary": "Go-to-market readiness and proof boundary",
+                                                "responses": {"200": {"description": "Product status"}}}},
                 "/api/funds": {"get": {"summary": "List tracked funds with AUM series",
                                         "responses": {"200": {"description": "Fund list"}}}},
                 "/api/fund/{cik}": {
@@ -986,6 +988,11 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "inputSchema": {"type": "object", "properties": {}},
             },
             {
+                "name": "product.status",
+                "description": "Return go-to-market readiness, offer boundary and validation proof state.",
+                "inputSchema": {"type": "object", "properties": {}},
+            },
+            {
                 "name": "funds.get",
                 "description": "Get one fund portfolio by CIK.",
                 "inputSchema": {
@@ -1069,6 +1076,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         return jsonify(_stock_payload(ticker))
 
     def _mcp_call_tool(name: str, args: dict) -> dict:
+        if name == "product.status":
+            return product_status_payload()
         if name == "funds.list":
             s = store()
             try:
@@ -1432,6 +1441,76 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     @app.get("/api/live-status")
     def live_status_ep():
         return jsonify(live_status_payload())
+
+    def product_status_payload() -> dict:
+        live = live_status_payload()
+        return {
+            "app": "13flow",
+            "generated_at": _now_iso(),
+            "git_sha": _git_sha(),
+            "public_state": live["public_state"],
+            "data": {
+                "source": live["source"],
+                "uses_synthetic_data": live["uses_synthetic_data"],
+                "latest_13f_quarter": live["latest_13f_quarter"],
+                "data_as_of": live.get("data_as_of"),
+                "period_13f": live["period_13f"],
+                "counts": live["counts"],
+                "coverage": live["coverage"],
+                "quality_summary": live["quality_summary"],
+            },
+            "commercial_readiness": {
+                "public_site": "live" if live["public_state"] == "LIVE" else "not_live",
+                "public_api": "live_read_only",
+                "pro_api": "available_with_api_key" if pro_enabled else "disabled",
+                "mcp": "available_read_only",
+                "x402": "not_enabled",
+                "alerts": "implemented_operator_runbook_required",
+            },
+            "validation": {
+                "status": "pipeline_smoke_validated_full_quant_blocked",
+                "score_claim": "ordinal_heuristic_not_probability_not_expected_return",
+                "current_artifact": {
+                    "scope": "25-ticker price/sample validation smoke",
+                    "features_sha256": "4ecceb420a466b138de6d4672844158705c0da4ed5425bc661e97df8ecfc8592",
+                    "prices_sha256": "2e35a5713c3e0654134d8d05d6f50b7013729ce6634d31db4e5e2e534ba57c9e",
+                    "publishable_as_full_validation": False,
+                },
+                "blocked_by": (
+                    "No full 2013-2026 adjusted-price CSV is installed on production. "
+                    "Do not relaunch external historical-price scraping from zen; import "
+                    "a vetted vendor CSV, then validate it offline."
+                ),
+                "required_next_artifact": "/var/lib/13flow/validation_prices_full.csv",
+            },
+            "offer_boundary": {
+                "sell_now": [
+                    "verifiable SEC EDGAR-derived 13F data",
+                    "read-only public API",
+                    "scoped Pro API keys with audit and rate limits",
+                    "MCP read-only integration with Pro tools failing closed",
+                    "data-quality warnings and methodology contracts",
+                ],
+                "do_not_claim_yet": [
+                    "validated alpha",
+                    "probabilistic score",
+                    "expected-return model",
+                    "complete insider-only/distribution universe",
+                    "x402-paid access in production",
+                ],
+            },
+            "operator_policy": {
+                "external_api_safety": (
+                    "Small samples first, explicit sleeps/backoff, resumable exports, "
+                    "and no repeated failed provider loops from production."
+                ),
+                "deployment_gate": "deploy smoke must pass before claiming live state",
+            },
+        }
+
+    @app.get("/api/product-status")
+    def product_status_ep():
+        return jsonify(product_status_payload())
 
     # ---- dashboard ------------------------------------------------------
     def _dashboard_live_status() -> dict[str, str]:

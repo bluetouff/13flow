@@ -67,7 +67,11 @@ served at `/funds`, `/funds/<cik>`, `/stocks`, `/stocks/<ticker>`, `/signals`, a
 `/signals/<ticker>`, with SEC links where an accession or issuer search can be resolved.
 `/api/live-status` is the public,
 machine-readable proof of live state: SHA, source (`SEC EDGAR`), latest quarter, row counts,
-data-quality summary, and `uses_synthetic_data=false`.
+data-quality summary, and `uses_synthetic_data=false`. `/api/product-status` is the
+go-to-market truth surface: it states what is sellable now, what is deliberately disabled
+(for example x402), and why full quantitative validation remains blocked until an imported
+2013-2026 adjusted-price CSV is available. See
+[`docs/GTM_PRODUCT_STATUS.md`](docs/GTM_PRODUCT_STATUS.md).
 
 ## Accounts & auth
 Read-only market data is public (it's public-domain). The **paid** feature — filing-alert
@@ -166,6 +170,7 @@ curl -H "Authorization: Bearer $TOKEN" \
   "https://13flow.eu/api/pro/v1/fund/0001067983?include_holds=0&limit_positions=20&limit_moves=50"
 curl -H "Authorization: Bearer $TOKEN" https://13flow.eu/api/pro/v1/data-quality
 curl https://13flow.eu/api/pro/v1/openapi.json
+curl https://13flow.eu/api/product-status
 ```
 
 Security properties: opaque high-entropy tokens, key hashes only at rest, scoped access

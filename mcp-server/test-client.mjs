@@ -23,6 +23,7 @@ const toolNames = tools.map((tool) => tool.name);
 console.log('tools:', toolNames.join(', '));
 for (const required of [
   'get_live_status',
+  'get_product_status',
   'list_funds',
   'get_fund',
   'get_stock',
@@ -43,6 +44,7 @@ const resourceUris = resources.map((resource) => resource.uri);
 for (const required of [
   '13flow://mcp/server',
   '13flow://live-status',
+  '13flow://product-status',
   '13flow://openapi',
   '13flow://methodology/confluence-v1',
   '13flow://data-quality',
@@ -68,6 +70,12 @@ async function call(name, args = {}) {
 const status = await call('get_live_status');
 if (!status.public_state) throw new Error('live status has no public_state');
 console.log('live:', status.public_state, status.git_sha || status.commit || 'unknown');
+
+const product = await call('get_product_status');
+if (!product.validation?.current_artifact || product.commercial_readiness?.x402 !== 'not_enabled') {
+  throw new Error('product status boundary is incomplete');
+}
+console.log('product:', product.validation.status);
 
 const funds = await call('list_funds');
 if (!Array.isArray(funds.funds) || funds.count < 1) throw new Error('fund list is empty');

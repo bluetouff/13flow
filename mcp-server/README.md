@@ -18,6 +18,7 @@ structured tool output and read-only annotations.
 Public tools are free and read-only:
 
 - `get_live_status`
+- `get_product_status`
 - `list_funds`
 - `get_fund`
 - `get_stock`
@@ -26,6 +27,10 @@ Public tools are free and read-only:
 - `get_confluence_methodology`
 - `get_data_quality`
 - `get_payment_policy`
+
+Public resources include `13flow://product-status`, a machine-readable go-to-market
+boundary that states what can be sold now, what must not be claimed yet, and why full
+quantitative validation is still blocked until a vetted adjusted-price CSV is imported.
 
 Premium tools are read-only but gated:
 

@@ -156,6 +156,27 @@ else
   bad "/api/config fetch" "curl failed"
 fi
 
+product="$tmpdir/product-status.json"
+if fetch "/api/product-status" "$product"; then
+  json_check "/api/product-status GTM boundary" "$product" "
+validation = data.get('validation') or {}
+artifact = validation.get('current_artifact') or {}
+offer = data.get('offer_boundary') or {}
+readiness = data.get('commercial_readiness') or {}
+ok = (
+    data.get('public_state') == 'LIVE'
+    and readiness.get('public_api') == 'live_read_only'
+    and readiness.get('mcp') == 'available_read_only'
+    and readiness.get('x402') == 'not_enabled'
+    and artifact.get('publishable_as_full_validation') is False
+    and 'validated alpha' in (offer.get('do_not_claim_yet') or [])
+)
+msg = str(data)
+"
+else
+  bad "/api/product-status fetch" "curl failed"
+fi
+
 funds="$tmpdir/funds.json"
 if fetch "/api/funds" "$funds"; then
   json_check "/api/funds non-empty" "$funds" "
@@ -179,7 +200,7 @@ openapi="$tmpdir/_api_openapi.json"
 if [[ -s "$openapi" ]]; then
   json_check "/api/openapi.json public paths" "$openapi" "
 paths = data.get('paths') or {}
-required = ['/api/live-status', '/api/funds', '/api/mcp', '/api/methodology/confluence-v1']
+required = ['/api/live-status', '/api/product-status', '/api/funds', '/api/mcp', '/api/methodology/confluence-v1']
 missing = [p for p in required if p not in paths]
 ok = not missing
 msg = 'missing paths: ' + ', '.join(missing)
@@ -203,7 +224,7 @@ if [[ "$REQUIRE_MCP" == "1" ]]; then
     json_check "MCP tools/list public contract" "$mcp_tools" "
 tools = ((data.get('result') or {}).get('tools') or [])
 names = {t.get('name') for t in tools}
-required = {'get_live_status', 'list_funds', 'get_payment_policy', 'pro.list_funds'}
+required = {'get_live_status', 'get_product_status', 'list_funds', 'get_payment_policy', 'pro.list_funds'}
 missing = sorted(required - names)
 ok = not missing
 msg = 'missing MCP tools: ' + ', '.join(missing)
