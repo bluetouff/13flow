@@ -5283,7 +5283,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             f"Generated: {payload.get('generated_at')}",
             f"Git SHA: {payload.get('git_sha')}",
             f"Status: {payload.get('status')}",
-            f"Sales motion: {payload.get('sales_motion')}",
+            "Read-only surface: true",
             f"Public account creation: {str(payload.get('self_serve_checkout')).lower()}",
             f"Public form submission: {str(payload.get('public_form_submission')).lower()}",
             "",
@@ -5563,8 +5563,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         for pkg in payload.get("pilot_packages") or []:
             packages.append(
                 f"- {pkg.get('name')}: {pkg.get('term')}; "
-                f"price_publicly_displayed={pkg.get('price_publicly_displayed')}; "
-                f"sell_when={pkg.get('sell_when')}"
+                f"public_validation_claim=false; "
+                f"review_trigger={pkg.get('sell_when')}"
             )
         return "\n".join([
             "# 13FLOW Research Review Pack",
@@ -5572,9 +5572,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             f"Generated: {payload.get('generated_at')}",
             f"Git SHA: {payload.get('git_sha')}",
             f"Status: {payload.get('status')}",
-            f"Sales motion: {payload.get('sales_motion')}",
-            f"Public quote ready: {str(payload.get('public_quote_ready')).lower()}",
-            f"Public account creation: {str(payload.get('self_serve_checkout')).lower()}",
+            "Read-only surface: true",
+            "Public validation claim: false",
+            "Public account creation: false",
             "",
             "## Summary",
             "",
@@ -5599,17 +5599,17 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "",
             "## Review Scope",
             "",
-            "\n".join(packages) or "- Not publicly quoted",
+            "\n".join(packages) or "- No separate public package",
             "",
             "## Research Checklist",
             "",
             bullets(payload.get("buyer_checklist")),
             "",
-            "## Operator Questions",
+            "## Research Questions",
             "",
             bullets(payload.get("qualification_questions")),
             "",
-            "## Private Handoff",
+            "## Integration Boundary",
             "",
             bullets(payload.get("pilot_handoff")),
             "",
@@ -5627,9 +5627,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             f"- Redistribution: {terms.get('redistribution')}",
             f"- Investment advice: {str(terms.get('investment_advice')).lower()}",
             f"- Managed-service SLA: {str(terms.get('managed_service_sla')).lower()}",
-            f"- Operator review required for production key: {str(terms.get('operator_review_required')).lower()}",
+            f"- Private integration review required: {str(terms.get('operator_review_required')).lower()}",
             "",
-            "This pack is not investment advice, not a performance claim and not a sales document.",
+            "This pack is not investment advice, not a performance claim and not a solicitation.",
             "",
         ])
 
@@ -5882,7 +5882,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             f"<p>Public validation claim: <code>{str(artifact.get('public_validation_claim')).lower()}</code></p>"
             "</section>"
             "<section class=\"split\">"
-            "<div class=\"doc-section\"><h2>Sell now</h2><ul>" + sell_now + "</ul></div>"
+            "<div class=\"doc-section\"><h2>Ready evidence</h2><ul>" + sell_now + "</ul></div>"
             "<div class=\"doc-section\"><h2>Do not claim yet</h2><ul>" + do_not_claim + "</ul></div>"
             "</section>"
             "<section class=\"doc-section\"><h2>Operational policy</h2>"
@@ -5920,7 +5920,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<h1>Readiness Checklist</h1>"
             "<p class=\"doc-lede\">Operator-facing summary for deciding whether 13FLOW is useful enough as an open research surface today.</p></div>"
             f"<aside class=\"doc-panel\"><h3>Status</h3><p><span class=\"pill\">{html_escape(payload['status'])}</span></p>"
-            f"<p class=\"meta\">sales_motion={html_escape(payload['sales_motion'])} · public_quote_ready={str(payload['public_quote_ready']).lower()}</p></aside></section>"
+            f"<p class=\"meta\">read_only=true · public_validation_claim=false</p></aside></section>"
             "<section class=\"doc-metrics\">"
             f"<div class=\"doc-metric\"><b>{html_escape(str((snapshot.get('counts') or {}).get('funds') or 0))}</b><span>tracked funds</span></div>"
             f"<div class=\"doc-metric\"><b>{html_escape(str(quality.get('trusted_funds') or 0))}</b><span>trusted funds</span></div>"
@@ -5933,14 +5933,14 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             f"<table><thead><tr><th>Check</th><th>Status</th><th>Summary</th><th>Evidence</th></tr></thead><tbody>{public_rows}</tbody></table>"
             "<h2>External Operator Checks</h2>"
             f"<table><thead><tr><th>Check</th><th>Status</th><th>Command</th></tr></thead><tbody>{external_rows}</tbody></table>"
-            "<div class=\"split\"><section class=\"panel\"><h2>Sell Now</h2><ul>" + sell_now + "</ul></section>"
+            "<div class=\"split\"><section class=\"panel\"><h2>Ready Evidence</h2><ul>" + sell_now + "</ul></section>"
             "<section class=\"panel\"><h2>Do Not Claim Yet</h2><ul>" + do_not + "</ul></section></div>"
             "<p class=\"lede\"><a class=\"pill\" href=\"/api/research-readiness\">Machine-readable readiness</a> "
             "<a class=\"pill\" href=\"/api/product-status\">Product status</a> "
             "<a class=\"pill\" href=\"/security\">Security posture</a> "
             "<a class=\"pill\" href=\"/validation\">Validation boundary</a></p>"
         )
-        return _html_response("Commercial Readiness", body)
+        return _html_response("Research Readiness", body)
 
     @app.get("/security")
     def security_page():
@@ -6203,7 +6203,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<h1>13FLOW Research Review Pack</h1>"
             f"<p class=\"doc-lede\">{html_escape(payload['one_liner'])}</p></div>"
             f"<aside class=\"doc-panel\"><h3>Status</h3><p><span class=\"pill\">{html_escape(payload['status'])}</span></p>"
-            f"<p class=\"meta\">sales_motion={html_escape(payload['sales_motion'])} · public_quote_ready={str(payload['public_quote_ready']).lower()}</p></aside></section>"
+            f"<p class=\"meta\">read_only=true · public_validation_claim=false</p></aside></section>"
             "<section class=\"doc-metrics\">"
             f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('funds') or 0))}</b><span>tracked funds</span></div>"
             f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('trusted_funds') or 0))}</b><span>trusted funds</span></div>"
@@ -6214,15 +6214,15 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<section class=\"panel\"><h2>Do Not Claim Yet</h2><ul>" + do_not + "</ul></section></div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Review Scope</h2><div class=\"grid\">" + packages + "</div></div>"
             "<div class=\"split\" style=\"margin-top:18px\"><section class=\"panel\"><h2>Research Checklist</h2><ul>" + checklist + "</ul></section>"
-            "<section class=\"panel\"><h2>Operator Questions</h2><ul>" + questions + "</ul></section></div>"
-            "<div class=\"split\" style=\"margin-top:18px\"><section class=\"panel\"><h2>Private Handoff</h2><ul>" + handoff + "</ul></section>"
+            "<section class=\"panel\"><h2>Research Questions</h2><ul>" + questions + "</ul></section></div>"
+            "<div class=\"split\" style=\"margin-top:18px\"><section class=\"panel\"><h2>Integration Boundary</h2><ul>" + handoff + "</ul></section>"
             "<section class=\"panel\"><h2>Next Checks</h2><ul>" + next_steps + "</ul></section></div>"
             "<div class=\"split\" style=\"margin-top:18px\"><section class=\"panel\"><h2>Evidence Links</h2><ul>" + evidence + "</ul></section>"
             "<section class=\"panel\"><h2>Terms Boundary</h2>"
             f"<p><span class=\"pill\">public_offer:{html_escape(str(terms.get('public_offer')))}</span></p>"
             f"<p><span class=\"pill\">redistribution:{html_escape(str(terms.get('redistribution')))}</span></p>"
             f"<p><span class=\"pill\">production_key_review:{str(terms.get('operator_review_required')).lower()}</span></p>"
-            "<p class=\"meta\">This pack is not investment advice, not a performance claim and not a sales document.</p></section></div>"
+            "<p class=\"meta\">This pack is not investment advice, not a performance claim and not a solicitation.</p></section></div>"
             "<p class=\"lede action-row\"><a class=\"pill\" href=\"/api/buyer-pack\">Machine-readable research pack</a> "
             "<a class=\"pill\" href=\"/api/buyer-pack.md\">Markdown export</a> "
             "<a class=\"pill\" href=\"/buyer-pack/print\">Printable pack</a> "
@@ -6247,7 +6247,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<tr>"
             f"<td>{html_escape(pkg.get('name') or '-')}</td>"
             f"<td>{html_escape(pkg.get('term') or '-')}</td>"
-            "<td>not a sales offer</td>"
+            "<td>not a public offer</td>"
             f"<td>{html_escape(pkg.get('sell_when') or '-')}</td>"
             "</tr>"
             for pkg in payload.get("pilot_packages") or []
@@ -6255,7 +6255,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         body = (
             "<style>@media print{.topnav,.site-footer,.print-actions{display:none!important}.wrap{max-width:none;padding:0}body{background:#fff;color:#111}.doc-section,.doc-panel,.panel{break-inside:avoid;border-color:#bbb;background:#fff;color:#111}.doc-section p,.panel p,.doc-lede,li{color:#222}.pill{border-color:#777;color:#111}.doc-copy h1{font-size:38px}.doc-metrics{grid-template-columns:repeat(4,1fr)}}"
             ".print-cover{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:24px;margin-bottom:14px}.print-cover h1{font-size:46px;margin-bottom:10px}.print-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}</style>"
-            "<section class=\"print-cover\"><div class=\"kicker\">Shareable buyer pack</div>"
+            "<section class=\"print-cover\"><div class=\"kicker\">Shareable research pack</div>"
             "<h1>13FLOW Research Review Pack</h1>"
             f"<p class=\"doc-lede\">{html_escape(payload['one_liner'])}</p>"
             f"<p class=\"meta\">generated={html_escape(payload['generated_at'])}; git_sha={html_escape(payload['git_sha'])}</p>"
@@ -6271,13 +6271,13 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<section class=\"doc-section\"><h2>Proof Points</h2><ul>"
             + list_items(payload.get("proof_points")) + "</ul></section>"
             "<section class=\"doc-section\"><h2>Review Scope</h2>"
-            "<table><thead><tr><th>Name</th><th>Scope</th><th>Commercial status</th><th>Open when</th></tr></thead>"
+            "<table><thead><tr><th>Name</th><th>Scope</th><th>Boundary</th><th>Review trigger</th></tr></thead>"
             f"<tbody>{packages}</tbody></table></section>"
             "<div class=\"split\"><section class=\"doc-section\"><h2>Research Checklist</h2><ul>"
             + list_items(payload.get("buyer_checklist")) + "</ul></section>"
-            "<section class=\"doc-section\"><h2>Operator Questions</h2><ul>"
+            "<section class=\"doc-section\"><h2>Research Questions</h2><ul>"
             + list_items(payload.get("qualification_questions")) + "</ul></section></div>"
-            "<div class=\"split\"><section class=\"doc-section\"><h2>Private Handoff</h2><ul>"
+            "<div class=\"split\"><section class=\"doc-section\"><h2>Integration Boundary</h2><ul>"
             + list_items(payload.get("pilot_handoff")) + "</ul></section>"
             "<section class=\"doc-section\"><h2>Do Not Claim Yet</h2><ul>"
             + list_items(payload.get("do_not_claim_yet")) + "</ul></section></div>"
@@ -6288,10 +6288,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             f"<span class=\"pill\">redistribution:{html_escape(str(terms.get('redistribution')))}</span>"
             f"<span class=\"pill\">investment_advice:{str(terms.get('investment_advice')).lower()}</span>"
             f"<span class=\"pill\">sla:{str(terms.get('managed_service_sla')).lower()}</span></p>"
-            "<p class=\"callout\"><strong>Boundary:</strong> This pack is not investment advice, not a performance claim and not a sales document.</p>"
+            "<p class=\"callout\"><strong>Boundary:</strong> This pack is not investment advice, not a performance claim and not a solicitation.</p>"
             "</section>"
         )
-        return _html_response("Printable Buyer Pack", body)
+        return _html_response("Printable Research Pack", body)
 
     @app.get("/validation")
     def validation_page():
@@ -6375,7 +6375,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<h1>Validation</h1>"
             "<p class=\"doc-lede\">Current Confluence evidence pack for 13FLOW. "
             "This page is intentionally conservative: it separates mechanical dataset readiness "
-            "from any alpha or investment-performance claim, so a buyer can see exactly what is ready "
+            "from any alpha or investment-performance claim, so a reviewer can see exactly what is ready "
             "and what still needs review.</p>"
             "<div class=\"actions\"><a class=\"pill cta\" href=\"/api/product-status\">Product status JSON</a>"
             "<a class=\"pill\" href=\"/api/methodology/confluence-v1\">Confluence v1 contract</a>"
@@ -6836,7 +6836,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             ("Sign in", "Open build"),
             ("Upgrade to Pro", "API access"),
             ("Continue to checkout", "Checkout disabled"),
-            ("€12", "Pro API"),
+            ("€12", "API"),
         ):
             markup = markup.replace(old, new)
         return markup
@@ -6880,7 +6880,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         {"id": "methodology", "en": "/methodology", "fr": "/fr/methodology", "en_label": "Methodology", "fr_label": "Méthodologie"},
         {"id": "methodology_app", "en": "/methodology/app", "fr": "/fr/methodology/app", "en_label": "Application method", "fr_label": "Méthode app"},
         {"id": "methodology_mcp", "en": "/methodology/mcp", "fr": "/fr/methodology/mcp", "en_label": "MCP method", "fr_label": "Méthode MCP"},
-        {"id": "buyer_pack", "en": "/buyer-pack", "fr": "/fr/buyer-pack", "en_label": "Buyer pack", "fr_label": "Pack acheteur"},
+        {"id": "buyer_pack", "en": "/buyer-pack", "fr": "/fr/buyer-pack", "en_label": "Research pack", "fr_label": "Pack recherche"},
         {"id": "about", "en": "/about", "fr": "/fr/about", "en_label": "About", "fr_label": "À propos"},
         {"id": "faq", "en": "/faq", "fr": "/fr/faq", "en_label": "FAQ", "fr_label": "FAQ"},
         {"id": "legal", "en": "/legal", "fr": "/fr/legal", "en_label": "Legal", "fr_label": "Mentions légales"},
@@ -6904,7 +6904,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "languages": list(I18N_LANGUAGES),
             "default_language": "en",
             "strategy": "paired_public_routes_shared_product_contracts",
-            "contract": "Any public commercial or documentation update must update both EN and FR routes, plus this manifest and tests.",
+            "contract": "Any public documentation update must update both EN and FR routes, plus this manifest and tests.",
             "routes": [dict(item) for item in I18N_ROUTE_PAIRS],
             "copy_keys": sorted(I18N_COPY),
             "copy_complete": not missing_copy,
@@ -8885,7 +8885,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<a class=\"button\" href=\"/app\">Ouvrir l'app research</a>"
             "<a class=\"button secondary\" href=\"/signals\">Voir Signals</a>"
             "<a class=\"button secondary\" href=\"/fr/sandbox\">Tester le sandbox</a>"
-            "<a class=\"button secondary\" href=\"/fr/buyer-pack\">Pack acheteur</a></div></div>"
+            "<a class=\"button secondary\" href=\"/fr/buyer-pack\">Pack recherche</a></div></div>"
             "<aside class=\"cockpit-shot\" aria-label=\"apercu cockpit 13FLOW\">"
             "<div class=\"shot-top\"><div><div class=\"shot-title\">File de recherche</div>"
             "<div class=\"meta\">Evidence first, claims bounded, API-ready</div></div>"
@@ -8906,7 +8906,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             f"<div><b>{html_escape(str(quality.get('aum_jump_warnings') or 0))} warnings qualité</b><span>{html_escape(str(quality.get('unit_scale_candidates') or 0))} candidats unit-scale</span></div>"
             "</section>"
             "<section class=\"section-head\"><div><div class=\"kicker\">Workflow professionnel</div><h2>Construit pour les builders qui veulent l'évidence d'abord</h2></div>"
-            "<p>13FLOW doit rester une couche compacte: sandbox instantané, limites visibles et évidence sourcée avant toute clé production payante.</p></section>"
+            "<p>13FLOW doit rester une couche compacte: sandbox instantané, limites visibles et évidence sourcée avant qu'un workflow cite la donnée.</p></section>"
             "<div class=\"journey\">"
             "<a class=\"step\" href=\"/app#confluence\"><div class=\"n\">01 · Triage</div><h3>Cockpit signal</h3><p>Prioriser les noms ou pression 13F et activite Form 4 se recoupent, puis verifier les sources.</p></a>"
             "<a class=\"step\" href=\"/funds\"><div class=\"n\">02 · Valider</div><h3>Fonds et issuers</h3><p>Vérifier qui a bougé, ce qui a changé, les accessions et les flags qualité.</p></a>"
@@ -8919,7 +8919,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<p><a class=\"pill\" href=\"/fr/sandbox\">Sandbox</a> <a class=\"pill\" href=\"/api/openapi.json\">OpenAPI</a></p></div>"
             "<div class=\"panel\"><h3>Ce qui n'est pas affirme</h3><ul>"
             "<li>Pas de claim d'alpha validé.</li><li>Pas de modèle de rendement attendu.</li>"
-            "<li>Pas d'accès payant public pour le moment.</li><li>Pas d'offre MCP séparée.</li><li>Pas de droit de redistribution sans accord écrit.</li></ul>"
+            "<li>Pas de promesse de rendement.</li><li>Pas de couverture exhaustive des actifs non-13F.</li><li>Pas de droit de redistribution sans accord écrit.</li></ul>"
             f"<p><span class=\"pill\">{html_escape(validation['status'])}</span> <span class=\"pill\">rows={html_escape(str(artifact['row_count']))}; tickers={html_escape(str(artifact['ticker_count']))}</span></p>"
             "<p><a class=\"pill\" href=\"/fr/validation\">Validation</a> <a class=\"pill\" href=\"/fr/methodology\">Méthodologie</a></p></div></section>"
         )
@@ -8942,7 +8942,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
         body = (
             "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Clé instantanée limitée</div>"
             "<h1>Sandbox en 60 secondes</h1>"
-            "<p class=\"doc-lede\">Générez une clé publique sandbox-only, lancez des probes API et inspectez la frontière MCP minimale. Cette clé reste limitée aux endpoints publics du sandbox et ne déverrouille aucune surface privée opérateur/admin.</p>"
+            "<p class=\"doc-lede\">Générez une clé publique sandbox-only, lancez des probes API et inspectez la frontière MCP minimale. Cette clé reste limitée aux endpoints publics du sandbox et ne déverrouille aucune surface d'administration.</p>"
             "<div class=\"actions\"><a class=\"pill cta\" href=\"/api/sandbox/key\">Obtenir la clé JSON</a> <a class=\"pill\" href=\"/fr/developers\">Docs développeurs</a></div></div>"
             "<aside class=\"doc-panel\"><h3>Frontière</h3><div class=\"mini-list\">"
             f"<div><b>Token:</b> <code>{html_escape(token)}</code></div>"
@@ -8952,7 +8952,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<section class=\"doc-section\"><h2>Démo API copiable</h2>"
             f"<pre><code>{html_escape(curl)}</code></pre></section>"
             "<section class=\"split\"><div class=\"doc-section\"><h2>Ce que ça prouve</h2><ul><li>Votre workflow peut récupérer une clé et appeler des endpoints bornés.</li><li>Votre agent garde la source, la méthode et les limites visibles.</li></ul></div>"
-            "<div class=\"doc-section\"><h2>Ce que ça ne prouve pas</h2><ul><li>Pas d'accès Pro production.</li><li>Pas de SLA ni droit de redistribution.</li><li>Pas d'offre MCP payante séparée.</li></ul></div></section>"
+            "<div class=\"doc-section\"><h2>Ce que ça ne prouve pas</h2><ul><li>Pas d'accès aux surfaces d'administration.</li><li>Pas de SLA ni droit de redistribution.</li><li>Pas de promesse de couverture exhaustive.</li></ul></div></section>"
         )
         return _html_response("Sandbox", body, lang="fr", canonical_path="/sandbox")
 
@@ -8969,10 +8969,10 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
         )
         body = (
             "<h1>Développeurs</h1>"
-            "<p class=\"lede\">API publique read-only et entrée MCP minimale pour du contexte SEC 13F sourcé. Le sandbox public inclut les démos; l'accès Pro production reste émis par l'opérateur et l'accès payant n'est pas encore public.</p>"
+            "<p class=\"lede\">API publique read-only et entrée MCP minimale pour du contexte SEC 13F sourcé. Le sandbox public sert uniquement à vérifier les contrats, les limites et les exemples d'intégration.</p>"
             "<div class=\"grid\">"
             "<div class=\"card\"><h3>Statut</h3><p><a href=\"/fr/status\">/fr/status</a></p><p class=\"meta\">SHA déployé, état live et frontière de validation.</p></div>"
-            "<div class=\"card\"><h3>API publique</h3><p><a href=\"/api/openapi.json\">/api/openapi.json</a></p><p class=\"meta\">Pas de compte navigateur, pas de cookie, pas de checkout.</p></div>"
+            "<div class=\"card\"><h3>API publique</h3><p><a href=\"/api/openapi.json\">/api/openapi.json</a></p><p class=\"meta\">Pas de compte navigateur, pas de cookie, surface read-only.</p></div>"
             f"<div class=\"card\"><h3>Sandbox</h3><p><a href=\"/fr/sandbox\">/fr/sandbox</a></p><p class=\"meta\">Clé instantanée limitée: {limits['sandbox_rate_per_min']} / min, {limits['sandbox_rate_per_day']} / jour.</p></div>"
             "<div class=\"card\"><h3>Contrat i18n</h3><p><a href=\"/api/i18n\">/api/i18n</a></p><p class=\"meta\">Manifeste EN/FR utilisé par les tests et le smoke public.</p></div>"
             "</div><div class=\"panel\" style=\"margin-top:18px\"><h2>Quick checks</h2>"
@@ -8997,11 +8997,11 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
         body = (
             "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Positionnement</div>"
             "<h1>Pourquoi pas sec-api, Financial Datasets ou Dataroma ?</h1>"
-            "<p class=\"doc-lede\">13FLOW ne doit pas se vendre comme un clone moins cher de broad data APIs ou de pages portfolio retail. Le wedge est plus étroit: une trust layer pour agent builders et research ops.</p>"
+            "<p class=\"doc-lede\">13FLOW n'est pas un clone de broad data APIs ou de pages portfolio retail. Le périmètre est plus étroit: une trust layer pour agent builders et research ops.</p>"
             "<div class=\"actions\"><a class=\"pill cta\" href=\"/fr/sandbox\">Tester le sandbox</a><a class=\"pill\" href=\"/fr/trust-artifact\">Artifact</a></div></div>"
             "<aside class=\"doc-panel\"><h3>Réponse courte</h3><p class=\"callout\"><strong>SEC EDGAR reste la vérité brute.</strong> 13FLOW sert quand le workflow a besoin d'évidence sourcée, de frontières qualité et de contrats API/MCP copiables.</p></aside></section>"
             "<section class=\"doc-grid\">" + cards + "</section>"
-            "<section class=\"doc-section\"><h2>Discipline ICP</h2><ul><li>ICP primaire: agent builders et research operations.</li><li>Pas retail. Pas discretionary analyst générique.</li><li>Valeur: trust layer et évidence workflow, pas signal alpha.</li></ul></section>"
+            "<section class=\"doc-section\"><h2>Discipline d'usage</h2><ul><li>Usage principal: agent builders et research operations.</li><li>Pas retail. Pas discretionary analyst générique.</li><li>Valeur: trust layer et évidence workflow, pas signal alpha.</li></ul></section>"
         )
         return _html_response("Alternatives", body, lang="fr", canonical_path="/alternatives")
 
@@ -9056,7 +9056,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<section class=\"doc-section\"><h2>Lecture opérationnelle</h2>"
             "<div class=\"runbook\"><div class=\"runstep\"><b>01</b><span>Vérifier le SHA après déploiement.</span></div>"
             "<div class=\"runstep\"><b>02</b><span>Confirmer LIVE et absence de données synthétiques.</span></div>"
-            "<div class=\"runstep\"><b>03</b><span>Ouvrir l'app, les pages Pro et les docs via Apache.</span></div>"
+            "<div class=\"runstep\"><b>03</b><span>Ouvrir l'app, les pages publiques et les docs via Apache.</span></div>"
             "<div class=\"runstep\"><b>04</b><span>Seulement ensuite qualifier la release de vérifiée.</span></div></div></section>"
             "<section class=\"split\"><div class=\"panel\"><h2>Qualité</h2>"
             f"<p><span class=\"pill\">status:{html_escape(str(quality.get('status') or '-'))}</span>"
@@ -9089,8 +9089,8 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Couverture et qualité</div>"
             "<h1>Couverture des fonds fiables</h1>"
             "<p class=\"doc-lede\">13FLOW n'utilise dans les signaux courants que les fonds qui passent un quality gate automatique et fail-closed. Les fonds périmés, dégradés ou quarantined restent auditables, mais sortent des scores.</p></div>"
-            "<aside class=\"doc-panel\"><h3>Frontière commerciale</h3>"
-            "<p>Ce n'est pas une promesse de performance. C'est une disclosure opérationnelle sur l'univers réellement utilisé par le produit.</p>"
+            "<aside class=\"doc-panel\"><h3>Frontière d'interprétation</h3>"
+            "<p>Ce n'est pas une promesse de performance. C'est une disclosure opérationnelle sur l'univers réellement utilisé par les signaux.</p>"
             f"<p><span class=\"pill\">status:{html_escape(str(summary.get('status') or '-'))}</span><span class=\"pill\">excluded:{len(excluded)}</span></p></aside></section>"
             "<section class=\"doc-metrics\">"
             f"<div class=\"doc-metric\"><b>{html_escape(str(summary.get('active_funds') or 0))}</b><span>fonds actifs</span></div>"
@@ -9228,14 +9228,14 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
         body = (
             "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Méthodologie MCP</div>"
             "<h1>Contrat MCP</h1>"
-            "<p class=\"doc-lede\">Les outils publics MCP restent read-only. Les outils Pro doivent échouer proprement sans clé valide ou paiement configuré, et exposer la frontière produit au lieu de laisser l'agent inventer.</p>"
+            "<p class=\"doc-lede\">Les outils publics MCP restent read-only. Les outils privés doivent échouer proprement sans credential valide, et exposer la frontière produit au lieu de laisser l'agent inventer.</p>"
             "<div class=\"actions\"><a class=\"pill cta\" href=\"/api/methodology/mcp\">Contrat JSON</a><a class=\"pill\" href=\"/fr/developers\">Docs développeurs</a></div></div>"
             "<aside class=\"doc-panel\"><h3>Frontière</h3>"
             f"<p><span class=\"pill\">x402:{html_escape(payload['security']['x402'])}</span></p>"
             f"<p class=\"meta\">sha={html_escape(payload['git_sha'][:12])}</p></aside></section>"
             "<section class=\"doc-section\"><h2>Règles MCP</h2><ul>"
             "<li>Les outils publics ne doivent pas exiger de compte navigateur.</li>"
-            "<li>Les outils Pro échouent fermés sans credential valide.</li>"
+            "<li>Les outils privés échouent fermés sans credential valide.</li>"
             "<li>Les réponses exposent statut produit, validation boundary et warnings qualité.</li>"
             "<li>Aucune sortie outil ne doit se présenter comme alpha validé ou recommandation.</li></ul></section>"
         )
@@ -9286,7 +9286,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<section class=\"doc-section\"><h2>Pourquoi ça existe</h2>"
             "<div class=\"split\"><div class=\"doc-card\"><h3>Pour les analystes</h3><p>Réduire le bruit des filings SEC en une file vérifiable: qui a bougé, quel issuer change, quelle source le prouve et où la donnée peut se tromper.</p></div>"
             "<div class=\"doc-card\"><h3>Pour les builders</h3><p>Exposer des contrats read-only stables pour dashboards, notebooks et agents sans prétendre que le signal est un alpha validé.</p></div></div>"
-            "<div class=\"callout\" style=\"margin-top:12px\"><strong>La posture produit est conservatrice.</strong> 13FLOW priorise workflow, structure et auditabilité. Il ne vend pas un signal magique de trading.</div></section>"
+            "<div class=\"callout\" style=\"margin-top:12px\"><strong>La posture produit est conservatrice.</strong> 13FLOW priorise workflow, structure et auditabilité. Il ne promet pas un signal magique de trading.</div></section>"
             "<section class=\"doc-section\"><h2>Liens utiles</h2><div class=\"doc-grid\">"
             "<a class=\"doc-card\" href=\"https://l0g.fr/\" rel=\"noopener\"><h3>l0g.fr</h3><p>L'écosystème research et éditorial derrière 13FLOW.</p></a>"
             "<a class=\"doc-card\" href=\"/fr/methodology\"><h3>Méthodologie</h3><p>Comment interpréter l'app et les couches MCP.</p></a>"
@@ -9318,8 +9318,8 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<div><b>Relation aux tiers:</b> 13FLOW n'est pas affilié à la SEC, aux fonds suivis, aux issuers ou aux fournisseurs de données tiers mentionnés.</div></div></section>"
             "<section class=\"doc-section\"><h2>Données personnelles et RGPD</h2>"
             "<p>Le site public 13FLOW est conçu comme une surface low-data et read-only. Il ne demande pas de compte public, ne crée pas de profil visiteur et ne pose pas de cookies publicitaires ou analytics comportementaux.</p>"
-            "<div class=\"split\"><div class=\"doc-card\"><h3>Données pouvant être traitées</h3><ul><li>Logs techniques: IP, timestamp, URL demandée, code statut et user-agent.</li><li>Signaux sécurité et anti-abus nécessaires à l'exploitation.</li><li>Messages envoyés volontairement par email.</li><li>Pour un accès privé opérateur: organisation, contact, key id, endpoint, scope, statut et métadonnées d'audit.</li></ul></div>"
-            "<div class=\"doc-card\"><h3>Finalités</h3><ul><li>Opérer le site public et les APIs.</li><li>Sécuriser le service et prévenir les abus.</li><li>Répondre aux demandes légales, privacy, support ou research.</li><li>Administrer un accès API privé quand un accord existe.</li></ul></div></div>"
+            "<div class=\"split\"><div class=\"doc-card\"><h3>Données pouvant être traitées</h3><ul><li>Logs techniques: IP, timestamp, URL demandée, code statut et user-agent.</li><li>Signaux sécurité et anti-abus nécessaires à l'exploitation.</li><li>Messages envoyés volontairement par email.</li><li>Pour une intégration privée: organisation, contact, key id, endpoint, scope, statut et métadonnées d'audit.</li></ul></div>"
+            "<div class=\"doc-card\"><h3>Finalités</h3><ul><li>Opérer le site public et les APIs.</li><li>Sécuriser le service et prévenir les abus.</li><li>Répondre aux demandes légales, privacy, support ou research.</li><li>Administrer une intégration API privée quand un accord existe.</li></ul></div></div>"
             "<p class=\"callout\" style=\"margin-top:12px\"><strong>Base légale.</strong> Intérêt légitime pour la sécurité et l'opération du service, consentement lorsque vous contactez volontairement l'éditeur, obligation légale si applicable.</p></section>"
             "<section class=\"doc-section\"><h2>Vos droits</h2>"
             "<p>Au titre du RGPD, vous pouvez demander accès, rectification, effacement, limitation, opposition et portabilité lorsque c'est applicable. Écrivez à <a href=\"mailto:admin@toonux.com\">admin@toonux.com</a>. Une vérification raisonnable d'identité peut être demandée.</p>"
@@ -9329,7 +9329,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<div class=\"doc-card\"><h3>Conservation</h3><p>Les logs techniques et traces d'audit sont conservés seulement le temps nécessaire à la sécurité, fiabilité, prévention des abus, preuve légale ou administration active.</p></div></div>"
             "<p class=\"meta\">Les liens externes, dont l0g.fr, SEC.gov, GitHub ou CNIL, ne sont contactés que si vous les ouvrez.</p></section>"
             "<section class=\"doc-section\"><h2>Données et sources</h2>"
-            "<p>13FLOW agrège, formate et relie des filings publics SEC EDGAR, notamment les holdings institutionnels 13F-HR et les ownership reports Form 4. 13FLOW ne possède pas les filings SEC sous-jacents et ne vend pas l'accès brut SEC comme donnée propriétaire.</p>"
+            "<p>13FLOW agrège, formate et relie des filings publics SEC EDGAR, notamment les holdings institutionnels 13F-HR et les ownership reports Form 4. 13FLOW ne possède pas les filings SEC sous-jacents et ne les présente pas comme une donnée propriétaire.</p>"
             "<p>Délais de filing, amendements, erreurs issuer, tickers manquants, gaps CUSIP et incohérences source peuvent exister. Vérifiez via les accessions, la méthodologie et les endpoints de validation.</p></section>"
             "<section class=\"doc-section\"><h2>Pas de conseil en investissement</h2>"
             "<p>13FLOW est un outil de screening et de recherche. Scores, rankings, vues Confluence et réponses API ne constituent pas des recommandations personnalisées, conseils d'investissement, sollicitations, guidances d'exécution, probabilités ou promesses de performance.</p></section>"
@@ -9345,21 +9345,21 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             for item in payload["evidence_links"]
         )
         body = (
-            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Pack acheteur</div>"
-            "<h1>13FLOW Pack de revue acheteur</h1>"
-            "<p class=\"doc-lede\">Version partageable pour évaluer 13FLOW comme surface de recherche ouverte: statut, preuves, limites, questions opérateur et frontière juridique.</p></div>"
-            f"<aside class=\"doc-panel\"><h3>Status</h3><p><span class=\"pill\">{html_escape(payload['status'])}</span></p><p class=\"meta\">sales_motion={html_escape(payload['sales_motion'])} · public_quote_ready={str(payload['public_quote_ready']).lower()}</p></aside></section>"
+            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Pack recherche</div>"
+            "<h1>13FLOW Pack de revue research</h1>"
+            "<p class=\"doc-lede\">Version partageable pour évaluer 13FLOW comme surface de recherche ouverte: statut, preuves, limites, questions de revue et frontière juridique.</p></div>"
+            f"<aside class=\"doc-panel\"><h3>Status</h3><p><span class=\"pill\">{html_escape(payload['status'])}</span></p><p class=\"meta\">read_only=true · public_validation_claim=false</p></aside></section>"
             "<section class=\"doc-metrics\">"
             f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('funds') or 0))}</b><span>fonds suivis</span></div>"
             f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('trusted_funds') or 0))}</b><span>fonds trusted</span></div>"
             f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('latest_13f_quarter') or '-'))}</b><span>dernier 13F</span></div>"
             f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('artifact_tickers') or 0))}</b><span>tickers artifact</span></div></section>"
-            "<div class=\"split\"><section class=\"panel\"><h2>Ce que le pack prouve</h2><ul><li>État live et données publiques vérifiables.</li><li>Frontière claire: pas de claim performance, pas de conseil en investissement.</li><li>Sandbox public utilisable avant toute discussion payante.</li></ul></section>"
-            "<section class=\"panel\"><h2>À ne pas vendre maintenant</h2><ul><li>Pas de flux paiement public.</li><li>Pas de prix public.</li><li>Pas de SLA ni redistribution sans accord.</li><li>Pas d'alpha validé.</li></ul></section></div>"
+            "<div class=\"split\"><section class=\"panel\"><h2>Ce que le pack prouve</h2><ul><li>État live et données publiques vérifiables.</li><li>Frontière claire: pas de claim performance, pas de conseil en investissement.</li><li>Sandbox public utilisable pour vérifier les contrats API.</li></ul></section>"
+            "<section class=\"panel\"><h2>Ce que le pack ne prouve pas</h2><ul><li>Pas de promesse de rendement.</li><li>Pas de couverture exhaustive.</li><li>Pas de SLA ni redistribution sans accord.</li><li>Pas d'alpha validé.</li></ul></section></div>"
             f"<div class=\"panel\" style=\"margin-top:18px\"><h2>Liens de preuve</h2><ul>{evidence}</ul></div>"
-            "<p class=\"lede action-row\"><a class=\"pill\" href=\"/api/buyer-pack\">JSON buyer pack</a> <a class=\"pill\" href=\"/api/buyer-pack.md\">Markdown export</a> <a class=\"pill\" href=\"/fr/pro\">Sandbox builders</a></p>"
+            "<p class=\"lede action-row\"><a class=\"pill\" href=\"/api/buyer-pack\">JSON research pack</a> <a class=\"pill\" href=\"/api/buyer-pack.md\">Markdown export</a> <a class=\"pill\" href=\"/fr/sandbox\">Sandbox builders</a></p>"
         )
-        return _html_response("Pack acheteur", body, lang="fr", canonical_path="/buyer-pack")
+        return _html_response("Pack recherche", body, lang="fr", canonical_path="/buyer-pack")
 
     @app.get("/fr/legal/pro-api")
     def pro_api_terms_page_fr():

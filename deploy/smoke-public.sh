@@ -251,7 +251,7 @@ if fetch "/buyer-pack" "$buyer_pack_page"; then
   grep -q "13FLOW Research Review Pack" "$buyer_pack_page" \
     && grep -q "Proof Points" "$buyer_pack_page" \
     && grep -q "Research Checklist" "$buyer_pack_page" \
-    && grep -q "Operator Questions" "$buyer_pack_page" \
+    && grep -q "Research Questions" "$buyer_pack_page" \
     && grep -q "Terms Boundary" "$buyer_pack_page" \
     && grep -q "/api/buyer-pack" "$buyer_pack_page" \
     && grep -q "/api/buyer-pack.md" "$buyer_pack_page" \
@@ -363,6 +363,7 @@ fr_pages=(
   "/fr/faq|Deux filings. Une piste de recherche.|FAQ FR"
   "/fr/about|Intelligence filing, construite dans le labo l0g|About FR"
   "/fr/legal|Conditions claires pour un outil public de recherche filing|Legal FR"
+  "/fr/buyer-pack|Pack recherche|Research pack FR"
 )
 for item in "${fr_pages[@]}"; do
   IFS='|' read -r path needle label <<<"$item"
@@ -374,7 +375,11 @@ for item in "${fr_pages[@]}"; do
       && ! grep -q '\$19' "$out" \
       && ok "$label" \
       || bad "$label" "missing FR/i18n contract copy"
-    contains_none "$label has no legacy/auth/checkout copy" "$out" "490 EUR / month" "Continue to checkout"
+    contains_none "$label has no legacy/auth/checkout copy" "$out" \
+      "490 EUR / month" "Continue to checkout" "accès payant" "accès Pro" \
+      "Pro production" "payant" "payante" "commercial" "commerciale" \
+      "pack acheteur" "acheteur" "vendre" "vend pas" "paiement" \
+      "checkout" "billing" "sales_motion" "public_quote_ready"
   else
     bad "$label" "curl failed"
   fi

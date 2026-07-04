@@ -375,6 +375,37 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             assert 'hreflang="fr"' in page, path
             assert 'aria-label="Language switcher"' in page, path
 
+        fr_public_pages = [
+            "/fr", "/fr/sandbox", "/fr/developers", "/fr/alternatives",
+            "/fr/status", "/fr/coverage", "/fr/validation", "/fr/security",
+            "/fr/methodology", "/fr/methodology/app", "/fr/methodology/mcp",
+            "/fr/faq", "/fr/about", "/fr/legal", "/fr/buyer-pack",
+        ]
+        forbidden_fr_commercial_copy = [
+            "accès payant", "accès pro", "pro production", "payant", "payante",
+            "commercial", "commerciale", "pack acheteur", "acheteur", "vendre",
+            "vend pas", "paiement", "checkout", "billing", "sales_motion",
+            "public_quote_ready",
+        ]
+        for path in fr_public_pages:
+            page = c.get(path).get_data(as_text=True).lower()
+            for needle in forbidden_fr_commercial_copy:
+                assert needle not in page, f"{path} still contains {needle!r}"
+
+        en_public_review_pages = [
+            "/status", "/readiness", "/buyer-pack", "/buyer-pack/print",
+            "/api/buyer-pack.md", "/api/pilot-intake.md", "/validation",
+        ]
+        forbidden_en_public_markers = [
+            "sales_motion", "public_quote_ready", "commercial readiness",
+            "sell now", "sales document", "shareable buyer pack",
+            "operator questions", "private handoff",
+        ]
+        for path in en_public_review_pages:
+            page = c.get(path).get_data(as_text=True).lower()
+            for needle in forbidden_en_public_markers:
+                assert needle not in page, f"{path} still contains {needle!r}"
+
         for path, target in (
             ("/dashboard.html", "/app"),
             ("/confluence", "/app#confluence"),
@@ -745,8 +776,8 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "13FLOW Research Review Pack" in buyer_pack_page
         assert "Proof Points" in buyer_pack_page
         assert "Research Checklist" in buyer_pack_page
-        assert "Operator Questions" in buyer_pack_page
-        assert "Private Handoff" in buyer_pack_page
+        assert "Research Questions" in buyer_pack_page
+        assert "Integration Boundary" in buyer_pack_page
         assert "Terms Boundary" in buyer_pack_page
         assert "/api/buyer-pack" in buyer_pack_page
         assert "/api/buyer-pack.md" in buyer_pack_page
