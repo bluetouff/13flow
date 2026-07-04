@@ -16,6 +16,7 @@ def test_core_v1_boundary_documents_maintainable_scope():
     assert "Which paying workflow does it unblock?" in text
     assert "/api/pro/v1/workspace/*" in text
     assert "/api/pro/v1/admin/ops" in text
+    assert "/api/pro/v1/admin/release-readiness" in text
     assert "/api/pro/v1/admin/pilot-request-assist" in text
     assert "public self-serve checkout" in text
     assert "public submission endpoints that persist prospect PII" in text
@@ -41,9 +42,23 @@ def test_readme_marks_browser_auth_and_checkout_as_removed_from_core_v1():
     readme = _read("README.md")
 
     assert "No browser accounts or checkout" in readme
+    assert "/api/pro/v1/admin/release-readiness" in readme
     assert "no public signup" in readme
     assert "no Stripe billing flow" in readme
     assert "operator-reviewed Pro API access" in readme
     assert "create-user" not in readme
     assert "POST /api/billing" not in readme
     assert "Stripe Checkout" not in readme
+
+
+def test_pro_api_onboarding_freezes_controlled_pilot_scope():
+    runbook = _read("docs/PRO_API_ONBOARDING.md")
+
+    assert "Controlled pilot scope" in runbook
+    assert "Before issuing a key, the release-readiness endpoint must return `go: true`" in runbook
+    assert "funds:read,quality:read,workspace:write" in runbook
+    assert "--api-key-expires-days 30" in runbook
+    assert "--api-key-rotation-days 21" in runbook
+    assert "customer `admin:read` scope" in runbook
+    assert "self-serve payment" in runbook
+    assert "not repeated in chat, email archives, tickets, URLs or browser storage" in runbook

@@ -56,6 +56,7 @@ These Pro surfaces are part of Core V1:
 - `/api/pro/v1/admin/health`, `/api/pro/v1/admin/ops`,
   `/api/pro/v1/admin/pilot-fulfillment`,
   `/api/pro/v1/admin/buyer-handoff`,
+  `/api/pro/v1/admin/release-readiness`,
   `/api/pro/v1/admin/pilot-closeout`,
   `/api/pro/v1/admin/pilot-renewal` and
   `/api/pro/v1/admin/pilot-request-assist` for operator control.
@@ -88,6 +89,8 @@ Prefer extending existing contracts over adding new surfaces:
 - buyer-facing truth belongs in `/api/product-status`, `/api/buyer-pack`,
   `/api/pro-offer`, `/api/security-posture` or their existing pages;
 - operator health belongs in `/api/pro/v1/admin/ops` or `/pro/admin`;
+- pilot go/no-go belongs in `/api/pro/v1/admin/release-readiness` and must
+  stay read-only;
 - customer workspace value belongs in `/api/pro/v1/workspace/*` or
   `/pro/workspace`;
 - onboarding value belongs in `/api/pro/v1/onboarding`, `/pro/onboarding` or

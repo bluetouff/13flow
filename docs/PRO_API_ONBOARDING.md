@@ -3,6 +3,38 @@
 This runbook is for operator-issued Pro API access. The public open build does
 not expose self-serve checkout or account management.
 
+## Controlled pilot scope
+
+The default paid path is a controlled pilot only. Do not add browser auth,
+self-serve payment, CRM sync, public prospect storage or custom dashboards to
+close the first sales conversations.
+
+Pilot access includes:
+
+- public evidence surfaces and OpenAPI contracts;
+- Pro API read endpoints for funds, fund detail, data quality and watchlist
+  discovery;
+- saved workspace watchlists, snapshots, reports and exports;
+- MCP public tools and Pro tools that fail closed without a valid key;
+- operator-issued, expiring API keys with rate limits, audit rows and rotation.
+
+Pilot access excludes:
+
+- investment advice, price targets, validated alpha or performance guarantee;
+- public signup, checkout, invoices or automated billing;
+- customer `admin:read` scope;
+- redistribution rights unless covered by explicit written terms;
+- bespoke data expansion beyond the current quality-gated 13F, Form 4 and
+  confluence boundary.
+
+Before issuing a key, the release-readiness endpoint must return `go: true`:
+
+```bash
+curl -fsS https://13flow.eu/api/pro/v1/admin/release-readiness \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  | python3 -m json.tool
+```
+
 ## 1. Capture the inbound request
 
 The public `/pro` page routes buyers to an operator-reviewed access request. Ask
@@ -43,14 +75,16 @@ organization:
 contact:
 package: Technical pilot review | API integration review | MCP integration review
 workflow:
-scopes: funds:read,quality:read
+scopes: funds:read,quality:read,workspace:write
 rate_limits: 120/min, 10000/day
 token_delivery_channel:
-expiry_or_rotation_date:
+expires_at:
+rotation_due_at:
 key_id:
 first_probe_status: pending
 audit_verified_at:
 boundary_acknowledged: false
+release_readiness_go: false
 ```
 
 ## 2. Select the access package
@@ -85,7 +119,7 @@ Record before creating a key:
 
 - organization and label;
 - intended workflow: research desk, data pipeline, MCP agent, monitoring;
-- required scopes: usually `funds:read,quality:read`;
+- required scopes: usually `funds:read,quality:read,workspace:write`;
 - rate limits;
 - expiry and rotation cadence;
 - delivery channel for the plaintext token.
@@ -101,7 +135,27 @@ The public boundary is:
 curl -fsS https://13flow.eu/api/product-status | python3 -m json.tool
 ```
 
-## 4. Create the key
+## 4. Operator preflight
+
+Run these checks on the deployed SHA before creating or renewing a customer key:
+
+```bash
+SHA=<deployed-sha>
+
+sudo EXPECTED_SHA="$SHA" /opt/13flow/deploy/smoke-public.sh
+sudo EXPECTED_SHA="$SHA" PRO_TOKEN="$PRO_TOKEN" /opt/13flow/deploy/smoke-pro-workspace.sh
+sudo EXPECTED_SHA="$SHA" /opt/13flow/deploy/smoke-pro-key-lifecycle.sh
+
+curl -fsS https://13flow.eu/api/pro/v1/admin/release-readiness \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  | python3 -m json.tool
+```
+
+Hold issuance if release readiness returns blockers, if data quality is not
+fail-closed, or if the buyer asks for `admin:read`, self-serve checkout,
+redistribution, investment advice or unsupported validation claims.
+
+## 5. Create the key
 
 Run on production:
 
@@ -109,15 +163,26 @@ Run on production:
 sudo /opt/13flow/.venv/bin/python /opt/13flow/run.py \
   --create-api-key "Client Label" \
   --pro-db /var/lib/13flow-pro/13flow-pro.db \
-  --api-key-scopes funds:read,quality:read \
+  --api-key-scopes funds:read,quality:read,workspace:write \
   --api-key-rate-per-min 120 \
-  --api-key-rate-per-day 10000
+  --api-key-rate-per-day 10000 \
+  --api-key-expires-days 30 \
+  --api-key-rotation-days 21
 ```
 
 The plaintext token is shown once. Store only the key id in the operator notes;
 do not paste the token into tickets, Git, logs or chat.
 
-## 5. First client probes
+After creation, confirm non-secret operator evidence:
+
+```bash
+sudo /opt/13flow/.venv/bin/python /opt/13flow/run.py \
+  --pro-db /var/lib/13flow-pro/13flow-pro.db \
+  --list-operator-events \
+  --operator-events-limit 10
+```
+
+## 6. First client probes
 
 Use the customer's token without echoing it:
 
@@ -150,9 +215,11 @@ Pilot handoff is only complete when the buyer confirms they can parse:
 - the funds response;
 - one bounded fund-detail response;
 - truncation counters;
-- data-quality warnings.
+- data-quality warnings;
+- workspace overview, saved watchlist creation and export responses if
+  `workspace:write` is included.
 
-## 6. MCP probe
+## 7. MCP probe
 
 ```bash
 curl -fsS https://13flow.eu/api/mcp \
@@ -181,7 +248,7 @@ unset TOKEN
 
 Without a token or configured x402 payment, Pro MCP tools must fail closed.
 
-## 7. Audit verification
+## 8. Audit verification
 
 ```bash
 sudo sqlite3 /var/lib/13flow-pro/13flow-pro.db \
@@ -191,26 +258,27 @@ sudo sqlite3 /var/lib/13flow-pro/13flow-pro.db \
 The new key id should appear on successful requests. Denied requests and
 rate-limited requests should also create audit rows.
 
-## 8. Production preflight
+## 9. Customer handoff
 
-```bash
-SHA=<deployed-sha>
+Send normal-channel notes without token material:
 
-printf "API token: "
-read -r -s SMARTMONEY_PRO_TOKEN
-printf "\n"
-export SMARTMONEY_PRO_TOKEN
+- key id, label, scopes, expiry and rotation date;
+- link to `/pro/onboarding`, `/pro/workspace`, `/api/pro/v1/openapi.json` and
+  `/legal/pro-api`;
+- the customer-safe `curl` probes from `/api/pro/v1/admin/buyer-handoff`;
+- the statement that 13FLOW is a research screen over public filings, not
+  investment advice.
 
-sudo -E /opt/13flow/.venv/bin/python /opt/13flow/run.py --preflight \
-  --db /var/lib/13flow/13flow.db \
-  --pro-db /var/lib/13flow-pro/13flow-pro.db \
-  --require-pro \
-  --expected-sha "$SHA"
+The token itself goes only through the customer-approved secure channel and is
+not repeated in chat, email archives, tickets, URLs or browser storage.
 
-unset SMARTMONEY_PRO_TOKEN
-```
+## 10. Production preflight
 
-## 9. Rotation and revocation
+Use the smoke scripts and release-readiness endpoint in section 4 for routine
+production go/no-go checks. Keep `run.py --preflight` for local operator
+diagnostics when you need a deeper DB-level check.
+
+## 11. Rotation and revocation
 
 List keys:
 
@@ -230,7 +298,7 @@ sudo /opt/13flow/.venv/bin/python /opt/13flow/run.py \
 
 Re-test with the revoked token and expect `401`.
 
-## 8. Operational boundaries
+## 12. Operational boundaries
 
 - One active key per institution or internal service.
 - Keep public `13flow.service` read-only and without Pro DB write path.

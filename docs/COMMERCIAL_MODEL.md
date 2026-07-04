@@ -14,6 +14,7 @@ workflow around it:
 - Confluence methodology contract;
 - source-linked quality warnings;
 - operator-issued Pro API keys, rate limits and audit rows;
+- saved workspace watchlists, snapshots, reports and exports;
 - MCP tools that fail closed without valid Pro access;
 - a public evidence pack that a buyer can verify before onboarding.
 
@@ -91,11 +92,12 @@ bounded technical pilot or decline.
 ## What is included
 
 - API-key authentication through `Authorization: Bearer` or `X-13FLOW-Key`.
-- Scopes: `funds:read` and `quality:read`.
+- Default pilot scopes: `funds:read`, `quality:read` and `workspace:write`.
 - Persistent per-key rate limits.
 - Request audit trail.
 - Bounded fund-detail payloads with truncation counters.
 - Data-quality warnings surfaced as first-class output.
+- Workspace watchlists, alert inbox, snapshots, reports and CSV/JSON exports.
 - Public methodology and product-status contracts.
 - MCP public tools and Pro tools with fail-closed behavior.
 
