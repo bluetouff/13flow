@@ -1016,6 +1016,14 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                       "403": {"description": "Insufficient scope"}},
                     },
                 },
+                "/api/pro/v1/admin/buyer-handoff": {
+                    "get": {
+                        "security": security,
+                        "summary": "Admin-only customer handoff pack without token material",
+                        "responses": {"200": {"description": "Buyer handoff pack"},
+                                      "403": {"description": "Insufficient scope"}},
+                    },
+                },
                 "/api/pro/v1/openapi.json": {
                     "get": {"summary": "OpenAPI document for the Pro API",
                             "responses": {"200": {"description": "OpenAPI JSON"}}}
@@ -2847,6 +2855,81 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             ],
         }
 
+    def _pro_admin_buyer_handoff_payload(live: dict, health: dict, ops: dict) -> dict:
+        fulfillment = _pro_admin_pilot_fulfillment_payload(live, health, ops)
+        limits = fulfillment.get("default_limits") or {}
+        scopes = list((fulfillment.get("least_privilege_policy") or {}).get("default_customer_scopes") or [])
+        return {
+            "status": "ready" if fulfillment.get("status") == "ready_to_issue_bounded_pilot" else "hold",
+            "generated_at": _now_iso(),
+            "read_only": True,
+            "scope": "admin:read",
+            "tokens_included": False,
+            "secrets_included": False,
+            "token_delivery": {
+                "web_worker_delivers_token": False,
+                "operator_delivery_required": True,
+                "allowed_channels": ["customer-approved secret manager", "encrypted one-time channel"],
+                "forbidden_channels": ["URL query strings", "browser localStorage", "email thread archives", "admin web payloads"],
+            },
+            "customer_pack": {
+                "title": "13FLOW Pro controlled pilot handoff",
+                "audience": ["research desk", "family office", "asset manager", "data team", "agent workflow"],
+                "positioning": "SEC EDGAR-derived research screen with quality-gated 13F signals and saved watchlists.",
+                "not_investment_advice": True,
+                "not_claimed": ["validated alpha", "complete shorts", "real-time holdings", "brokerage execution"],
+                "evidence_links": [
+                    "/api/version",
+                    "/api/live-status",
+                    "/api/data-quality",
+                    "/api/pro/v1/openapi.json",
+                    "/pro/onboarding",
+                    "/legal/pro-api",
+                ],
+            },
+            "issued_key_summary_template": {
+                "key_id": "<issued_key_id>",
+                "label": "<org> pilot",
+                "tier": "pro",
+                "scopes": scopes,
+                "expires_at": "<expires_at>",
+                "rotation_due_at": "<rotation_due_at>",
+                "rate_per_min": int(limits.get("rate_per_min") or 120),
+                "rate_per_day": int(limits.get("rate_per_day") or 10000),
+                "max_watchlists_per_key": int(limits.get("max_watchlists_per_key") or 50),
+                "max_tickers_per_watchlist": int(limits.get("max_tickers_per_watchlist") or 50),
+                "max_request_bytes": int(limits.get("max_request_bytes") or 262144),
+            },
+            "customer_commands": {
+                "status": "curl -fsS https://13flow.eu/api/pro/v1/status -H 'Authorization: Bearer $PRO_TOKEN'",
+                "onboarding": "curl -fsS https://13flow.eu/api/pro/v1/onboarding -H 'Authorization: Bearer $PRO_TOKEN'",
+                "usage": "curl -fsS 'https://13flow.eu/api/pro/v1/usage?recent_limit=5&route_limit=5' -H 'Authorization: Bearer $PRO_TOKEN'",
+                "workspace_overview": "curl -fsS https://13flow.eu/api/pro/v1/workspace/overview -H 'Authorization: Bearer $PRO_TOKEN'",
+            },
+            "operator_checklist": [
+                "Run public, Pro workspace and Pro key lifecycle smokes on the deployed SHA.",
+                "Issue the key with least-privilege customer scopes only.",
+                "Copy the token once into the customer-approved secure channel.",
+                "Send only this handoff pack plus key id, expiry and rotation metadata through normal channels.",
+                "Confirm the customer ran /status and /onboarding without sharing the token back.",
+                "Record the operator event ids and schedule rotation before rotation_due_at.",
+            ],
+            "privacy": {
+                "tokens_echoed": False,
+                "token_hashes_exposed": False,
+                "audit_ips_exposed": False,
+                "audit_user_agents_exposed": False,
+                "payloads_logged": False,
+            },
+            "production_state": {
+                "public_state": live.get("public_state"),
+                "latest_13f_quarter": live.get("latest_13f_quarter"),
+                "ops_status": ops.get("status"),
+                "pilot_fulfillment_status": fulfillment.get("status"),
+                "operator_events": health.get("operator_events") or {},
+            },
+        }
+
     def _mcp_call_tool(name: str, args: dict) -> dict:
         if name == "product.status":
             return product_status_payload()
@@ -3771,6 +3854,28 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "read_only": True,
                 },
                 "pilot_fulfillment": fulfillment,
+            })
+
+        @app.get("/api/pro/v1/admin/buyer-handoff")
+        @pro_required("admin:read")
+        def pro_admin_buyer_handoff_ep():
+            key = request.pro_api_key
+            live = live_status_payload()
+            with ProAPIStore(pro_db_path) as ps:
+                health = ps.admin_health()
+                automation = ps.workspace_automation_summary(max_due=25)
+            ops = _pro_admin_ops_payload(live, health, automation)
+            handoff = _pro_admin_buyer_handoff_payload(live, health, ops)
+            return jsonify({
+                "meta": {
+                    "api": "13flow-pro",
+                    "version": "v1",
+                    "git_sha": _git_sha(),
+                    "admin_key_id": key.key_id,
+                    "scope": "admin:read",
+                    "read_only": True,
+                },
+                "buyer_handoff": handoff,
             })
 
         @app.get("/api/pro/v1/openapi.json")
@@ -7171,6 +7276,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     <section class="admin-panel"><h2>Workspace</h2><div id="adminWorkspace" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
     <section class="admin-panel"><h2>External Checks</h2><div id="adminExternal" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
     <section class="admin-panel"><h2>Pilot Fulfillment</h2><div id="adminPilot" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
+    <section class="admin-panel"><h2>Buyer Handoff</h2><div id="adminHandoff" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
   </section>
 </main>
 """
@@ -7258,13 +7364,33 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     <article class="admin-row"><h3>Before issue</h3><p>${before.slice(0, 6).map((x) => `<span class="pill">${esc(x)}</span>`).join("")}</p></article>
     <article class="admin-row"><h3>After issue</h3><p>${after.slice(0, 4).map((x) => `<span class="pill">${esc(x)}</span>`).join("")}</p></article>`;
   }
+  function renderHandoff(payload={}) {
+    const handoff = payload.buyer_handoff || {};
+    const pack = handoff.customer_pack || {};
+    const summary = handoff.issued_key_summary_template || {};
+    const commands = handoff.customer_commands || {};
+    const delivery = handoff.token_delivery || {};
+    const privacy = handoff.privacy || {};
+    const checklist = handoff.operator_checklist || [];
+    $("adminHandoff").innerHTML = `<article class="admin-row">
+      <div class="admin-row-top"><h3>${esc((handoff.status || "unknown").toUpperCase())}</h3><span class="admin-mini">${esc(handoff.generated_at || "-")}</span></div>
+      <p><span class="pill">tokens_included:${esc(String(handoff.tokens_included))}</span><span class="pill">web_delivery:${esc(String(delivery.web_worker_delivers_token))}</span><span class="pill">operator_delivery:${esc(String(delivery.operator_delivery_required))}</span></p>
+      <p class="admin-mini">${esc(pack.positioning || "")}</p>
+    </article>
+    <article class="admin-row"><h3>Issued key summary template</h3><p><span class="pill">scopes:${esc((summary.scopes || []).join(","))}</span><span class="pill">limits:${esc(number(summary.rate_per_min))}/min ${esc(number(summary.rate_per_day))}/day</span><span class="pill">watchlists:${esc(number(summary.max_watchlists_per_key))}</span></p><p class="admin-mini">key_id=${esc(summary.key_id || "-")} expires=${esc(summary.expires_at || "-")} rotation=${esc(summary.rotation_due_at || "-")}</p></article>
+    <article class="admin-row"><h3>Customer commands</h3><p>${Object.entries(commands).map(([name, cmd]) => `<span class="pill">${esc(name)}</span><code>${esc(cmd)}</code>`).join(" ")}</p></article>
+    <article class="admin-row"><h3>Operator checklist</h3><p>${checklist.slice(0, 6).map((x) => `<span class="pill">${esc(x)}</span>`).join("")}</p></article>
+    <article class="admin-row"><h3>Privacy</h3><p><span class="pill">tokens_echoed:${esc(String(privacy.tokens_echoed))}</span><span class="pill">hashes_exposed:${esc(String(privacy.token_hashes_exposed))}</span><span class="pill">payloads_logged:${esc(String(privacy.payloads_logged))}</span></p></article>`;
+  }
   async function refresh() {
     setStatus("Loading admin ops...");
     const payload = await adminApi("/admin/ops");
     const fulfillment = await adminApi("/admin/pilot-fulfillment");
+    const handoff = await adminApi("/admin/buyer-handoff");
     renderOps(payload);
     renderHealth({meta: payload.meta || {}, health: (payload.ops || {}).pro_control_plane || {}});
     renderPilot(fulfillment);
+    renderHandoff(handoff);
   }
   $("adminToken").value = state.token;
   $("adminConnect").addEventListener("click", async () => {
@@ -7278,6 +7404,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     $("adminToken").value = "";
     renderHealth({});
     renderPilot({});
+    renderHandoff({});
     setStatus("Disconnected");
   });
   if (state.token) refresh().catch(() => setStatus("Stored tab key could not authenticate.", true));

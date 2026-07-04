@@ -228,6 +228,7 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         assert "/api/pro/v1/admin/health" in doc["paths"]
         assert "/api/pro/v1/admin/ops" in doc["paths"]
         assert "/api/pro/v1/admin/pilot-fulfillment" in doc["paths"]
+        assert "/api/pro/v1/admin/buyer-handoff" in doc["paths"]
 
 
 def test_pro_watchlist_feed_uses_ticker_flow(monkeypatch):
@@ -756,6 +757,11 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
             headers={"Authorization": "Bearer " + workspace_token},
         )
         assert forbidden_fulfillment.status_code == 403
+        forbidden_handoff = c.get(
+            "/api/pro/v1/admin/buyer-handoff",
+            headers={"Authorization": "Bearer " + workspace_token},
+        )
+        assert forbidden_handoff.status_code == 403
 
         ok = c.get(
             "/api/pro/v1/admin/health",
@@ -852,6 +858,44 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
         assert '"key_hash":' not in fulfillment_body
         assert "127.0.0.1" not in fulfillment_body
         assert "pytest" not in fulfillment_body
+
+        handoff_response = c.get(
+            "/api/pro/v1/admin/buyer-handoff",
+            headers={"Authorization": "Bearer " + admin_token},
+        )
+        assert handoff_response.status_code == 200
+        handoff_payload = handoff_response.get_json()
+        assert handoff_payload["meta"]["admin_key_id"] == admin_key.key_id
+        assert handoff_payload["meta"]["scope"] == "admin:read"
+        assert handoff_payload["meta"]["read_only"] is True
+        handoff = handoff_payload["buyer_handoff"]
+        assert handoff["read_only"] is True
+        assert handoff["tokens_included"] is False
+        assert handoff["secrets_included"] is False
+        assert handoff["token_delivery"]["web_worker_delivers_token"] is False
+        assert handoff["token_delivery"]["operator_delivery_required"] is True
+        assert "URL query strings" in handoff["token_delivery"]["forbidden_channels"]
+        assert handoff["issued_key_summary_template"]["key_id"] == "<issued_key_id>"
+        assert "admin:read" not in handoff["issued_key_summary_template"]["scopes"]
+        assert handoff["issued_key_summary_template"]["max_watchlists_per_key"] == 50
+        assert handoff["customer_pack"]["not_investment_advice"] is True
+        assert "validated alpha" in handoff["customer_pack"]["not_claimed"]
+        assert "Authorization: Bearer $PRO_TOKEN" in handoff["customer_commands"]["status"]
+        assert any("Copy the token once" in item for item in handoff["operator_checklist"])
+        assert handoff["privacy"] == {
+            "tokens_echoed": False,
+            "token_hashes_exposed": False,
+            "audit_ips_exposed": False,
+            "audit_user_agents_exposed": False,
+            "payloads_logged": False,
+        }
+        assert handoff["production_state"]["operator_events"]["privacy"]["tokens_stored"] is False
+        handoff_body = handoff_response.get_data(as_text=True)
+        assert admin_token not in handoff_body
+        assert "13flow_live_" not in handoff_body
+        assert '"key_hash":' not in handoff_body
+        assert "127.0.0.1" not in handoff_body
+        assert "pytest" not in handoff_body
 
 
 def test_pro_admin_ops_treats_stale_only_quality_gate_as_notice(monkeypatch):

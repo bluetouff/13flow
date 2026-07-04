@@ -520,8 +520,11 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/api/pro/v1\" + path" in pro_admin_page
         assert "/admin/health" in pro_admin_page
         assert "/admin/pilot-fulfillment" in pro_admin_page
+        assert "/admin/buyer-handoff" in pro_admin_page
         assert "Pilot Fulfillment" in pro_admin_page
+        assert "Buyer Handoff" in pro_admin_page
         assert "Create key command" in pro_admin_page
+        assert "tokens_included" in pro_admin_page
         assert "web_worker_creates_tokens" in pro_admin_page
         assert "operator_events" in pro_admin_page
         assert "Recent operator events" in pro_admin_page

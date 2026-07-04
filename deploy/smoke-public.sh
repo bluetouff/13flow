@@ -375,9 +375,12 @@ if fetch "/pro/admin" "$pro_admin_page"; then
     && grep -q "/admin/health" "$pro_admin_page" \
     && grep -q "/admin/ops" "$pro_admin_page" \
     && grep -q "/admin/pilot-fulfillment" "$pro_admin_page" \
+    && grep -q "/admin/buyer-handoff" "$pro_admin_page" \
     && grep -q "Ops Verdict" "$pro_admin_page" \
     && grep -q "Pilot Fulfillment" "$pro_admin_page" \
+    && grep -q "Buyer Handoff" "$pro_admin_page" \
     && grep -q "Create key command" "$pro_admin_page" \
+    && grep -q "tokens_included" "$pro_admin_page" \
     && grep -q "web_worker_creates_tokens" "$pro_admin_page" \
     && grep -q "operator_events" "$pro_admin_page" \
     && grep -q "Recent operator events" "$pro_admin_page" \
