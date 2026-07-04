@@ -235,12 +235,12 @@ readiness_page="$tmpdir/readiness.html"
 if fetch "/readiness" "$readiness_page"; then
   grep -q "Readiness Checklist" "$readiness_page" \
     && grep -q "External Operator Checks" "$readiness_page" \
-    && grep -q "/api/commercial-readiness" "$readiness_page" \
+    && grep -q "/api/research-readiness" "$readiness_page" \
     && grep -q "/api/pro/v1/admin/health" "$readiness_page" \
     && ! grep -q "/pro/admin" "$readiness_page" \
     && grep -q "validated alpha" "$readiness_page" \
     && ok "/readiness evidence page" \
-    || bad "/readiness evidence page" "missing commercial readiness copy"
+    || bad "/readiness evidence page" "missing research readiness copy"
   contains_none "/readiness has no legacy/auth/checkout copy" "$readiness_page" "${legacy_forbidden[@]}"
 else
   bad "/readiness evidence page" "curl failed"
@@ -248,20 +248,20 @@ fi
 
 buyer_pack_page="$tmpdir/buyer-pack.html"
 if fetch "/buyer-pack" "$buyer_pack_page"; then
-  grep -q "13FLOW Buyer Review Pack" "$buyer_pack_page" \
+  grep -q "13FLOW Research Review Pack" "$buyer_pack_page" \
     && grep -q "Proof Points" "$buyer_pack_page" \
-    && grep -q "Buyer Checklist" "$buyer_pack_page" \
-    && grep -q "Qualification Questions" "$buyer_pack_page" \
+    && grep -q "Research Checklist" "$buyer_pack_page" \
+    && grep -q "Operator Questions" "$buyer_pack_page" \
     && grep -q "Terms Boundary" "$buyer_pack_page" \
     && grep -q "/api/buyer-pack" "$buyer_pack_page" \
     && grep -q "/api/buyer-pack.md" "$buyer_pack_page" \
     && grep -q "/buyer-pack/print" "$buyer_pack_page" \
     && grep -q "/pilot" "$buyer_pack_page" \
     && grep -q "/security" "$buyer_pack_page" \
-    && grep -q "/pro/onboarding" "$buyer_pack_page" \
+    && ! grep -q "/pro/onboarding" "$buyer_pack_page" \
     && grep -q "not a performance claim" "$buyer_pack_page" \
     && ok "/buyer-pack review page" \
-    || bad "/buyer-pack review page" "missing buyer pack contract"
+    || bad "/buyer-pack review page" "missing research pack contract"
   contains_none "/buyer-pack has no legacy/auth/checkout copy" "$buyer_pack_page" "${legacy_forbidden[@]}"
 else
   bad "/buyer-pack review page" "curl failed"
@@ -269,9 +269,9 @@ fi
 
 buyer_pack_print="$tmpdir/buyer-pack-print.html"
 if fetch "/buyer-pack/print" "$buyer_pack_print"; then
-  grep -q "13FLOW Buyer Review Pack" "$buyer_pack_print" \
+  grep -q "13FLOW Research Review Pack" "$buyer_pack_print" \
     && grep -q "PDF-ready printable view" "$buyer_pack_print" \
-    && grep -q "Pilot Packages" "$buyer_pack_print" \
+    && grep -q "Review Scope" "$buyer_pack_print" \
     && grep -q "Terms Boundary" "$buyer_pack_print" \
     && grep -q "/api/buyer-pack.md" "$buyer_pack_print" \
     && grep -q "not investment advice" "$buyer_pack_print" \
@@ -284,13 +284,13 @@ fi
 
 buyer_pack_md="$tmpdir/buyer-pack.md"
 if fetch "/api/buyer-pack.md" "$buyer_pack_md"; then
-  grep -q "# 13FLOW Buyer Review Pack" "$buyer_pack_md" \
+  grep -q "# 13FLOW Research Review Pack" "$buyer_pack_md" \
     && grep -q "## Proof Points" "$buyer_pack_md" \
     && grep -q "## Evidence Links" "$buyer_pack_md" \
     && grep -q "/coverage" "$buyer_pack_md" \
     && grep -q "not investment advice" "$buyer_pack_md" \
     && ok "/api/buyer-pack.md export" \
-    || bad "/api/buyer-pack.md export" "missing markdown buyer pack contract"
+    || bad "/api/buyer-pack.md export" "missing markdown research pack contract"
 else
   bad "/api/buyer-pack.md export" "curl failed"
 fi
@@ -323,56 +323,36 @@ developers_page="$tmpdir/developers.html"
 if fetch "/developers" "$developers_page"; then
   grep -q "MCP tools/list" "$developers_page" \
     && grep -q "/api/openapi.json" "$developers_page" \
-    && grep -q "/api/pro/v1/openapi.json" "$developers_page" \
-    && grep -q "Pro tools are intentionally visible" "$developers_page" \
+    && ! grep -q "payment flow" "$developers_page" \
+    && ! grep -q "/api/pro/v1/openapi.json" "$developers_page" \
+    && ! grep -q "Pro tools are intentionally visible" "$developers_page" \
     && ok "/developers page" \
-    || bad "/developers page" "missing developer contract copy"
+    || bad "/developers page" "missing open developer contract copy"
   contains_none "/developers has no legacy/auth/checkout copy" "$developers_page" "${legacy_forbidden[@]}"
 else
   bad "/developers page" "curl failed"
 fi
 
-pro_terms_page="$tmpdir/legal-pro-api.html"
-if fetch "/legal/pro-api" "$pro_terms_page"; then
-  grep -q "Pro API, MCP and x402 terms" "$pro_terms_page" \
-    && grep -q "Self-serve checkout is disabled" "$pro_terms_page" \
-    && grep -q "Paid access is coming soon" "$pro_terms_page" \
-    && grep -q "Access can be declined" "$pro_terms_page" \
-    && grep -q "No resale, redistribution" "$pro_terms_page" \
-    && ok "/legal/pro-api terms" \
-    || bad "/legal/pro-api terms" "missing Pro API terms copy"
-  contains_none "/legal/pro-api has no legacy/auth/checkout copy" "$pro_terms_page" "${legacy_forbidden[@]}"
+pro_terms_code=$(curl -sS -o "$tmpdir/legal-pro-api.html" -w '%{http_code}' --max-time 20 "$SITE/legal/pro-api" || echo 000)
+if [[ "$pro_terms_code" =~ ^30[12378]$ ]]; then
+  ok "/legal/pro-api redirects to neutral legal page"
 else
-  bad "/legal/pro-api terms" "curl failed"
+  bad "/legal/pro-api redirects to neutral legal page" "got HTTP $pro_terms_code"
 fi
 
-pro_page="$tmpdir/pro.html"
-if fetch "/pro" "$pro_page"; then
-  grep -q "13FLOW Builder Sandbox" "$pro_page" \
-    && grep -q "Paid access coming soon" "$pro_page" \
-    && grep -q "/api/pro-offer" "$pro_page" \
-    && grep -q "Start sandbox" "$pro_page" \
-    && grep -q "Builder Sandbox" "$pro_page" \
-    && grep -q "Evidence pack" "$pro_page" \
-    && grep -q "/sandbox" "$pro_page" \
-    && grep -q "/trust-artifact" "$pro_page" \
-    && ! grep -q "490 EUR / month" "$pro_page" \
-    && ! grep -q '\$19' "$pro_page" \
-    && ok "/pro offer page" \
-    || bad "/pro offer page" "missing Pro API packaging copy"
+pro_code=$(curl -sS -o "$tmpdir/pro.html" -w '%{http_code}' --max-time 20 "$SITE/pro" || echo 000)
+if [[ "$pro_code" =~ ^30[12378]$ ]]; then
+  ok "/pro redirects to sandbox"
 else
-  bad "/pro offer page" "curl failed"
+  bad "/pro redirects to sandbox" "got HTTP $pro_code"
 fi
 
 fr_pages=(
   "/fr|Construit pour les builders|Accueil FR"
-  "/fr/pro|Aucun prix public|Pro FR"
   "/fr/sandbox|Sandbox en 60 secondes|Sandbox FR"
   "/fr/developers|Developpeurs|Developers FR"
   "/fr/alternatives|Pourquoi pas sec-api|Alternatives FR"
   "/fr/trust-artifact|Trust layer, pas alpha|Trust artifact FR"
-  "/fr/buyer-pack|Pack de revue acheteur|Buyer pack FR"
-  "/fr/legal/pro-api|Conditions Pro API|Pro terms FR"
 )
 for item in "${fr_pages[@]}"; do
   IFS='|' read -r path needle label <<<"$item"
@@ -526,7 +506,7 @@ validation = data.get('validation') or {}
 artifact = validation.get('current_artifact') or {}
 metrics = validation.get('metrics_snapshot') or {}
 offer = data.get('offer_boundary') or {}
-readiness = data.get('commercial_readiness') or {}
+readiness = data.get('research_readiness') or {}
 ok = (
     data.get('public_state') == 'LIVE'
     and validation.get('status') == 'mechanical_evidence_ready_for_review_metrics_unreviewed'
@@ -547,16 +527,16 @@ else
   bad "/api/product-status fetch" "curl failed"
 fi
 
-readiness="$tmpdir/commercial-readiness.json"
-if fetch "/api/commercial-readiness" "$readiness"; then
-  json_check "/api/commercial-readiness contract" "$readiness" "
+readiness="$tmpdir/research-readiness.json"
+if fetch "/api/research-readiness" "$readiness"; then
+  json_check "/api/research-readiness contract" "$readiness" "
 snapshot = data.get('snapshot') or {}
 quality = snapshot.get('quality_gate') or {}
 public_checks = {item.get('id'): item for item in (data.get('public_checks') or [])}
 external_checks = {item.get('id'): item for item in (data.get('external_checks') or [])}
 ok = (
     data.get('status') in {'controlled_pilot_ready', 'controlled_pilot_ready_with_disclosures'}
-    and data.get('sales_motion') == 'sandbox_first_paid_access_coming_soon'
+    and data.get('sales_motion') == 'open_research_first'
     and data.get('self_serve_checkout') is False
     and data.get('public_quote_ready') is False
     and int(quality.get('trusted_funds') or 0) > 0
@@ -568,7 +548,7 @@ ok = (
 msg = str(data)[:1000]
 "
 else
-  bad "/api/commercial-readiness fetch" "curl failed"
+  bad "/api/research-readiness fetch" "curl failed"
 fi
 
 security="$tmpdir/security-posture.json"
@@ -671,20 +651,20 @@ terms = data.get('terms_boundary') or {}
 links = {item.get('href') for item in (data.get('evidence_links') or [])}
 ok = (
     data.get('status') in {'controlled_pilot_ready', 'controlled_pilot_ready_with_disclosures'}
-    and data.get('sales_motion') == 'sandbox_first_paid_access_coming_soon'
+    and data.get('sales_motion') == 'open_research_first'
     and data.get('self_serve_checkout') is False
     and data.get('public_quote_ready') is False
     and int(snapshot.get('trusted_funds') or 0) > 0
     and terms.get('operator_review_required') is True
     and 'validated alpha' in (data.get('do_not_claim_yet') or [])
-    and '/pro/onboarding' in links
+    and '/pro/onboarding' not in links
     and '/pilot' in links
     and '/coverage' in links
     and '/security' in links
-    and '/api/commercial-readiness' in links
+    and '/api/research-readiness' in links
     and (data.get('security_boundary') or {}).get('status') == 'controlled_pilot_security_ready'
     and (data.get('pilot_intake') or {}).get('public_form_submission') is False
-    and any('Pro API keys are scoped' in item for item in (data.get('proof_points') or []))
+    and any('Private keys are scoped' in item for item in (data.get('proof_points') or []))
 )
 msg = str(data)[:1000]
 "
@@ -694,36 +674,20 @@ fi
 
 offer="$tmpdir/pro-offer.json"
 if fetch "/api/pro-offer" "$offer"; then
-  json_check "/api/pro-offer packaging" "$offer" "
-offer = data.get('offer') or {}
-limits = data.get('default_limits') or {}
-not_yet = data.get('not_included_yet') or []
-commands = data.get('operator_commands') or {}
-truth = data.get('truth_boundary') or {}
-artifact = truth.get('current_artifact') or {}
-plans = data.get('plans') or []
-buyer_checklist = data.get('buyer_checklist') or []
-sales_packet = data.get('sales_packet') or {}
-note_schema = sales_packet.get('operator_note_schema') or {}
+  json_check "/api/pro-offer retired compatibility" "$offer" "
+surface = data.get('public_surface') or {}
 commercial = data.get('commercial_model') or {}
-packages = commercial.get('recommended_packages') or []
+limits = data.get('default_limits') or {}
 ok = (
-    offer.get('name') == '13FLOW Builder Sandbox'
-    and offer.get('self_serve_checkout') is False
-    and (offer.get('contact') or {}).get('email') == 'admin@toonux.com'
-    and [p.get('name') for p in plans] == ['Builder Sandbox']
-    and 'builder or research-ops contact email' in buyer_checklist
-    and 'Paid access is not publicly available yet' in (sales_packet.get('lead_reply_template') or '')
-    and note_schema.get('package') == 'Builder Sandbox'
-    and commercial.get('pricing_status') == 'paid_access_coming_soon'
-    and packages and packages[0].get('price_publicly_displayed') is False
-    and (commercial.get('paid_access_candidate') or {}).get('publicly_displayed') is False
+    data.get('status') == 'public_offer_retired'
+    and surface.get('name') == '13FLOW Open Research Surface'
+    and surface.get('payment_flow') is False
+    and surface.get('browser_account') is False
+    and commercial.get('status') == 'paused'
+    and commercial.get('recommended_packages') == []
     and int(limits.get('sandbox_rate_per_min') or 0) == 20
-    and 'validated alpha' in not_yet
-    and bool(commands.get('create_key'))
-    and artifact.get('publishable_as_full_validation') is False
 )
-msg = str(data)
+msg = str(data)[:1000]
 "
 else
   bad "/api/pro-offer fetch" "curl failed"
@@ -834,7 +798,7 @@ openapi="$tmpdir/_api_openapi.json"
 if [[ -s "$openapi" ]]; then
   json_check "/api/openapi.json public paths" "$openapi" "
 paths = data.get('paths') or {}
-required = ['/api/live-status', '/api/product-status', '/api/commercial-readiness', '/api/security-posture', '/api/pilot-intake', '/api/pilot-intake.md', '/api/pilot-request-assist', '/api/buyer-pack', '/api/buyer-pack.md', '/api/pro-offer', '/api/i18n', '/api/funds', '/api/watchlist/discover', '/api/mcp', '/api/methodology/confluence-v1']
+required = ['/api/live-status', '/api/product-status', '/api/research-readiness', '/api/security-posture', '/api/pilot-intake', '/api/pilot-intake.md', '/api/pilot-request-assist', '/api/buyer-pack', '/api/buyer-pack.md', '/api/i18n', '/api/funds', '/api/watchlist/discover', '/api/mcp', '/api/methodology/confluence-v1']
 missing = [p for p in required if p not in paths]
 ok = not missing
 msg = 'missing paths: ' + ', '.join(missing)

@@ -63,7 +63,7 @@ def test_open_mode_hides_private_surface_and_keeps_public():
         for path in ("/api/funds", "/api/consensus/buys", "/api/compare",
                      "/api/coverage", "/api/data-quality",
                      "/api/live-status", "/api/product-status",
-                     "/api/commercial-readiness",
+                     "/api/research-readiness",
                      "/api/security-posture",
                      "/api/pilot-intake",
                      "/api/pilot-intake.md",
@@ -166,15 +166,16 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
         topnav = html.split("</nav>", 1)[0]
         for label in ("Confluence", "Status", "Coverage", "Security", "Validation", "Methodology", "Pilot", "About"):
             assert f">{label}<" not in topnav
-        for label in ("Cockpit", "Signals", "Funds", "Stocks", "API", "Pro"):
+        for label in ("Cockpit", "Signals", "Funds", "Stocks", "API"):
             assert f">{label}<" in topnav
+        assert ">Pro<" not in topnav
         assert "No complete view of shorts" in html
         assert "No exhaustive insider-only" in html
         assert "Open research app" in html
         assert 'href="/app"' in html
         assert 'href="/developers"' in html
         assert 'href="/methodology"' in html
-        assert 'href="/pro"' in html
+        assert 'href="/pro"' not in html
         assert 'href="/status"' in html
         assert 'href="/faq"' in html
         assert 'href="faq.html"' not in html
@@ -207,11 +208,11 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
             .get("/api/product-status").get_json()
         assert product["public_state"] == "LIVE"
         assert product["data"]["uses_synthetic_data"] is False
-        assert product["commercial_readiness"]["public_api"] == "live_read_only"
-        assert product["commercial_readiness"]["pro_api"] == \
+        assert product["research_readiness"]["public_api"] == "live_read_only"
+        assert product["research_readiness"]["pro_api"] == \
             "separate_service_expected_on_/api/pro/v1_with_api_key"
-        assert product["commercial_readiness"]["mcp"] == "available_read_only"
-        assert product["commercial_readiness"]["x402"] == "not_enabled"
+        assert product["research_readiness"]["mcp"] == "available_read_only"
+        assert product["research_readiness"]["x402"] == "not_enabled"
         assert "shorts" in product["data"]["coverage_boundary"]["form_13f"]
         assert "10b5-1" in product["data"]["coverage_boundary"]["form_4"]
         assert "not exhaustive" in product["data"]["coverage_boundary"]["insider_universe"]
@@ -239,16 +240,16 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
         assert "verifiable SEC EDGAR-derived 13F data" in product["offer_boundary"]["sell_now"]
 
         readiness = create_app(db, secure_cookies=False, open_mode=True).test_client() \
-            .get("/api/commercial-readiness").get_json()
+            .get("/api/research-readiness").get_json()
         assert readiness["status"] in {
             "controlled_pilot_ready",
             "controlled_pilot_ready_with_disclosures",
         }
-        assert readiness["sales_motion"] == "sandbox_first_paid_access_coming_soon"
+        assert readiness["sales_motion"] == "open_research_first"
         assert readiness["self_serve_checkout"] is False
         assert readiness["public_quote_ready"] is False
-        assert readiness["paid_access_status"]["public_price_displayed"] is False
-        assert readiness["paid_access_status"]["private_offer_candidate_ready"] is True
+        assert readiness["public_access_status"]["public_price_displayed"] is False
+        assert readiness["public_access_status"]["checkout_enabled"] is False
         assert readiness["snapshot"]["quality_gate"]["trusted_funds"] >= 1
         assert readiness["snapshot"]["quality_gate"][
             "human_review_required_for_routine_publication"
@@ -270,14 +271,15 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
             "controlled_pilot_ready",
             "controlled_pilot_ready_with_disclosures",
         }
-        assert buyer_pack["sales_motion"] == "sandbox_first_paid_access_coming_soon"
+        assert buyer_pack["sales_motion"] == "open_research_first"
         assert buyer_pack["public_quote_ready"] is False
         assert buyer_pack["self_serve_checkout"] is False
         assert buyer_pack["snapshot"]["trusted_funds"] >= 1
         assert buyer_pack["terms_boundary"]["operator_review_required"] is True
         assert "validated alpha" in buyer_pack["do_not_claim_yet"]
-        assert any(item["href"] == "/pro/onboarding" for item in buyer_pack["evidence_links"])
-        assert any("Pro API keys are scoped" in item for item in buyer_pack["proof_points"])
+        assert any(item["href"] == "/sandbox" for item in buyer_pack["evidence_links"])
+        assert not any(item["href"].startswith("/pro") for item in buyer_pack["evidence_links"])
+        assert any("Private keys are scoped" in item for item in buyer_pack["proof_points"])
 
 
 def test_dashboard_source_does_not_embed_legacy_retail_chrome():
@@ -331,12 +333,11 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             ("/signals/AAPL", "Latest 13F holders"),
             ("/status", "Evidence status"),
             ("/coverage", "Trusted Fund Coverage"),
-            ("/security", "Controlled Pilot Security"),
-            ("/pilot", "Controlled Pilot Intake"),
+            ("/security", "Research Surface Security"),
+            ("/pilot", "Operator Review Intake"),
             ("/readiness", "Readiness Checklist"),
-            ("/buyer-pack", "13FLOW Buyer Review Pack"),
+            ("/buyer-pack", "13FLOW Research Review Pack"),
             ("/buyer-pack/print", "PDF-ready printable view"),
-            ("/pro", "13FLOW Builder Sandbox"),
             ("/sandbox", "Sandbox in 60 seconds"),
             ("/alternatives", "Why not sec-api, Financial Datasets or Dataroma?"),
             ("/trust-artifact", "Trust layer, not alpha"),
@@ -344,25 +345,21 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             ("/developers", "MCP tools/list"),
             ("/methodology", "Application methodology"),
             ("/methodology/app", "13F filings are delayed regulatory disclosures"),
-            ("/methodology/mcp", "Pro tools must fail closed"),
+            ("/methodology/mcp", "Private tools must fail closed"),
             ("/faq", "Frequently asked questions"),
             ("/about", "13FLOW is operated by l0g"),
             ("/legal", "Legal, privacy and data terms"),
-            ("/legal/pro-api", "Pro API, MCP and x402 terms"),
             ("/fr", "Construit pour les builders"),
-            ("/fr/pro", "Aucun prix public"),
             ("/fr/sandbox", "Sandbox en 60 secondes"),
             ("/fr/developers", "Developpeurs"),
             ("/fr/alternatives", "Pourquoi pas sec-api"),
             ("/fr/trust-artifact", "Trust layer, pas alpha"),
-            ("/fr/buyer-pack", "Pack de revue acheteur"),
-            ("/fr/legal/pro-api", "Conditions Pro API"),
         ):
             r = c.get(path)
             assert r.status_code == 200, path
             assert needle in r.get_data(as_text=True), path
 
-        for path in ("/", "/pro", "/fr", "/fr/pro"):
+        for path in ("/", "/sandbox", "/fr", "/fr/sandbox"):
             page = c.get(path).get_data(as_text=True)
             assert 'hreflang="en"' in page, path
             assert 'hreflang="fr"' in page, path
@@ -374,6 +371,10 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             ("/faq.html", "/faq"),
             ("/mentions-legales", "/legal"),
             ("/mentions-legales.html", "/legal"),
+            ("/pro", "/sandbox"),
+            ("/fr/pro", "/fr/sandbox"),
+            ("/legal/pro-api", "/legal"),
+            ("/fr/legal/pro-api", "/legal"),
         ):
             r = c.get(path, follow_redirects=False)
             assert r.status_code in {301, 302}, path
@@ -382,14 +383,14 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         doc = c.get("/api/openapi.json").get_json()
         assert "/api/mcp" in doc["paths"]
         assert "/api/product-status" in doc["paths"]
-        assert "/api/commercial-readiness" in doc["paths"]
+        assert "/api/research-readiness" in doc["paths"]
         assert "/api/security-posture" in doc["paths"]
         assert "/api/pilot-intake" in doc["paths"]
         assert "/api/pilot-intake.md" in doc["paths"]
         assert "/api/pilot-request-assist" in doc["paths"]
         assert "/api/buyer-pack" in doc["paths"]
         assert "/api/buyer-pack.md" in doc["paths"]
-        assert "/api/pro-offer" in doc["paths"]
+        assert "/api/pro-offer" not in doc["paths"]
         assert "/api/i18n" in doc["paths"]
         assert "/api/sandbox/key" in doc["paths"]
         assert "/api/sandbox/v1/status" in doc["paths"]
@@ -416,39 +417,15 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             assert "$19" not in fr.get_data(as_text=True)
 
         offer = c.get("/api/pro-offer").get_json()
-        assert offer["offer"]["name"] == "13FLOW Builder Sandbox"
-        assert "price" not in offer["offer"]
-        assert offer["offer"]["paid_access"]["status"] == "coming_soon"
-        assert offer["offer"]["paid_access"]["public_price_displayed"] is False
-        assert offer["offer"]["self_serve_checkout"] is False
-        assert offer["offer"]["contact"]["email"] == "admin@toonux.com"
-        assert offer["offer"]["public_sandbox"]["scope"].startswith("sandbox-only")
-        assert offer["offer"]["mcp_included_minimum"]["standalone_offer"] is False
-        assert [p["name"] for p in offer["plans"]] == ["Builder Sandbox"]
-        assert "builder or research-ops contact email" in offer["buyer_checklist"]
-        sales_packet = offer["sales_packet"]
-        assert "agent, notebook, dashboard" in sales_packet["qualification_questions"][0]
-        assert "You can start with the sandbox now" in sales_packet["lead_reply_template"]
-        assert sales_packet["operator_note_schema"]["package"] == "Builder Sandbox"
-        assert "production key id in api_audit" in sales_packet["pilot_handoff"][3]
-        commercial = offer["commercial_model"]
-        assert commercial["pricing_status"] == "paid_access_coming_soon"
-        assert commercial["public_price_displayed"] is False
-        assert commercial["recommended_packages"][0]["price_publicly_displayed"] is False
-        assert commercial["paid_access_candidate"]["ready_private"] is True
-        assert "Do not display paid pricing yet" in commercial["principle"]
-        assert commercial["pricing_policy"]["strategy"] == "differentiate_before_public_pricing"
-        assert "sandbox token that cannot authenticate production Pro endpoints" in commercial["pricing_policy"]["compete_on"]
-        assert [item["provider"] for item in commercial["market_context"]] == [
-            "SEC EDGAR",
-            "sec-api",
-            "Financial Datasets",
-            "Dataroma",
-        ]
-        assert "/sandbox" in commercial["evidence_pack"]
+        assert offer["status"] == "public_offer_retired"
+        assert offer["public_surface"]["name"] == "13FLOW Open Research Surface"
+        assert offer["public_surface"]["payment_flow"] is False
+        assert offer["public_surface"]["browser_account"] is False
+        assert offer["plans"] == []
+        assert offer["commercial_model"]["status"] == "paused"
+        assert offer["commercial_model"]["recommended_packages"] == []
         assert offer["default_limits"]["sandbox_rate_per_min"] == 20
         assert "validated alpha" in offer["not_included_yet"]
-        assert "create_key" in offer["operator_commands"]
         assert offer["truth_boundary"]["current_artifact"]["publishable_as_full_validation"] is False
 
         app_method = c.get("/api/methodology/app").get_json()
@@ -477,29 +454,15 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Publishable as full validation" in app_method_page
 
         mcp_method = c.get("/api/methodology/mcp").get_json()
-        assert "Pro tools must fail closed" in mcp_method["contract"][1]
+        assert "Private tools must fail closed" in mcp_method["contract"][1]
         assert mcp_method["security"]["credential_headers"][0].startswith("Authorization")
 
-        pro_page_fr = c.get("/fr/pro").get_data(as_text=True)
-        assert "Demarrer le sandbox" in pro_page_fr
-        assert "Acces payant bientot" in pro_page_fr
-        assert "Aucun prix public" in pro_page_fr
-        assert "/api/pro-offer" in pro_page_fr
-        assert "$19" not in pro_page_fr
-
-        pro_page = c.get("/pro").get_data(as_text=True)
-        assert "Start sandbox" in pro_page
-        assert "Access request checklist" in pro_page
-        assert "Paid access coming soon" in pro_page
-        assert "13FLOW Builder Sandbox" in pro_page
-        assert "MCP kept to a minimal included demo" not in pro_page
-        assert "490 EUR / month" not in pro_page
-        assert "$19" not in pro_page
-        assert "differentiate_before_public_pricing" in pro_page
-        assert "Evidence pack" in pro_page
-        assert 'href="/sandbox"' in pro_page
-        assert 'href="/alternatives"' in pro_page
-        assert 'href="/trust-artifact"' in pro_page
+        sandbox_page_public = c.get("/sandbox").get_data(as_text=True)
+        assert "Sandbox in 60 seconds" in sandbox_page_public
+        assert "Paid access" not in sandbox_page_public
+        assert "No public price" not in sandbox_page_public
+        assert "13FLOW Builder Sandbox" not in sandbox_page_public
+        assert "$19" not in sandbox_page_public
 
         sandbox_key = c.get("/api/sandbox/key").get_json()
         assert sandbox_key["production_access"] is False
@@ -509,14 +472,13 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         sandbox_status = c.get("/api/sandbox/v1/status", headers={"Authorization": f"Bearer {token}"}).get_json()
         assert sandbox_status["production_access"] is False
         mcp_min = c.get("/api/sandbox/v1/mcp-minimum", headers={"Authorization": f"Bearer {token}"}).get_json()
-        assert mcp_min["standalone_mcp_offer"] is False
+        assert mcp_min["standalone_mcp_product"] is False
         trust_artifact = c.get("/api/trust-artifact").get_json()
         assert trust_artifact["alpha_claim"] is False
-        assert "Public filings research. Not investment advice." in pro_page
-        assert 'href="/developers"' in pro_page
-        assert 'href="/sandbox"' in pro_page
-        assert 'href="/alternatives"' in pro_page
-        assert 'href="/trust-artifact"' in pro_page
+        assert "Public filings research. Not investment advice." in sandbox_page_public
+        assert 'href="/developers"' in sandbox_page_public
+        assert 'href="/sandbox"' in sandbox_page_public
+        assert 'href="/trust-artifact"' in sandbox_page_public
 
         pro_workspace_page = c.get("/pro/workspace").get_data(as_text=True)
         assert "Workspace Cockpit" in pro_workspace_page
@@ -686,11 +648,11 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
 
         readiness_page = c.get("/readiness").get_data(as_text=True)
         assert "Readiness Checklist" in readiness_page
-        assert "Commercial readiness" in readiness_page
+        assert "Research readiness" in readiness_page
         assert "controlled_pilot" in readiness_page
         assert "Public Checks" in readiness_page
         assert "External Operator Checks" in readiness_page
-        assert "/api/commercial-readiness" in readiness_page
+        assert "/api/research-readiness" in readiness_page
         assert "/pro/admin" not in readiness_page
         assert "/api/pro/v1/admin/health" in readiness_page
         assert "validated alpha" in readiness_page
@@ -707,7 +669,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/api/security-posture" in [x["href"] for x in security["evidence_links"]]
 
         security_page = c.get("/security").get_data(as_text=True)
-        assert "Controlled Pilot Security" in security_page
+        assert "Research Surface Security" in security_page
         assert "Machine-readable security posture" in security_page
         assert "Operator Checks" in security_page
         assert "Non-Claims" in security_page
@@ -741,7 +703,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "13flow_live_" not in str(pilot_assist)
 
         pilot_page = c.get("/pilot").get_data(as_text=True)
-        assert "Controlled Pilot Intake" in pilot_page
+        assert "Operator Review Intake" in pilot_page
         assert "Operator Note Template" in pilot_page
         assert "Required Fields" in pilot_page
         assert "public_form_submission=false" in pilot_page
@@ -750,7 +712,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/api/pilot-intake.md" in pilot_page
 
         pilot_request_page = c.get("/pilot/request").get_data(as_text=True)
-        assert "Assisted Pilot Request" in pilot_request_page
+        assert "Assisted Operator Request" in pilot_request_page
         assert "data-pilot-request-app" in pilot_request_page
         assert "/api/pilot-request-assist" in pilot_request_page
         assert "public_submission_endpoint:none" in pilot_request_page
@@ -770,11 +732,11 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/security" in pilot_md
 
         buyer_pack_page = c.get("/buyer-pack").get_data(as_text=True)
-        assert "13FLOW Buyer Review Pack" in buyer_pack_page
+        assert "13FLOW Research Review Pack" in buyer_pack_page
         assert "Proof Points" in buyer_pack_page
-        assert "Buyer Checklist" in buyer_pack_page
-        assert "Qualification Questions" in buyer_pack_page
-        assert "Pilot Handoff" in buyer_pack_page
+        assert "Research Checklist" in buyer_pack_page
+        assert "Operator Questions" in buyer_pack_page
+        assert "Private Handoff" in buyer_pack_page
         assert "Terms Boundary" in buyer_pack_page
         assert "/api/buyer-pack" in buyer_pack_page
         assert "/api/buyer-pack.md" in buyer_pack_page
@@ -782,15 +744,15 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/coverage" in buyer_pack_page
         assert "/pilot" in buyer_pack_page
         assert "/security" in buyer_pack_page
-        assert "/pro/onboarding" in buyer_pack_page
+        assert "/pro/onboarding" not in buyer_pack_page
         assert "not a performance claim" in buyer_pack_page
         assert "validated alpha" in buyer_pack_page
 
         buyer_pack_print = c.get("/buyer-pack/print").get_data(as_text=True)
-        assert "13FLOW Buyer Review Pack" in buyer_pack_print
+        assert "13FLOW Research Review Pack" in buyer_pack_print
         assert "PDF-ready printable view" in buyer_pack_print
         assert "Proof Points" in buyer_pack_print
-        assert "Pilot Packages" in buyer_pack_print
+        assert "Review Scope" in buyer_pack_print
         assert "Terms Boundary" in buyer_pack_print
         assert "/api/buyer-pack.md" in buyer_pack_print
         assert "not investment advice" in buyer_pack_print
@@ -799,7 +761,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert buyer_pack_md_resp.status_code == 200
         assert buyer_pack_md_resp.mimetype == "text/markdown"
         buyer_pack_md = buyer_pack_md_resp.get_data(as_text=True)
-        assert "# 13FLOW Buyer Review Pack" in buyer_pack_md
+        assert "# 13FLOW Research Review Pack" in buyer_pack_md
         assert "## Proof Points" in buyer_pack_md
         assert "## Evidence Links" in buyer_pack_md
         assert "not investment advice" in buyer_pack_md
@@ -819,9 +781,9 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         developers = c.get("/developers").get_data(as_text=True)
         assert "/status" in developers
         assert "/api/openapi.json" in developers
-        assert "/api/pro/v1/openapi.json" in developers
-        assert "Pro tools are intentionally visible" in developers
-        assert "Redistribution" in developers
+        assert "/api/pro/v1/openapi.json" not in developers
+        assert "Pro tools are intentionally visible" not in developers
+        assert "payment flow" not in developers
         assert "SEC EDGAR-derived 13F and Form 4 research surfaces" in developers
 
         about_page = c.get("/about").get_data(as_text=True)
@@ -829,7 +791,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "https://l0g.fr/" in about_page
         assert "13FLOW is operated by l0g" in about_page
         assert "machine-readable financial intelligence" in about_page
-        assert "It does not sell a magic trading signal" in about_page
+        assert "It does not present a magic trading signal" in about_page
         assert 'href="/legal"' in about_page
 
         legal_page = c.get("/legal").get_data(as_text=True)
@@ -840,16 +802,12 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "operated and published by" in legal_page
         assert "https://l0g.fr/" in legal_page
         assert "Technical server logs" in legal_page
-        assert "Pro API terms" in legal_page
+        assert "Private access and operator boundary" in legal_page
         assert "Built by" in legal_page
 
-        pro_terms = c.get("/legal/pro-api").get_data(as_text=True)
-        assert "Self-serve checkout is disabled" in pro_terms
-        assert "Paid access is coming soon" in pro_terms
-        assert "$19" not in pro_terms
-        assert "Access can be declined" in pro_terms
-        assert "No resale, redistribution" in pro_terms
-        assert "does not sell raw SEC access as proprietary data" in pro_terms
+        pro_terms_redirect = c.get("/legal/pro-api", follow_redirects=False)
+        assert pro_terms_redirect.status_code == 302
+        assert pro_terms_redirect.headers["Location"] == "/legal"
 
         api_stock = c.get("/api/stocks/AAPL").get_json()
         assert api_stock["ticker"] == "AAPL"

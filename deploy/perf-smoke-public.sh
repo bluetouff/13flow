@@ -21,7 +21,7 @@ routes=(
   "/api/version"
   "/api/live-status"
   "/api/product-status"
-  "/api/commercial-readiness"
+  "/api/research-readiness"
   "/api/funds"
   "/api/watchlist/discover"
   "/"
