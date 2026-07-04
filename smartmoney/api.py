@@ -25,12 +25,16 @@ needs a price provider and hits the network at request time, so it's opt-in.
 from __future__ import annotations
 
 import csv
+import base64
+import binascii
 import hashlib
 import hmac
 import io
 import json
 import os
 import re
+import struct
+import time
 from datetime import datetime, timezone
 from html import escape as html_escape
 from types import SimpleNamespace
@@ -40,6 +44,7 @@ import functools
 import secrets
 from flask import (
     Flask, Response, abort, jsonify, make_response, redirect, request, send_from_directory,
+    session, url_for,
 )
 from werkzeug.exceptions import HTTPException
 
@@ -389,6 +394,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                open_mode: bool = False) -> Flask:
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = 256 * 1024   # this API takes no large bodies
+    app.config["SESSION_COOKIE_NAME"] = "13flow_admin_session"
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
+    app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
+    app.config["SESSION_COOKIE_SECURE"] = bool(secure_cookies)
     dash = dashboard_path or DASHBOARD
     _truthy = lambda v: str(v or "").strip().lower() in ("1", "true", "yes", "on")
     def _env_int(name: str, default: int, lo: int, hi: int) -> int:
@@ -406,6 +415,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     pro_enabled = _truthy(os.environ.get("SMARTMONEY_PRO_API"))
     pro_db_path = os.environ.get("SMARTMONEY_PRO_DB") or os.path.join(APP_ROOT, "13flow-pro.db")
     pro_workspace_max_watchlists = _env_int("SMARTMONEY_PRO_MAX_WATCHLISTS_PER_KEY", 50, 1, 500)
+    admin_session_secret = os.environ.get("SMARTMONEY_ADMIN_SESSION_SECRET", "").strip()
+    if admin_session_secret:
+        app.secret_key = admin_session_secret
+    admin_login_failures: dict[str, list[int]] = {}
 
     # Confluence (13F × Form 4) signals endpoint. Resolution order at request time:
     #   1) a precomputed cache file in SMARTMONEY_CACHE_DIR (run.py --confluence) — instant, no network
@@ -1133,29 +1146,123 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     def _admin_panel_password_hash() -> str:
         return os.environ.get("SMARTMONEY_ADMIN_PANEL_PASSWORD_SHA256", "").strip().lower()
 
-    def _admin_panel_locked_response():
-        resp = make_response("admin_panel_locked", 401)
-        resp.headers["WWW-Authenticate"] = 'Basic realm="13flow-admin"'
+    def _admin_pbkdf2_hash() -> str:
+        return os.environ.get("SMARTMONEY_ADMIN_PASSWORD_PBKDF2", "").strip()
+
+    def _admin_auth_user() -> str:
+        return os.environ.get("SMARTMONEY_ADMIN_PANEL_USER", "admin").strip() or "admin"
+
+    def _admin_session_seconds() -> int:
+        return _env_int("SMARTMONEY_ADMIN_SESSION_SECONDS", 1800, 300, 43200)
+
+    def _admin_auth_configured() -> bool:
+        return bool(admin_session_secret and (_admin_pbkdf2_hash() or _admin_panel_password_hash()))
+
+    def _admin_verify_pbkdf2(password: str, encoded: str) -> bool:
+        try:
+            algo, iterations_s, salt_hex, digest_hex = str(encoded).split("$", 3)
+            if algo != "pbkdf2-sha256":
+                return False
+            iterations = int(iterations_s)
+            if iterations < 200_000:
+                return False
+            salt = bytes.fromhex(salt_hex)
+            expected = bytes.fromhex(digest_hex)
+        except (TypeError, ValueError):
+            return False
+        actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+        return hmac.compare_digest(actual, expected)
+
+    def _admin_verify_password(password: str) -> bool:
+        pbkdf2_hash = _admin_pbkdf2_hash()
+        if pbkdf2_hash:
+            return _admin_verify_pbkdf2(password or "", pbkdf2_hash)
+        expected_hash = _admin_panel_password_hash()
+        if not expected_hash:
+            return False
+        return hmac.compare_digest(
+            hashlib.sha256((password or "").encode("utf-8")).hexdigest(),
+            expected_hash,
+        )
+
+    def _admin_totp_secret() -> str:
+        return os.environ.get("SMARTMONEY_ADMIN_TOTP_SECRET", "").strip().replace(" ", "")
+
+    def _admin_totp_required() -> bool:
+        return _truthy(os.environ.get("SMARTMONEY_ADMIN_TOTP_REQUIRED"))
+
+    def _admin_totp_code(secret: str, for_time: Optional[int] = None) -> str:
+        padded = secret.upper() + "=" * ((8 - len(secret) % 8) % 8)
+        key = base64.b32decode(padded, casefold=True)
+        counter = int((for_time if for_time is not None else time.time()) // 30)
+        msg = struct.pack(">Q", counter)
+        digest = hmac.new(key, msg, hashlib.sha1).digest()
+        offset = digest[-1] & 0x0F
+        code = struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF
+        return str(code % 1_000_000).zfill(6)
+
+    def _admin_verify_totp(code: str) -> bool:
+        if not _admin_totp_required():
+            return True
+        secret = _admin_totp_secret()
+        if not secret or not re.fullmatch(r"\d{6}", str(code or "").strip()):
+            return False
+        value = str(code or "").strip()
+        now = int(time.time())
+        try:
+            return any(hmac.compare_digest(value, _admin_totp_code(secret, now + (step * 30)))
+                       for step in (-1, 0, 1))
+        except (binascii.Error, ValueError):
+            return False
+
+    def _admin_session_active() -> bool:
+        if not _admin_auth_configured():
+            return False
+        user = session.get("admin_user")
+        last_seen = int(session.get("admin_last_seen") or 0)
+        if user != _admin_auth_user() or not last_seen:
+            return False
+        if int(time.time()) - last_seen > _admin_session_seconds():
+            session.clear()
+            return False
+        session["admin_last_seen"] = int(time.time())
+        session.modified = True
+        return True
+
+    def _admin_csrf_token() -> str:
+        token = session.get("admin_csrf")
+        if not token:
+            token = secrets.token_urlsafe(32)
+            session["admin_csrf"] = token
+        return token
+
+    def _admin_login_required_response():
+        resp = redirect(url_for("static_pro_admin_login"))
         resp.headers["Cache-Control"] = "no-store"
         return resp
+
+    def _admin_login_blocked(ip: str) -> bool:
+        now = int(time.time())
+        failures = [ts for ts in admin_login_failures.get(ip, []) if now - ts <= 600]
+        admin_login_failures[ip] = failures
+        return len(failures) >= 5
+
+    def _admin_record_login_failure(ip: str) -> None:
+        now = int(time.time())
+        failures = [ts for ts in admin_login_failures.get(ip, []) if now - ts <= 600]
+        failures.append(now)
+        admin_login_failures[ip] = failures[-10:]
+
+    def _admin_clear_login_failures(ip: str) -> None:
+        admin_login_failures.pop(ip, None)
 
     def admin_panel_required(fn):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
-            expected_hash = _admin_panel_password_hash()
-            if not expected_hash:
+            if not _admin_auth_configured():
                 abort(404)
-            auth = request.authorization
-            expected_user = os.environ.get("SMARTMONEY_ADMIN_PANEL_USER", "admin")
-            if (
-                not auth
-                or not hmac.compare_digest(auth.username or "", expected_user)
-                or not hmac.compare_digest(
-                    hashlib.sha256((auth.password or "").encode("utf-8")).hexdigest(),
-                    expected_hash,
-                )
-            ):
-                return _admin_panel_locked_response()
+            if not _admin_session_active():
+                return _admin_login_required_response()
             return fn(*args, **kwargs)
         return wrapper
 
@@ -8034,13 +8141,108 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 """
         return _html_response("Pro Workspace", body, script=script)
 
+    def _admin_login_response(error: str = "") -> Response:
+        csrf = _admin_csrf_token()
+        user = _admin_auth_user()
+        totp = _admin_totp_required()
+        error_html = (
+            f'<div class="admin-login-error">{html_escape(error)}</div>'
+            if error else ""
+        )
+        totp_field = (
+            '<label>Authenticator code <input name="totp" inputmode="numeric" '
+            'autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label>'
+            if totp else ""
+        )
+        html = f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Admin Login · 13FLOW</title>
+<style>
+body{{margin:0;background:#06110c;color:#e9f7ef;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh;display:grid;place-items:center;padding:20px}}
+.admin-login{{width:min(420px,100%);border:1px solid rgba(116,156,132,.28);border-radius:8px;background:#102219;padding:18px;box-shadow:0 18px 60px rgba(0,0,0,.32)}}
+h1{{font-size:24px;margin:0 0 6px}}p{{margin:0 0 14px;color:#a9bdb1;font-size:14px;line-height:1.45}}
+form{{display:grid;gap:12px}}label{{display:grid;gap:5px;font-size:13px;color:#b8cfc1}}
+input{{box-sizing:border-box;width:100%;border:1px solid rgba(116,156,132,.35);border-radius:8px;background:#08140f;color:#effbf3;padding:11px;font:inherit}}
+button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px 14px;font-weight:750;cursor:pointer}}
+.admin-login-error{{border:1px solid rgba(239,106,82,.55);border-radius:8px;background:rgba(239,106,82,.08);color:#ffd6cc;padding:10px;margin-bottom:12px;font-size:13px}}
+.meta{{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#7f9a89;font-size:11px;margin-top:12px}}
+</style></head><body>
+<main class="admin-login">
+<h1>13FLOW Admin</h1>
+<p>Sign in with the server-side admin account. API mutations still require a scoped admin API key inside the panel.</p>
+{error_html}
+<form method="post" action="/pro/admin/login" autocomplete="off">
+<input type="hidden" name="csrf" value="{html_escape(csrf, quote=True)}">
+<label>Email <input name="username" type="email" autocomplete="username" value="{html_escape(user, quote=True)}" required></label>
+<label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+{totp_field}
+<button type="submit">Sign in</button>
+</form>
+<p class="meta">session={_admin_session_seconds()}s · totp_required={str(totp).lower()}</p>
+</main></body></html>"""
+        resp = Response(html, mimetype="text/html; charset=utf-8")
+        resp.headers["Cache-Control"] = "no-store"
+        resp.headers["Content-Security-Policy"] = (
+            "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; "
+            "base-uri 'none'; frame-ancestors 'none'"
+        )
+        return resp
+
+    @app.get("/pro/admin/login")
+    def static_pro_admin_login():
+        if not _admin_auth_configured():
+            abort(404)
+        if _admin_session_active():
+            return redirect(url_for("static_pro_admin"))
+        return _admin_login_response()
+
+    @app.post("/pro/admin/login")
+    def static_pro_admin_login_post():
+        if not _admin_auth_configured():
+            abort(404)
+        ip = client_ip()
+        if _admin_login_blocked(ip):
+            app.logger.warning("admin_login_blocked ip=%s", ip)
+            return _admin_login_response("Too many failed attempts. Try again later."), 429
+        csrf = request.form.get("csrf", "")
+        if not csrf or not hmac.compare_digest(csrf, session.get("admin_csrf", "")):
+            _admin_record_login_failure(ip)
+            app.logger.warning("admin_login_failed reason=csrf ip=%s", ip)
+            return _admin_login_response("Session expired. Try again."), 400
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        totp = request.form.get("totp", "").strip()
+        if (
+            not hmac.compare_digest(username, _admin_auth_user())
+            or not _admin_verify_password(password)
+            or not _admin_verify_totp(totp)
+        ):
+            _admin_record_login_failure(ip)
+            app.logger.warning("admin_login_failed user=%s ip=%s", username or "-", ip)
+            return _admin_login_response("Invalid admin credentials."), 401
+        session.clear()
+        session["admin_user"] = _admin_auth_user()
+        session["admin_login_at"] = int(time.time())
+        session["admin_last_seen"] = int(time.time())
+        session["admin_csrf"] = secrets.token_urlsafe(32)
+        _admin_clear_login_failures(ip)
+        app.logger.info("admin_login_ok user=%s ip=%s", _admin_auth_user(), ip)
+        return redirect(url_for("static_pro_admin"))
+
+    @app.post("/pro/admin/logout")
+    def static_pro_admin_logout():
+        user = session.get("admin_user", "-")
+        session.clear()
+        app.logger.info("admin_logout user=%s ip=%s", user, client_ip())
+        return redirect(url_for("static_pro_admin_login"))
+
     @app.get("/pro/admin")
     @admin_panel_required
     def static_pro_admin():
         body = """
 <style>
 .admin-app{display:grid;gap:10px}
-.admin-bar{display:grid;grid-template-columns:minmax(260px,1fr) auto auto;gap:8px;align-items:end;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:10px}
+.admin-bar{display:grid;grid-template-columns:minmax(260px,1fr) auto auto auto;gap:8px;align-items:end;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:10px}
 .admin-panel{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:10px;min-width:0}
 .admin-panel h2,.admin-panel h3{font-size:15px;margin:0 0 8px}
 .admin-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
@@ -8070,12 +8272,13 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 <section class="doc-hero"><div class="doc-copy"><div class="kicker">Pro admin</div>
 <h1>Admin Console</h1>
 <p class="doc-lede">Compact control plane for status, actionable errors and Pro API key lifecycle.</p></div>
-<aside class="doc-panel"><h3>Locked surface</h3><p>Server-side Basic Auth protects this page. Mutations require an API key with admin:write.</p></aside></section>
+<aside class="doc-panel"><h3>Locked surface</h3><p>Server-side admin session protects this page. Mutations require an API key with admin:write.</p></aside></section>
 <main class="admin-app" data-pro-admin-app>
   <section class="admin-bar" aria-label="Pro admin access">
     <label>Admin API key <input id="adminToken" type="password" autocomplete="off" spellcheck="false" placeholder="13flow_live_... with admin:read or admin:write"></label>
     <button id="adminConnect" class="admin-button primary" type="button">Connect</button>
     <button id="adminForget" class="admin-button" type="button">Forget</button>
+    <button id="adminLogout" class="admin-button" type="button">Logout</button>
   </section>
   <div id="adminStatus" class="admin-status">Disconnected</div>
   <section class="admin-kpis" id="adminKpis">
@@ -8326,6 +8529,12 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     renderRequestAssist({});
     setStatus("Disconnected");
   });
+  $("adminLogout").addEventListener("click", async () => {
+    state.token = "";
+    sessionStorage.removeItem(TOKEN_KEY);
+    await fetch("/pro/admin/logout", {method: "POST", credentials: "same-origin"});
+    window.location.href = "/pro/admin/login";
+  });
   $("adminKeys").addEventListener("click", async (event) => {
     const button = event.target.closest("[data-revoke-key]");
     if (!button) return;
@@ -8372,7 +8581,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
   if (state.token) refresh().catch(() => setStatus("Stored tab key could not authenticate.", true));
 })();
 """
-        return _html_response("Pro Admin Health", body, script=script)
+        return _html_response("Admin Console", body, script=script)
 
     @app.get("/pro")
     def static_pro_offer():

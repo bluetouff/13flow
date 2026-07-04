@@ -95,12 +95,17 @@ Operational requirements:
   online plus encrypted backups retained according to the legal and operational policy.
 - Keep edge rate limiting in front of the app as a second layer. The app-level limiter is a
   product/abuse control, not a DDoS shield.
+- Protect `/pro/admin` with the server-side admin session: `SMARTMONEY_ADMIN_SESSION_SECRET`,
+  `SMARTMONEY_ADMIN_PASSWORD_PBKDF2`, short `SMARTMONEY_ADMIN_SESSION_SECONDS`, and
+  `SMARTMONEY_ADMIN_TOTP_REQUIRED=1` after initial enrollment. Admin page access and Pro API
+  mutation power remain separate: the page login opens the panel, while an `admin:write`
+  Pro key is still required for key lifecycle actions.
 
 Operational requirements (also in INSTALL_SERVER.md):
 - Secure cookies require **HTTPS** (the nginx/TLS step). For local http testing only, set
   `SMARTMONEY_INSECURE_COOKIES=1`.
-- Browser account, password pepper, SMTP verification, HIBP and Stripe settings
-  are not part of Core V1.
+- Public browser accounts, SMTP verification, HIBP and Stripe settings are not part of
+  Core V1.
 
 ## Deployment hardening checklist
 - [ ] `pip install defusedxml` (activates the strongest XML parse path).

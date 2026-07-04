@@ -22,7 +22,10 @@ Offline (DB only, no SEC_UA needed):
 from __future__ import annotations
 
 import argparse
+import getpass
+import hashlib
 import os
+import secrets
 import sys
 import time
 
@@ -228,8 +231,21 @@ def cmd_create_api_key(pro_db, label, scopes, rate_per_min, rate_per_day,
     print(f"  rate: {key.rate_per_min}/min, {key.rate_per_day}/day")
     print(f"  expires_at: {key.expires_at or '-'}")
     print(f"  rotation_due_at: {key.rotation_due_at or '-'}")
-    print("\nCopy this token now; only the SHA-256 hash is stored:")
+    print("\nCopy this token now; only a server-side token hash is stored:")
     print(token)
+
+
+def cmd_hash_admin_password() -> None:
+    password = getpass.getpass("Admin password: ")
+    confirm = getpass.getpass("Confirm admin password: ")
+    if not password:
+        raise SystemExit("Password must not be empty")
+    if password != confirm:
+        raise SystemExit("Passwords do not match")
+    iterations = 260_000
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+    print(f"SMARTMONEY_ADMIN_PASSWORD_PBKDF2=pbkdf2-sha256${iterations}${salt.hex()}${digest.hex()}")
 
 
 def cmd_list_api_keys(pro_db) -> None:
@@ -871,6 +887,8 @@ def main() -> None:
                     help="audit freshness window for --preflight (default 24h)")
     ap.add_argument("--preflight-token-env", default="SMARTMONEY_PRO_TOKEN",
                     help="env var containing a Pro token for --preflight API-contract checks")
+    ap.add_argument("--hash-admin-password", action="store_true",
+                    help="prompt twice and print SMARTMONEY_ADMIN_PASSWORD_PBKDF2 for /pro/admin")
     ap.add_argument("--create-api-key", metavar="LABEL", help="create a Pro API key")
     ap.add_argument("--list-api-keys", action="store_true", help="list Pro API keys")
     ap.add_argument("--revoke-api-key", metavar="KEY_ID", help="revoke a Pro API key")
@@ -1080,6 +1098,8 @@ def main() -> None:
         return cmd_validate_form4_csv(
             args.validate_form4_csv, args.validation_tickers, args.validation_start,
             args.validation_end, args.validation_json)
+    if args.hash_admin_password:
+        return cmd_hash_admin_password()
     if args.create_api_key:
         return cmd_create_api_key(args.pro_db, args.create_api_key, args.api_key_scopes,
                                   args.api_key_rate_per_min, args.api_key_rate_per_day,

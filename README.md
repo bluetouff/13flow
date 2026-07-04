@@ -93,6 +93,12 @@ Recommended production split:
 SMARTMONEY_OPEN=1
 SMARTMONEY_DB_READONLY=1
 SMARTMONEY_DB=/var/lib/13flow/13flow.db
+SMARTMONEY_ADMIN_PANEL_USER=admin@toonux.com
+SMARTMONEY_ADMIN_SESSION_SECRET=<server-only-random-secret>
+SMARTMONEY_ADMIN_PASSWORD_PBKDF2=<pbkdf2-sha256$...>
+SMARTMONEY_ADMIN_SESSION_SECONDS=1800
+SMARTMONEY_ADMIN_TOTP_SECRET=<base32-secret>
+SMARTMONEY_ADMIN_TOTP_REQUIRED=1
 
 # /etc/13flow/13flow-pro.env, used by 13flow-pro.service on 127.0.0.1:8001
 SMARTMONEY_OPEN=1
@@ -108,6 +114,16 @@ SMARTMONEY_PRO_ACCEPT_LEGACY_SHA256_KEYS=0
 Do not grant `/var/lib/13flow-pro` write access to the public `13flow.service`. Apache
 should route only `/api/pro/` to `13flow-pro.service`, while the public site and open JSON
 endpoints stay on the read-only service.
+
+Admin panel access at `/pro/admin` is protected by a server-side admin session. Generate
+the session secret and password hash on the server; the Pro API key used inside the panel
+is still separate and must carry `admin:read,admin:write`.
+
+```bash
+openssl rand -hex 32
+/opt/13flow/.venv/bin/python /opt/13flow/run.py --hash-admin-password
+/opt/13flow/.venv/bin/python -c 'import base64,secrets; print(base64.b32encode(secrets.token_bytes(20)).decode().rstrip("="))'
+```
 
 Create an API key offline as the operator. The plaintext token is shown exactly once. In
 production, only an HMAC-SHA256 hash derived with the server-only

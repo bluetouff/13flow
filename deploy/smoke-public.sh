@@ -419,10 +419,21 @@ fi
 
 pro_admin_page="$tmpdir/pro-admin.html"
 admin_code=$(curl -sS -o "$pro_admin_page" -w '%{http_code}' --max-time 20 "$SITE/pro/admin" || echo 000)
-if [[ "$admin_code" == "401" || "$admin_code" == "404" ]]; then
+if [[ "$admin_code" == "302" || "$admin_code" == "401" || "$admin_code" == "404" ]]; then
   ok "/pro/admin is not public ($admin_code)"
 else
   bad "/pro/admin is not public" "got $admin_code"
+fi
+admin_login_code=$(curl -sS -o "$tmpdir/pro-admin-login.html" -w '%{http_code}' --max-time 20 "$SITE/pro/admin/login" || echo 000)
+if [[ "$admin_login_code" == "200" ]]; then
+  grep -q "13FLOW Admin" "$tmpdir/pro-admin-login.html" \
+    && ! grep -q "data-pro-admin-app" "$tmpdir/pro-admin-login.html" \
+    && ok "/pro/admin/login is login-only" \
+    || bad "/pro/admin/login is login-only" "admin app leaked"
+else
+  [[ "$admin_login_code" == "404" ]] \
+    && ok "/pro/admin/login unavailable when admin auth disabled" \
+    || bad "/pro/admin/login login-only" "got $admin_login_code"
 fi
 
 version="$tmpdir/version.json"

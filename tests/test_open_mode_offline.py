@@ -4,7 +4,13 @@ endpoints — no auth, no billing, no subscriptions — and still serve the publ
 Core V1 no longer ships a browser account/payment build, so open_mode=False must
 not re-enable auth, billing or subscriptions. No network.
 """
+import base64
+import hashlib
+import hmac
 import os
+import re
+import struct
+import time
 
 import tempfile
 from pathlib import Path
@@ -12,6 +18,16 @@ from pathlib import Path
 from smartmoney.db import Store
 from smartmoney.api import create_app
 from tests.test_db_offline import AAPL, MSFT, _save
+
+
+def _totp(secret: str, when: int | None = None) -> str:
+    padded = secret + "=" * ((8 - len(secret) % 8) % 8)
+    key = base64.b32decode(padded, casefold=True)
+    counter = int((when if when is not None else time.time()) // 30)
+    digest = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    code = struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF
+    return str(code % 1_000_000).zfill(6)
 
 
 def _seed(path):
@@ -523,16 +539,36 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             "SMARTMONEY_ADMIN_PANEL_PASSWORD_SHA256",
             "1c8bfe8f801d79745c4631d09fff36c82aa37fc4cce4fc946683d7b336b63032",
         )
+        monkeypatch.setenv("SMARTMONEY_ADMIN_SESSION_SECRET", "test-admin-session-secret")
         protected = create_app(db, secure_cookies=False, open_mode=True).test_client()
-        assert protected.get("/pro/admin").status_code == 401
-        pro_admin_page = protected.get(
-            "/pro/admin",
-            headers={"Authorization": "Basic YWRtaW46bGV0bWVpbg=="},
-        ).get_data(as_text=True)
+        unauth_admin = protected.get("/pro/admin")
+        assert unauth_admin.status_code == 302
+        assert unauth_admin.headers["Location"].endswith("/pro/admin/login")
+        login_page = protected.get("/pro/admin/login").get_data(as_text=True)
+        assert "13FLOW Admin" in login_page
+        assert "name=\"csrf\"" in login_page
+        assert "totp_required=false" in login_page
+        csrf = re.search(r'name="csrf" value="([^"]+)"', login_page).group(1)
+        bad_login = protected.post(
+            "/pro/admin/login",
+            data={"csrf": csrf, "username": "admin", "password": "bad"},
+        )
+        assert bad_login.status_code == 401
+        login_page = protected.get("/pro/admin/login").get_data(as_text=True)
+        csrf = re.search(r'name="csrf" value="([^"]+)"', login_page).group(1)
+        login = protected.post(
+            "/pro/admin/login",
+            data={"csrf": csrf, "username": "admin", "password": "letmein"},
+            follow_redirects=True,
+        )
+        assert login.status_code == 200
+        pro_admin_page = login.get_data(as_text=True)
         assert "Admin Console" in pro_admin_page
         assert "data-pro-admin-app" in pro_admin_page
         assert "admin:write" in pro_admin_page
+        assert "Server-side admin session protects this page" in pro_admin_page
         assert "13flow.pro.admin.token" in pro_admin_page
+        assert "adminLogout" in pro_admin_page
         assert "/api/pro/v1\" + path" in pro_admin_page
         assert "include=surface" in pro_admin_page
         assert "/admin/health" in pro_admin_page
@@ -562,6 +598,8 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Authorization" in pro_admin_page
         assert "localStorage" not in pro_admin_page
         assert "?token=" not in pro_admin_page
+        assert protected.post("/pro/admin/logout").status_code == 302
+        assert protected.get("/pro/admin").status_code == 302
 
         validation_page = c.get("/validation").get_data(as_text=True)
         assert "Current Confluence evidence pack" in validation_page
@@ -814,6 +852,45 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             "params": {"name": "pro.offer", "arguments": {}},
         }).get_json()
         assert pro_offer["result"]["structuredContent"]["offer"]["self_serve_checkout"] is False
+
+
+def test_pro_admin_login_can_require_totp(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        db = str(Path(d) / "admin-totp.db")
+        _seed(db)
+        secret = "JBSWY3DPEHPK3PXP"
+        monkeypatch.setenv(
+            "SMARTMONEY_ADMIN_PANEL_PASSWORD_SHA256",
+            "1c8bfe8f801d79745c4631d09fff36c82aa37fc4cce4fc946683d7b336b63032",
+        )
+        monkeypatch.setenv("SMARTMONEY_ADMIN_SESSION_SECRET", "test-admin-session-secret")
+        monkeypatch.setenv("SMARTMONEY_ADMIN_TOTP_SECRET", secret)
+        monkeypatch.setenv("SMARTMONEY_ADMIN_TOTP_REQUIRED", "1")
+        c = create_app(db, secure_cookies=False, open_mode=True).test_client()
+
+        login_page = c.get("/pro/admin/login").get_data(as_text=True)
+        assert "totp_required=true" in login_page
+        csrf = re.search(r'name="csrf" value="([^"]+)"', login_page).group(1)
+        missing_totp = c.post(
+            "/pro/admin/login",
+            data={"csrf": csrf, "username": "admin", "password": "letmein"},
+        )
+        assert missing_totp.status_code == 401
+
+        login_page = c.get("/pro/admin/login").get_data(as_text=True)
+        csrf = re.search(r'name="csrf" value="([^"]+)"', login_page).group(1)
+        login = c.post(
+            "/pro/admin/login",
+            data={
+                "csrf": csrf,
+                "username": "admin",
+                "password": "letmein",
+                "totp": _totp(secret),
+            },
+            follow_redirects=True,
+        )
+        assert login.status_code == 200
+        assert "Admin Console" in login.get_data(as_text=True)
 
 
 def test_ticker_flow_payload_explains_quarter_moves_and_confidence():
