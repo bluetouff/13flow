@@ -344,6 +344,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/api/security-posture" in doc["paths"]
         assert "/api/pilot-intake" in doc["paths"]
         assert "/api/pilot-intake.md" in doc["paths"]
+        assert "/api/pilot-request-assist" in doc["paths"]
         assert "/api/buyer-pack" in doc["paths"]
         assert "/api/buyer-pack.md" in doc["paths"]
         assert "/api/pro-offer" in doc["paths"]
@@ -523,14 +524,17 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/admin/buyer-handoff" in pro_admin_page
         assert "/admin/pilot-closeout" in pro_admin_page
         assert "/admin/pilot-renewal" in pro_admin_page
+        assert "/admin/pilot-request-assist" in pro_admin_page
         assert "Pilot Fulfillment" in pro_admin_page
         assert "Buyer Handoff" in pro_admin_page
         assert "Pilot Closeout" in pro_admin_page
         assert "Pilot Renewal" in pro_admin_page
+        assert "Pilot Request Assist" in pro_admin_page
         assert "Create key command" in pro_admin_page
         assert "tokens_included" in pro_admin_page
         assert "renderCloseout" in pro_admin_page
         assert "renderRenewal" in pro_admin_page
+        assert "adminReviewRequest" in pro_admin_page
         assert "web_worker_creates_tokens" in pro_admin_page
         assert "operator_events" in pro_admin_page
         assert "Recent operator events" in pro_admin_page
@@ -610,6 +614,19 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "requested_scopes" in [x["id"] for x in pilot["required_fields"]]
         assert "13FLOW PILOT INTAKE" in pilot["operator_note_template"][0]
 
+        pilot_assist = c.get("/api/pilot-request-assist").get_json()
+        assert pilot_assist["public_submission_endpoint"] is None
+        assert pilot_assist["server_side_pii_storage"] is False
+        assert pilot_assist["request_persisted"] is False
+        assert pilot_assist["tokens_collected"] is False
+        assert pilot_assist["web_worker_creates_tokens"] is False
+        assert "organization" in pilot_assist["input_schema"]["required"]
+        assert "admin:read" in pilot_assist["input_schema"]["forbidden_customer_scopes"]
+        assert pilot_assist["admin_transform"]["endpoint"] == "/api/pro/v1/admin/pilot-request-assist"
+        assert pilot_assist["admin_transform"]["stores_request"] is False
+        assert pilot_assist["privacy"]["payloads_logged"] is False
+        assert "13flow_live_" not in str(pilot_assist)
+
         pilot_page = c.get("/pilot").get_data(as_text=True)
         assert "Controlled Pilot Intake" in pilot_page
         assert "Operator Note Template" in pilot_page
@@ -618,6 +635,16 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "server_side_pii_storage=false" in pilot_page
         assert "/api/pilot-intake" in pilot_page
         assert "/api/pilot-intake.md" in pilot_page
+
+        pilot_request_page = c.get("/pilot/request").get_data(as_text=True)
+        assert "Assisted Pilot Request" in pilot_request_page
+        assert "data-pilot-request-app" in pilot_request_page
+        assert "/api/pilot-request-assist" in pilot_request_page
+        assert "public_submission_endpoint:none" in pilot_request_page
+        assert "server_side_pii_storage:false" in pilot_request_page
+        assert "navigator.clipboard.writeText" in pilot_request_page
+        assert "localStorage" not in pilot_request_page
+        assert "sessionStorage" not in pilot_request_page
 
         pilot_md_resp = c.get("/api/pilot-intake.md")
         assert pilot_md_resp.status_code == 200

@@ -480,6 +480,20 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             raise BadRequest("invalid float parameter")
         return max(lo, min(hi, v))
 
+    def redact_public_secret_like_text(raw) -> tuple[str, bool]:
+        text = str(raw or "")[:500]
+        redacted = False
+        for pattern in (
+            r"13flow_live_[A-Za-z0-9_\-]+",
+            r"sk" + r"-[A-Za-z0-9_\-]+",
+            r"-----BEGIN [A-Z ]*PRIVATE KEY-----",
+        ):
+            cleaned = re.sub(pattern, "[redacted-secret-like-value]", text)
+            if cleaned != text:
+                redacted = True
+            text = cleaned
+        return text.strip(), redacted
+
     def clean_bool(raw, default: bool = False) -> bool:
         if raw is None:
             return default
@@ -611,6 +625,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                                "responses": {"200": {"description": "Pilot intake pack"}}}},
                 "/api/pilot-intake.md": {"get": {"summary": "Controlled-pilot intake checklist in Markdown",
                                                   "responses": {"200": {"description": "Markdown pilot intake pack"}}}},
+                "/api/pilot-request-assist": {"get": {"summary": "Public no-submit pilot request assistant contract",
+                                                       "responses": {"200": {"description": "Pilot request assistant"}}}},
                 "/api/buyer-pack": {"get": {"summary": "Shareable buyer review pack",
                                              "responses": {"200": {"description": "Buyer review pack"}}}},
                 "/api/buyer-pack.md": {"get": {"summary": "Shareable buyer review pack in Markdown",
@@ -1051,6 +1067,20 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                         "default": 7}},
                         ],
                         "responses": {"200": {"description": "Pilot renewal recommendation"},
+                                      "403": {"description": "Insufficient scope"}},
+                    },
+                },
+                "/api/pro/v1/admin/pilot-request-assist": {
+                    "get": {
+                        "security": security,
+                        "summary": "Admin-only stateless pilot request assistant template",
+                        "responses": {"200": {"description": "Pilot request assistant template"},
+                                      "403": {"description": "Insufficient scope"}},
+                    },
+                    "post": {
+                        "security": security,
+                        "summary": "Transform a pilot request note into an operator checklist without storing it",
+                        "responses": {"200": {"description": "Pilot request operator checklist"},
                                       "403": {"description": "Insufficient scope"}},
                     },
                 },
@@ -4089,6 +4119,25 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "pilot_renewal": renewal,
             })
 
+        @app.route("/api/pro/v1/admin/pilot-request-assist", methods=["GET", "POST"])
+        @pro_required("admin:read")
+        def pro_admin_pilot_request_assist_ep():
+            key = request.pro_api_key
+            note = request.get_json(silent=True) if request.method == "POST" else None
+            assist = pilot_request_assist_payload(note if isinstance(note, dict) else None)
+            return jsonify({
+                "meta": {
+                    "api": "13flow-pro",
+                    "version": "v1",
+                    "git_sha": _git_sha(),
+                    "admin_key_id": key.key_id,
+                    "scope": "admin:read",
+                    "read_only": True,
+                    "request_persisted": False,
+                },
+                "pilot_request_assist": assist,
+            })
+
         @app.get("/api/pro/v1/openapi.json")
         def pro_openapi_ep():
             return jsonify(pro_openapi_doc())
@@ -4804,6 +4853,130 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "",
         ])
 
+    def pilot_request_assist_payload(request_note: Optional[dict] = None) -> dict:
+        intake = pilot_intake_payload()
+        allowed_scopes = ["funds:read", "quality:read", "workspace:write"]
+        allowed_workflows = ["research desk", "data pipeline", "MCP agent", "monitoring", "internal dashboard"]
+        note = request_note if isinstance(request_note, dict) else {}
+        sanitized = {}
+        redacted_fields = []
+        for key in (
+            "organization",
+            "billing_contact",
+            "security_contact",
+            "workflow",
+            "package",
+            "requested_scopes",
+            "expected_volume",
+            "token_delivery_channel",
+            "security_requirements",
+            "boundary_ack",
+        ):
+            value, redacted = redact_public_secret_like_text(note.get(key))
+            sanitized[key] = value
+            if redacted:
+                redacted_fields.append(key)
+        requested_scopes = [
+            s.strip()
+            for s in re.split(r"[\s,;]+", sanitized.get("requested_scopes") or "")
+            if s.strip()
+        ]
+        invalid_scopes = sorted({s for s in requested_scopes if s not in allowed_scopes})
+        recommended_scopes = [s for s in allowed_scopes if s in requested_scopes] or allowed_scopes
+        required = ["organization", "billing_contact", "workflow", "requested_scopes", "expected_volume", "boundary_ack"]
+        missing = [key for key in required if not sanitized.get(key)]
+        risk_flags = []
+        if invalid_scopes:
+            risk_flags.append("requested scopes include values outside the customer allow-list")
+        if "admin:read" in requested_scopes:
+            risk_flags.append("admin:read must never be issued to customers")
+        if sanitized.get("workflow") and sanitized["workflow"] not in allowed_workflows:
+            risk_flags.append("workflow needs operator normalization")
+        if redacted_fields:
+            risk_flags.append("secret-like material was redacted from the request note")
+        if "not investment advice" not in sanitized.get("boundary_ack", "").lower():
+            risk_flags.append("research-screen acknowledgement is incomplete")
+        status = "ready_for_operator_review" if not missing and not invalid_scopes and not redacted_fields else "needs_more_info"
+        operator_note = [
+            "13FLOW ASSISTED PILOT REQUEST",
+            f"organization: {sanitized.get('organization') or '<missing>'}",
+            f"billing_contact: {sanitized.get('billing_contact') or '<missing>'}",
+            f"security_contact: {sanitized.get('security_contact') or '<optional>'}",
+            f"workflow: {sanitized.get('workflow') or '<missing>'}",
+            f"package: {sanitized.get('package') or '<operator selects package>'}",
+            f"requested_scopes: {','.join(recommended_scopes)}",
+            f"expected_volume: {sanitized.get('expected_volume') or '<missing>'}",
+            f"token_delivery_channel: {sanitized.get('token_delivery_channel') or '<secure channel selected by operator>'}",
+            f"security_requirements: {sanitized.get('security_requirements') or '<none provided>'}",
+            f"boundary_ack: {sanitized.get('boundary_ack') or '<missing>'}",
+            "operator_decision: <decline | issue bounded pilot key | request more info>",
+        ]
+        return {
+            "app": "13flow",
+            "generated_at": _now_iso(),
+            "git_sha": _git_sha(),
+            "status": status,
+            "read_only": True,
+            "public_page": "/pilot/request",
+            "public_submission_endpoint": None,
+            "server_side_pii_storage": False,
+            "request_persisted": False,
+            "web_worker_creates_tokens": False,
+            "tokens_collected": False,
+            "secrets_collected": False,
+            "input_schema": {
+                "required": required,
+                "optional": ["security_contact", "package", "token_delivery_channel", "security_requirements"],
+                "allowed_workflows": allowed_workflows,
+                "allowed_customer_scopes": allowed_scopes,
+                "forbidden_customer_scopes": ["admin:read"],
+            },
+            "sample_request": {
+                "organization": "Example Capital",
+                "billing_contact": "ops@example.invalid",
+                "security_contact": "security@example.invalid",
+                "workflow": "research desk",
+                "package": (intake.get("pilot_packages") or ["Technical pilot review"])[0],
+                "requested_scopes": "funds:read,quality:read,workspace:write",
+                "expected_volume": "60/min, 5000/day, no burst automation before approval",
+                "token_delivery_channel": "operator-approved secure channel",
+                "security_requirements": "no custom requirement for pilot",
+                "boundary_ack": "13FLOW is a research screen, not investment advice.",
+            },
+            "sanitized_request": sanitized,
+            "missing_fields": missing,
+            "invalid_scopes": invalid_scopes,
+            "redacted_fields": redacted_fields,
+            "risk_flags": risk_flags,
+            "recommended_scopes": recommended_scopes,
+            "operator_note": operator_note,
+            "operator_checklist": [
+                "Confirm the requester is a business buyer and the contact channel is acceptable.",
+                "Confirm the requested workflow maps to a bounded Pro pilot package.",
+                "Reject or normalize any scope outside funds:read, quality:read and workspace:write.",
+                "Run public smoke, Pro workspace smoke and Pro key lifecycle smoke on the deployed SHA.",
+                "Use admin pilot fulfillment to create a bounded key only after operator review.",
+                "Deliver the token once through the selected secure channel; never paste it into the public site.",
+            ],
+            "admin_transform": {
+                "endpoint": "/api/pro/v1/admin/pilot-request-assist",
+                "method": "POST",
+                "stores_request": False,
+                "requires_scope": "admin:read",
+            },
+            "privacy": {
+                "browser_storage": "none; public assistant renders a copyable note in the page only",
+                "server_side_pii_storage": False,
+                "tokens_echoed": False,
+                "token_hashes_exposed": False,
+                "payloads_logged": False,
+            },
+        }
+
+    @app.get("/api/pilot-request-assist")
+    def pilot_request_assist_ep():
+        return jsonify(pilot_request_assist_payload())
+
     @app.get("/api/pilot-intake.md")
     def pilot_intake_markdown_ep():
         body = pilot_intake_markdown(pilot_intake_payload())
@@ -5422,6 +5595,119 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<a class=\"pill\" href=\"/security\">Security posture</a></p>"
         )
         return _html_response("Pilot Intake", body)
+
+    @app.get("/pilot/request")
+    def pilot_request_page():
+        body = """
+<style>
+.request-app{display:grid;gap:14px}
+.request-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+.request-panel{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px;min-width:0}
+.request-panel h2,.request-panel h3{font-size:18px;margin:0 0 10px}
+.request-form{display:grid;gap:10px}
+.request-form label{display:grid;gap:5px;color:var(--faint);font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.08em}
+.request-form input,.request-form select,.request-form textarea{width:100%;border:1px solid var(--line);border-radius:8px;background:var(--panel-2);color:var(--text);font:inherit;padding:10px 11px;letter-spacing:0}
+.request-form textarea{min-height:76px;resize:vertical}
+.request-actions{display:flex;gap:8px;flex-wrap:wrap}
+.request-button{border:1px solid var(--line);border-radius:8px;background:var(--panel-2);color:var(--text);font-weight:800;padding:10px 12px;min-height:42px;cursor:pointer}
+.request-button.primary{background:var(--accent);border-color:var(--accent);color:#06140f}
+.request-status{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);color:var(--muted);padding:10px 12px;font-family:var(--mono);font-size:12px;overflow-wrap:anywhere}
+.request-output{white-space:pre-wrap;overflow:auto;max-height:520px;border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);padding:12px;font-family:var(--mono);font-size:12px;color:var(--muted)}
+@media(max-width:900px){.request-grid{grid-template-columns:1fr}}
+</style>
+<section class="doc-hero"><div class="doc-copy"><div class="kicker">Pilot request</div>
+<h1>Assisted Pilot Request</h1>
+<p class="doc-lede">Client-side request builder for a controlled Pro pilot. The form does not submit to 13FLOW, store buyer PII, collect tokens or create keys.</p></div>
+<aside class="doc-panel"><h3>Boundary</h3><p><span class="pill">server_side_pii_storage:false</span><span class="pill">public_submission_endpoint:none</span><span class="pill">tokens_collected:false</span></p></aside></section>
+<main class="request-app" data-pilot-request-app>
+  <section class="request-grid">
+    <section class="request-panel">
+      <h2>Request Details</h2>
+      <form id="pilotRequestForm" class="request-form">
+        <label>Organization <input name="organization" autocomplete="organization" maxlength="160" required></label>
+        <label>Business contact <input name="billing_contact" autocomplete="email" maxlength="200" required></label>
+        <label>Security contact <input name="security_contact" autocomplete="email" maxlength="200"></label>
+        <label>Workflow <select name="workflow"><option>research desk</option><option>data pipeline</option><option>MCP agent</option><option>monitoring</option><option>internal dashboard</option></select></label>
+        <label>Package <select name="package" id="pilotPackageSelect"></select></label>
+        <label>Requested scopes <input name="requested_scopes" value="funds:read,quality:read,workspace:write" maxlength="200" required></label>
+        <label>Expected volume <input name="expected_volume" placeholder="60/min, 5000/day, no burst automation before approval" maxlength="220" required></label>
+        <label>Secure delivery channel <input name="token_delivery_channel" placeholder="operator-approved secure channel" maxlength="220"></label>
+        <label>Security requirements <textarea name="security_requirements" placeholder="IP allow-listing, DPA, retention, custom terms, or none"></textarea></label>
+        <label>Boundary acknowledgement <textarea name="boundary_ack" required>13FLOW is a research screen, not investment advice.</textarea></label>
+        <div class="request-actions"><button class="request-button primary" type="submit">Generate note</button><button id="pilotCopyNote" class="request-button" type="button">Copy note</button></div>
+      </form>
+    </section>
+    <section class="request-panel">
+      <h2>Operator Note</h2>
+      <div id="pilotRequestStatus" class="request-status">No note generated.</div>
+      <pre id="pilotRequestOutput" class="request-output">Fill the form to generate a copyable operator note.</pre>
+    </section>
+  </section>
+  <section class="request-panel"><h2>Privacy</h2><p><span class="pill">no browser storage</span><span class="pill">no public submit</span><span class="pill">admin review required</span></p><p>This page is a formatter. Send the generated note only through the operator-selected channel.</p></section>
+</main>
+"""
+        script = r"""
+(() => {
+  const app = document.querySelector("[data-pilot-request-app]");
+  if (!app) return;
+  const $ = (id) => document.getElementById(id);
+  const escText = (value) => String(value || "").trim();
+  let latestNote = "";
+  function setStatus(message, bad=false) {
+    const node = $("pilotRequestStatus");
+    node.textContent = message;
+    node.style.borderColor = bad ? "rgba(239,106,82,.55)" : "var(--line-soft)";
+  }
+  function formPayload(form) {
+    const data = new FormData(form);
+    return Object.fromEntries(Array.from(data.entries()).map(([k, v]) => [k, escText(v)]));
+  }
+  function renderLocalNote(payload) {
+    const scopes = payload.requested_scopes || "funds:read,quality:read,workspace:write";
+    return [
+      "13FLOW ASSISTED PILOT REQUEST",
+      `organization: ${payload.organization || "<missing>"}`,
+      `billing_contact: ${payload.billing_contact || "<missing>"}`,
+      `security_contact: ${payload.security_contact || "<optional>"}`,
+      `workflow: ${payload.workflow || "<missing>"}`,
+      `package: ${payload.package || "<operator selects package>"}`,
+      `requested_scopes: ${scopes}`,
+      `expected_volume: ${payload.expected_volume || "<missing>"}`,
+      `token_delivery_channel: ${payload.token_delivery_channel || "<secure channel selected by operator>"}`,
+      `security_requirements: ${payload.security_requirements || "<none provided>"}`,
+      `boundary_ack: ${payload.boundary_ack || "<missing>"}`,
+      "operator_decision: <decline | issue bounded pilot key | request more info>",
+    ].join("\n");
+  }
+  async function loadContract() {
+    const res = await fetch("/api/pilot-request-assist", {headers: {"Accept": "application/json"}});
+    const data = await res.json();
+    const select = $("pilotPackageSelect");
+    const packages = ((data.input_schema || {}).packages || data.pilot_packages || []);
+    const samplePackage = ((data.sample_request || {}).package || "Technical pilot review");
+    const values = packages.length ? packages : [samplePackage, "API integration review", "MCP integration review"];
+    select.innerHTML = values.map((x) => `<option>${String(x).replace(/[&<>"]/g, "")}</option>`).join("");
+  }
+  $("pilotRequestForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const payload = formPayload(event.currentTarget);
+    latestNote = renderLocalNote(payload);
+    $("pilotRequestOutput").textContent = latestNote;
+    setStatus("Generated locally. Nothing was submitted to 13FLOW.");
+  });
+  $("pilotCopyNote").addEventListener("click", async () => {
+    if (!latestNote) latestNote = $("pilotRequestOutput").textContent;
+    try {
+      await navigator.clipboard.writeText(latestNote);
+      setStatus("Operator note copied.");
+    } catch (_) {
+      setStatus("Copy unavailable in this browser; select the note manually.", true);
+    }
+  });
+  loadContract().catch(() => setStatus("Assistant contract unavailable; local form still works.", true));
+})();
+"""
+        return _html_response("Pilot Request", body, script=script)
 
     @app.get("/buyer-pack")
     def buyer_pack_page():
@@ -7490,6 +7776,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     <section class="admin-panel"><h2>Buyer Handoff</h2><div id="adminHandoff" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
     <section class="admin-panel"><h2>Pilot Closeout</h2><div id="adminCloseout" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
     <section class="admin-panel"><h2>Pilot Renewal</h2><div id="adminRenewal" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
+    <section class="admin-panel"><h2>Pilot Request Assist</h2><div id="adminRequestAssist" class="admin-list"><p class="admin-empty">No data loaded.</p></div><textarea id="adminRequestNote" class="admin-status" spellcheck="false" rows="9"></textarea><p><button id="adminReviewRequest" class="admin-button primary" type="button">Review request</button></p></section>
   </section>
 </main>
 """
@@ -7508,9 +7795,11 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     node.textContent = msg;
     node.style.borderColor = bad ? "rgba(239,106,82,.55)" : "var(--line-soft)";
   };
-  async function adminApi(path) {
+  async function adminApi(path, init={}) {
     if (!state.token) throw new Error("Admin API key required");
-    const res = await fetch("/api/pro/v1" + path, {headers: {"Authorization": "Bearer " + state.token}});
+    const headers = Object.assign({"Authorization": "Bearer " + state.token}, init.headers || {});
+    if (init.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+    const res = await fetch("/api/pro/v1" + path, Object.assign({}, init, {headers}));
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || data.detail || ("HTTP " + res.status));
     return data;
@@ -7626,6 +7915,21 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     <article class="admin-row"><h3>Customer message</h3><p><b>${esc(message.subject || "-")}</b></p><p>${(message.body_lines || []).slice(0, 5).map((x) => esc(x)).join(" ")}</p></article>
     <article class="admin-row"><h3>Renewal privacy</h3><p><span class="pill">tokens_echoed:${esc(String(privacy.tokens_echoed))}</span><span class="pill">hashes_exposed:${esc(String(privacy.token_hashes_exposed))}</span><span class="pill">payloads_logged:${esc(String(privacy.payloads_logged))}</span></p></article>`;
   }
+  function renderRequestAssist(payload={}) {
+    const assist = payload.pilot_request_assist || {};
+    const privacy = assist.privacy || {};
+    const sample = assist.sample_request || {};
+    const missing = assist.missing_fields || [];
+    const risks = assist.risk_flags || [];
+    $("adminRequestAssist").innerHTML = `<article class="admin-row">
+      <div class="admin-row-top"><h3>${esc((assist.status || "unknown").toUpperCase())}</h3><span class="admin-mini">${esc(assist.generated_at || "-")}</span></div>
+      <p><span class="pill">stored:${esc(String(assist.request_persisted))}</span><span class="pill">tokens:${esc(String(assist.tokens_collected))}</span><span class="pill">missing:${esc(number(missing.length))}</span><span class="pill">risks:${esc(number(risks.length))}</span></p>
+      <p class="admin-mini">server_side_pii_storage=${esc(String(privacy.server_side_pii_storage))} payloads_logged=${esc(String(privacy.payloads_logged))}</p>
+    </article>
+    <article class="admin-row"><h3>Operator checklist</h3><p>${(assist.operator_checklist || []).slice(0, 6).map((x) => `<span class="pill">${esc(x)}</span>`).join("")}</p></article>
+    <article class="admin-row"><h3>Risk flags</h3><p>${risks.length ? risks.map((x) => `<span class="pill">${esc(x)}</span>`).join("") : '<span class="pill">none</span>'}</p></article>`;
+    if (!$("adminRequestNote").value.trim()) $("adminRequestNote").value = JSON.stringify(sample, null, 2);
+  }
   async function refresh() {
     setStatus("Loading admin ops...");
     const payload = await adminApi("/admin/ops");
@@ -7633,12 +7937,14 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     const handoff = await adminApi("/admin/buyer-handoff");
     const closeout = await adminApi("/admin/pilot-closeout?days=7");
     const renewal = await adminApi("/admin/pilot-renewal?days=7");
+    const requestAssist = await adminApi("/admin/pilot-request-assist");
     renderOps(payload);
     renderHealth({meta: payload.meta || {}, health: (payload.ops || {}).pro_control_plane || {}});
     renderPilot(fulfillment);
     renderHandoff(handoff);
     renderCloseout(closeout);
     renderRenewal(renewal);
+    renderRequestAssist(requestAssist);
   }
   $("adminToken").value = state.token;
   $("adminConnect").addEventListener("click", async () => {
@@ -7655,7 +7961,17 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     renderHandoff({});
     renderCloseout({});
     renderRenewal({});
+    renderRequestAssist({});
     setStatus("Disconnected");
+  });
+  $("adminReviewRequest").addEventListener("click", async () => {
+    try {
+      const raw = $("adminRequestNote").value.trim();
+      const payload = raw ? JSON.parse(raw) : {};
+      const result = await adminApi("/admin/pilot-request-assist", {method: "POST", body: JSON.stringify(payload)});
+      renderRequestAssist(result);
+      setStatus("Pilot request transformed without storage.");
+    } catch (e) { setStatus(e.message, true); }
   });
   if (state.token) refresh().catch(() => setStatus("Stored tab key could not authenticate.", true));
 })();

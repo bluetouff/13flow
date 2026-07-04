@@ -181,6 +181,23 @@ else
   bad "/pilot intake page" "curl failed"
 fi
 
+pilot_request_page="$tmpdir/pilot-request.html"
+if fetch "/pilot/request" "$pilot_request_page"; then
+  grep -q "Assisted Pilot Request" "$pilot_request_page" \
+    && grep -q "data-pilot-request-app" "$pilot_request_page" \
+    && grep -q "/api/pilot-request-assist" "$pilot_request_page" \
+    && grep -q "server_side_pii_storage:false" "$pilot_request_page" \
+    && grep -q "public_submission_endpoint:none" "$pilot_request_page" \
+    && grep -q "navigator.clipboard.writeText" "$pilot_request_page" \
+    && ! grep -qi "localStorage" "$pilot_request_page" \
+    && ! grep -qi "sessionStorage" "$pilot_request_page" \
+    && ok "/pilot/request assisted page" \
+    || bad "/pilot/request assisted page" "missing assisted request contract"
+  contains_none "/pilot/request has no legacy/auth/checkout copy" "$pilot_request_page" "${legacy_forbidden[@]}"
+else
+  bad "/pilot/request assisted page" "curl failed"
+fi
+
 readiness_page="$tmpdir/readiness.html"
 if fetch "/readiness" "$readiness_page"; then
   grep -q "Readiness Checklist" "$readiness_page" \
@@ -378,15 +395,18 @@ if fetch "/pro/admin" "$pro_admin_page"; then
     && grep -q "/admin/buyer-handoff" "$pro_admin_page" \
     && grep -q "/admin/pilot-closeout" "$pro_admin_page" \
     && grep -q "/admin/pilot-renewal" "$pro_admin_page" \
+    && grep -q "/admin/pilot-request-assist" "$pro_admin_page" \
     && grep -q "Ops Verdict" "$pro_admin_page" \
     && grep -q "Pilot Fulfillment" "$pro_admin_page" \
     && grep -q "Buyer Handoff" "$pro_admin_page" \
     && grep -q "Pilot Closeout" "$pro_admin_page" \
     && grep -q "Pilot Renewal" "$pro_admin_page" \
+    && grep -q "Pilot Request Assist" "$pro_admin_page" \
     && grep -q "Create key command" "$pro_admin_page" \
     && grep -q "tokens_included" "$pro_admin_page" \
     && grep -q "renderCloseout" "$pro_admin_page" \
     && grep -q "renderRenewal" "$pro_admin_page" \
+    && grep -q "adminReviewRequest" "$pro_admin_page" \
     && grep -q "web_worker_creates_tokens" "$pro_admin_page" \
     && grep -q "operator_events" "$pro_admin_page" \
     && grep -q "Recent operator events" "$pro_admin_page" \
@@ -559,6 +579,34 @@ msg = str(data)[:1000]
 "
 else
   bad "/api/pilot-intake fetch" "curl failed"
+fi
+
+pilot_assist="$tmpdir/pilot-request-assist.json"
+if fetch "/api/pilot-request-assist" "$pilot_assist"; then
+  json_check "/api/pilot-request-assist contract" "$pilot_assist" "
+schema = data.get('input_schema') or {}
+privacy = data.get('privacy') or {}
+admin = data.get('admin_transform') or {}
+sample = data.get('sample_request') or {}
+raw = str(data)
+ok = (
+    data.get('public_submission_endpoint') is None
+    and data.get('server_side_pii_storage') is False
+    and data.get('request_persisted') is False
+    and data.get('web_worker_creates_tokens') is False
+    and data.get('tokens_collected') is False
+    and 'organization' in (schema.get('required') or [])
+    and 'admin:read' in (schema.get('forbidden_customer_scopes') or [])
+    and admin.get('endpoint') == '/api/pro/v1/admin/pilot-request-assist'
+    and admin.get('stores_request') is False
+    and sample.get('organization')
+    and privacy.get('payloads_logged') is False
+    and '13flow_live_' not in raw
+)
+msg = str(data)[:1000]
+"
+else
+  bad "/api/pilot-request-assist fetch" "curl failed"
 fi
 
 pilot_md="$tmpdir/pilot-intake.md"
@@ -745,7 +793,7 @@ openapi="$tmpdir/_api_openapi.json"
 if [[ -s "$openapi" ]]; then
   json_check "/api/openapi.json public paths" "$openapi" "
 paths = data.get('paths') or {}
-required = ['/api/live-status', '/api/product-status', '/api/commercial-readiness', '/api/security-posture', '/api/pilot-intake', '/api/pilot-intake.md', '/api/buyer-pack', '/api/buyer-pack.md', '/api/pro-offer', '/api/funds', '/api/watchlist/discover', '/api/mcp', '/api/methodology/confluence-v1']
+required = ['/api/live-status', '/api/product-status', '/api/commercial-readiness', '/api/security-posture', '/api/pilot-intake', '/api/pilot-intake.md', '/api/pilot-request-assist', '/api/buyer-pack', '/api/buyer-pack.md', '/api/pro-offer', '/api/funds', '/api/watchlist/discover', '/api/mcp', '/api/methodology/confluence-v1']
 missing = [p for p in required if p not in paths]
 ok = not missing
 msg = 'missing paths: ' + ', '.join(missing)

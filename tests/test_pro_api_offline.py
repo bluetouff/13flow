@@ -231,6 +231,7 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         assert "/api/pro/v1/admin/buyer-handoff" in doc["paths"]
         assert "/api/pro/v1/admin/pilot-closeout" in doc["paths"]
         assert "/api/pro/v1/admin/pilot-renewal" in doc["paths"]
+        assert "/api/pro/v1/admin/pilot-request-assist" in doc["paths"]
 
 
 def test_pro_watchlist_feed_uses_ticker_flow(monkeypatch):
@@ -774,6 +775,11 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
             headers={"Authorization": "Bearer " + workspace_token},
         )
         assert forbidden_renewal.status_code == 403
+        forbidden_request_assist = c.get(
+            "/api/pro/v1/admin/pilot-request-assist",
+            headers={"Authorization": "Bearer " + workspace_token},
+        )
+        assert forbidden_request_assist.status_code == 403
 
         ok = c.get(
             "/api/pro/v1/admin/health",
@@ -983,6 +989,52 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
         assert '"key_hash":' not in renewal_body
         assert "127.0.0.1" not in renewal_body
         assert "pytest" not in renewal_body
+
+        request_template = c.get(
+            "/api/pro/v1/admin/pilot-request-assist",
+            headers={"Authorization": "Bearer " + admin_token},
+        )
+        assert request_template.status_code == 200
+        request_template_payload = request_template.get_json()
+        assert request_template_payload["meta"]["request_persisted"] is False
+        template = request_template_payload["pilot_request_assist"]
+        assert template["server_side_pii_storage"] is False
+        assert template["admin_transform"]["stores_request"] is False
+        assert "organization" in template["input_schema"]["required"]
+
+        request_review = c.post(
+            "/api/pro/v1/admin/pilot-request-assist",
+            headers={"Authorization": "Bearer " + admin_token},
+            json={
+                "organization": "Pilot Buyer",
+                "billing_contact": "ops@example.invalid",
+                "security_contact": "security@example.invalid",
+                "workflow": "research desk",
+                "package": "Technical pilot review",
+                "requested_scopes": "funds:read,quality:read,workspace:write,admin:read",
+                "expected_volume": "60/min and 5000/day",
+                "token_delivery_channel": "secure channel",
+                "security_requirements": "accidental token " + workspace_token,
+                "boundary_ack": "13FLOW is a research screen, not investment advice.",
+            },
+        )
+        assert request_review.status_code == 200
+        request_payload = request_review.get_json()
+        assert request_payload["meta"]["request_persisted"] is False
+        assisted = request_payload["pilot_request_assist"]
+        assert assisted["status"] == "needs_more_info"
+        assert "admin:read" in assisted["invalid_scopes"]
+        assert "security_requirements" in assisted["redacted_fields"]
+        assert any("secret-like material" in item for item in assisted["risk_flags"])
+        assert "admin:read" not in assisted["recommended_scopes"]
+        assert "13FLOW ASSISTED PILOT REQUEST" in assisted["operator_note"][0]
+        assisted_body = request_review.get_data(as_text=True)
+        assert admin_token not in assisted_body
+        assert workspace_token not in assisted_body
+        assert "13flow_live_" not in assisted_body
+        assert '"key_hash":' not in assisted_body
+        assert "127.0.0.1" not in assisted_body
+        assert "pytest" not in assisted_body
 
 
 def test_pro_admin_ops_treats_stale_only_quality_gate_as_notice(monkeypatch):
