@@ -841,6 +841,8 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
         assert "--create-api-key" in fulfillment["operator_commands"]["create_bounded_pilot_key"]
         assert "--api-key-scopes funds:read,quality:read,workspace:write" in fulfillment["operator_commands"]["create_bounded_pilot_key"]
         assert "--list-operator-events" in fulfillment["operator_commands"]["list_operator_events"]
+        assert "smoke-pro-key-lifecycle.sh" in fulfillment["operator_commands"]["run_key_lifecycle_smoke"]
+        assert any("key lifecycle smoke" in item for item in fulfillment["checklist"]["before_issue"])
         assert "13flow_live_" not in str(fulfillment)
         assert "<issued_token>" in fulfillment["operator_commands"]["verify_issued_key_status"]
         assert "organization" in fulfillment["intake_boundary"]["required_fields"]

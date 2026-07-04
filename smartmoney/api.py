@@ -2802,6 +2802,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "sudo EXPECTED_SHA=$SHA PRO_TOKEN=\"<workspace_capable_token>\" "
                     "/opt/13flow/deploy/smoke-pro-workspace.sh"
                 ),
+                "run_key_lifecycle_smoke": (
+                    "sudo EXPECTED_SHA=$SHA /opt/13flow/deploy/smoke-pro-key-lifecycle.sh"
+                ),
                 "revoke_if_needed": (
                     "sudo -u flowpro /opt/13flow/.venv/bin/python /opt/13flow/run.py "
                     "--pro-db /var/lib/13flow-pro/13flow-pro.db --revoke-api-key <key_id>"
@@ -2811,6 +2814,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "before_issue": [
                     "Archive the completed pilot intake operator note outside the public site.",
                     "Run public smoke and Pro workspace smoke on the deployed SHA.",
+                    "Run Pro key lifecycle smoke before issuing the first real buyer key.",
                     "Confirm /api/security-posture is controlled_pilot_security_ready.",
                     "Confirm requested scopes are least-privilege and do not include admin:read.",
                     "Set expiry and rotation_due_at before token delivery.",
