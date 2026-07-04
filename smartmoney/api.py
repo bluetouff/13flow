@@ -1039,6 +1039,21 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                       "403": {"description": "Insufficient scope"}},
                     },
                 },
+                "/api/pro/v1/admin/pilot-renewal": {
+                    "get": {
+                        "security": security,
+                        "summary": "Admin-only pilot renewal or expansion recommendation",
+                        "parameters": [
+                            {"name": "key_id", "in": "query", "required": False,
+                             "schema": {"type": "string"}},
+                            {"name": "days", "in": "query", "required": False,
+                             "schema": {"type": "integer", "minimum": 1, "maximum": 30,
+                                        "default": 7}},
+                        ],
+                        "responses": {"200": {"description": "Pilot renewal recommendation"},
+                                      "403": {"description": "Insufficient scope"}},
+                    },
+                },
                 "/api/pro/v1/openapi.json": {
                     "get": {"summary": "OpenAPI document for the Pro API",
                             "responses": {"200": {"description": "OpenAPI JSON"}}}
@@ -2945,6 +2960,117 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             },
         }
 
+    def _pro_admin_pilot_renewal_payload(closeout: dict, fulfillment: dict) -> dict:
+        limits = fulfillment.get("default_limits") or {}
+        scopes = list((fulfillment.get("least_privilege_policy") or {}).get("default_customer_scopes") or [])
+        verdict = closeout.get("verdict") or {}
+        summary = closeout.get("summary") or {}
+        verdict_status = verdict.get("status")
+        if verdict_status == "hold":
+            decision = "pause"
+            status = "hold"
+            rationale = "Pilot should not be expanded until usage, lifecycle or error issues are resolved."
+            rate_per_min = int(limits.get("rate_per_min") or 120)
+            rate_per_day = int(limits.get("rate_per_day") or 10000)
+            renewal_days = 0
+            rotation_days = 0
+        elif verdict_status == "expand_candidate":
+            decision = "expand"
+            status = "ready"
+            rationale = "Pilot shows enough repeated product usage to justify a bounded expansion discussion."
+            rate_per_min = min(240, max(120, int(limits.get("rate_per_min") or 120) * 2))
+            rate_per_day = min(20000, max(10000, int(limits.get("rate_per_day") or 10000) * 2))
+            renewal_days = 30
+            rotation_days = 21
+        else:
+            decision = "renew"
+            status = "ready"
+            rationale = "Pilot is healthy enough to renew at the existing controlled-pilot boundary."
+            rate_per_min = int(limits.get("rate_per_min") or 120)
+            rate_per_day = int(limits.get("rate_per_day") or 10000)
+            renewal_days = 30
+            rotation_days = 21
+        recommended_terms = {
+            "decision": decision,
+            "scopes": scopes,
+            "rate_per_min": rate_per_min,
+            "rate_per_day": rate_per_day,
+            "expires_days": renewal_days,
+            "rotation_days": rotation_days,
+            "max_watchlists_per_key": int(limits.get("max_watchlists_per_key") or 50),
+            "max_tickers_per_watchlist": int(limits.get("max_tickers_per_watchlist") or 50),
+            "max_request_bytes": int(limits.get("max_request_bytes") or 262144),
+        }
+        subject = {
+            "expand": "13FLOW Pro pilot expansion recommendation",
+            "renew": "13FLOW Pro pilot renewal recommendation",
+            "pause": "13FLOW Pro pilot pause recommendation",
+        }[decision]
+        body_lines = [
+            f"Recommendation: {decision}.",
+            rationale,
+            (
+                "Observed pilot window: "
+                f"{int(summary.get('requests') or 0)} requests, "
+                f"{int(summary.get('watchlists') or 0)} watchlists, "
+                f"{int(summary.get('snapshots') or 0)} snapshots, "
+                f"{int(summary.get('alerts') or 0)} alerts."
+            ),
+            (
+                "Recommended Pro API terms: "
+                f"scopes {', '.join(scopes)}, "
+                f"{rate_per_min}/min, {rate_per_day}/day, "
+                f"expiry {renewal_days} days, rotation {rotation_days} days."
+            ),
+            "13FLOW remains a research screen based on public filings and is not investment advice.",
+        ]
+        return {
+            "status": status,
+            "generated_at": _now_iso(),
+            "read_only": True,
+            "scope": "admin:read",
+            "tokens_included": False,
+            "secrets_included": False,
+            "decision": decision,
+            "rationale": rationale,
+            "source_verdict": verdict,
+            "source_summary": summary,
+            "recommended_terms": recommended_terms,
+            "customer_message": {
+                "subject": subject,
+                "body_lines": body_lines,
+                "requires_operator_review": True,
+                "token_included": False,
+            },
+            "operator_commands": {
+                "create_recommended_key": (
+                    "sudo -u flowpro /opt/13flow/.venv/bin/python /opt/13flow/run.py "
+                    "--pro-db /var/lib/13flow-pro/13flow-pro.db "
+                    "--create-api-key \"<org> renewal\" "
+                    f"--api-key-scopes {','.join(scopes)} "
+                    f"--api-key-rate-per-min {rate_per_min} --api-key-rate-per-day {rate_per_day} "
+                    f"--api-key-expires-days {renewal_days} --api-key-rotation-days {rotation_days}"
+                ) if decision != "pause" else "Do not issue a renewal key until the hold reasons are resolved.",
+                "list_operator_events": (
+                    "sudo -u flowpro /opt/13flow/.venv/bin/python /opt/13flow/run.py "
+                    "--pro-db /var/lib/13flow-pro/13flow-pro.db --list-operator-events --operator-events-limit 20"
+                ),
+                "run_key_lifecycle_smoke": "sudo EXPECTED_SHA=$SHA /opt/13flow/deploy/smoke-pro-key-lifecycle.sh",
+            },
+            "commercial_boundary": {
+                "not_investment_advice": True,
+                "not_claimed": ["validated alpha", "investment recommendation", "performance guarantee"],
+                "operator_review_required": True,
+            },
+            "privacy": {
+                "tokens_echoed": False,
+                "token_hashes_exposed": False,
+                "audit_ips_exposed": False,
+                "audit_user_agents_exposed": False,
+                "payloads_logged": False,
+            },
+        }
+
     def _mcp_call_tool(name: str, args: dict) -> dict:
         if name == "product.status":
             return product_status_payload()
@@ -3928,6 +4054,39 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "read_only": True,
                 },
                 "pilot_closeout": closeout,
+            })
+
+        @app.get("/api/pro/v1/admin/pilot-renewal")
+        @pro_required("admin:read")
+        def pro_admin_pilot_renewal_ep():
+            key = request.pro_api_key
+            key_id = str(request.args.get("key_id") or "").strip() or None
+            days = clean_int(request.args.get("days"), 7, 1, 30)
+            live = live_status_payload()
+            with ProAPIStore(pro_db_path) as ps:
+                health = ps.admin_health()
+                automation = ps.workspace_automation_summary(max_due=25)
+                closeout = ps.pilot_closeout_report(key_id=key_id, days=days, key_limit=10)
+            ops = _pro_admin_ops_payload(live, health, automation)
+            fulfillment = _pro_admin_pilot_fulfillment_payload(live, health, ops)
+            renewal = _pro_admin_pilot_renewal_payload(closeout, fulfillment)
+            renewal["public_context"] = {
+                "public_state": live.get("public_state"),
+                "latest_13f_quarter": live.get("latest_13f_quarter"),
+                "ops_status": ops.get("status"),
+                "quality_status": ((ops.get("public_data") or {}).get("quality_summary") or {}).get("status"),
+                "trusted_funds": ((ops.get("public_data") or {}).get("quality_summary") or {}).get("trusted_funds"),
+            }
+            return jsonify({
+                "meta": {
+                    "api": "13flow-pro",
+                    "version": "v1",
+                    "git_sha": _git_sha(),
+                    "admin_key_id": key.key_id,
+                    "scope": "admin:read",
+                    "read_only": True,
+                },
+                "pilot_renewal": renewal,
             })
 
         @app.get("/api/pro/v1/openapi.json")
@@ -7330,6 +7489,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     <section class="admin-panel"><h2>Pilot Fulfillment</h2><div id="adminPilot" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
     <section class="admin-panel"><h2>Buyer Handoff</h2><div id="adminHandoff" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
     <section class="admin-panel"><h2>Pilot Closeout</h2><div id="adminCloseout" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
+    <section class="admin-panel"><h2>Pilot Renewal</h2><div id="adminRenewal" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
   </section>
 </main>
 """
@@ -7451,17 +7611,34 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     <article class="admin-row"><h3>Closeout actions</h3><p>${actions.slice(0, 4).map((x) => `<span class="pill">${esc(x)}</span>`).join("")}</p></article>
     <article class="admin-row"><h3>Closeout privacy</h3><p><span class="pill">tokens_echoed:${esc(String(privacy.tokens_echoed))}</span><span class="pill">hashes_exposed:${esc(String(privacy.token_hashes_exposed))}</span><span class="pill">payloads_logged:${esc(String(privacy.payloads_logged))}</span></p></article>`;
   }
+  function renderRenewal(payload={}) {
+    const renewal = payload.pilot_renewal || {};
+    const terms = renewal.recommended_terms || {};
+    const message = renewal.customer_message || {};
+    const privacy = renewal.privacy || {};
+    const boundary = renewal.commercial_boundary || {};
+    $("adminRenewal").innerHTML = `<article class="admin-row">
+      <div class="admin-row-top"><h3>${esc((renewal.decision || renewal.status || "unknown").toUpperCase())}</h3><span class="admin-mini">${esc(renewal.generated_at || "-")}</span></div>
+      <p><span class="pill">status:${esc(renewal.status || "-")}</span><span class="pill">tokens_included:${esc(String(renewal.tokens_included))}</span><span class="pill">operator_review:${esc(String(boundary.operator_review_required))}</span></p>
+      <p>${esc(renewal.rationale || "")}</p>
+    </article>
+    <article class="admin-row"><h3>Recommended terms</h3><p><span class="pill">scopes:${esc((terms.scopes || []).join(","))}</span><span class="pill">${esc(number(terms.rate_per_min))}/min</span><span class="pill">${esc(number(terms.rate_per_day))}/day</span><span class="pill">expiry:${esc(number(terms.expires_days))}d</span><span class="pill">rotation:${esc(number(terms.rotation_days))}d</span></p></article>
+    <article class="admin-row"><h3>Customer message</h3><p><b>${esc(message.subject || "-")}</b></p><p>${(message.body_lines || []).slice(0, 5).map((x) => esc(x)).join(" ")}</p></article>
+    <article class="admin-row"><h3>Renewal privacy</h3><p><span class="pill">tokens_echoed:${esc(String(privacy.tokens_echoed))}</span><span class="pill">hashes_exposed:${esc(String(privacy.token_hashes_exposed))}</span><span class="pill">payloads_logged:${esc(String(privacy.payloads_logged))}</span></p></article>`;
+  }
   async function refresh() {
     setStatus("Loading admin ops...");
     const payload = await adminApi("/admin/ops");
     const fulfillment = await adminApi("/admin/pilot-fulfillment");
     const handoff = await adminApi("/admin/buyer-handoff");
     const closeout = await adminApi("/admin/pilot-closeout?days=7");
+    const renewal = await adminApi("/admin/pilot-renewal?days=7");
     renderOps(payload);
     renderHealth({meta: payload.meta || {}, health: (payload.ops || {}).pro_control_plane || {}});
     renderPilot(fulfillment);
     renderHandoff(handoff);
     renderCloseout(closeout);
+    renderRenewal(renewal);
   }
   $("adminToken").value = state.token;
   $("adminConnect").addEventListener("click", async () => {
@@ -7477,6 +7654,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     renderPilot({});
     renderHandoff({});
     renderCloseout({});
+    renderRenewal({});
     setStatus("Disconnected");
   });
   if (state.token) refresh().catch(() => setStatus("Stored tab key could not authenticate.", true));

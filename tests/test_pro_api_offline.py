@@ -230,6 +230,7 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         assert "/api/pro/v1/admin/pilot-fulfillment" in doc["paths"]
         assert "/api/pro/v1/admin/buyer-handoff" in doc["paths"]
         assert "/api/pro/v1/admin/pilot-closeout" in doc["paths"]
+        assert "/api/pro/v1/admin/pilot-renewal" in doc["paths"]
 
 
 def test_pro_watchlist_feed_uses_ticker_flow(monkeypatch):
@@ -768,6 +769,11 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
             headers={"Authorization": "Bearer " + workspace_token},
         )
         assert forbidden_closeout.status_code == 403
+        forbidden_renewal = c.get(
+            "/api/pro/v1/admin/pilot-renewal",
+            headers={"Authorization": "Bearer " + workspace_token},
+        )
+        assert forbidden_renewal.status_code == 403
 
         ok = c.get(
             "/api/pro/v1/admin/health",
@@ -941,6 +947,42 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
         assert '"key_hash":' not in closeout_body
         assert "127.0.0.1" not in closeout_body
         assert "pytest" not in closeout_body
+
+        renewal_response = c.get(
+            f"/api/pro/v1/admin/pilot-renewal?key_id={workspace_key.key_id}&days=7",
+            headers={"Authorization": "Bearer " + admin_token},
+        )
+        assert renewal_response.status_code == 200
+        renewal_payload = renewal_response.get_json()
+        assert renewal_payload["meta"]["admin_key_id"] == admin_key.key_id
+        assert renewal_payload["meta"]["scope"] == "admin:read"
+        assert renewal_payload["meta"]["read_only"] is True
+        renewal = renewal_payload["pilot_renewal"]
+        assert renewal["decision"] == "pause"
+        assert renewal["status"] == "hold"
+        assert renewal["tokens_included"] is False
+        assert renewal["secrets_included"] is False
+        assert renewal["recommended_terms"]["decision"] == "pause"
+        assert renewal["recommended_terms"]["expires_days"] == 0
+        assert renewal["commercial_boundary"]["not_investment_advice"] is True
+        assert "performance guarantee" in renewal["commercial_boundary"]["not_claimed"]
+        assert renewal["customer_message"]["requires_operator_review"] is True
+        assert renewal["customer_message"]["token_included"] is False
+        assert "Do not issue" in renewal["operator_commands"]["create_recommended_key"]
+        assert renewal["privacy"] == {
+            "tokens_echoed": False,
+            "token_hashes_exposed": False,
+            "audit_ips_exposed": False,
+            "audit_user_agents_exposed": False,
+            "payloads_logged": False,
+        }
+        renewal_body = renewal_response.get_data(as_text=True)
+        assert admin_token not in renewal_body
+        assert workspace_token not in renewal_body
+        assert "13flow_live_" not in renewal_body
+        assert '"key_hash":' not in renewal_body
+        assert "127.0.0.1" not in renewal_body
+        assert "pytest" not in renewal_body
 
 
 def test_pro_admin_ops_treats_stale_only_quality_gate_as_notice(monkeypatch):
