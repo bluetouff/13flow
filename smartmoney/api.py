@@ -5617,6 +5617,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         )
 
     def coverage_quality_payload() -> dict:
+        return _cached_public_payload("coverage_quality", _coverage_quality_payload)
+
+    def _coverage_quality_payload() -> dict:
         live = live_status_payload()
         s = store()
         try:
