@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import secrets
 import sqlite3
 from dataclasses import dataclass
@@ -18,6 +19,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 KEY_PREFIX = "13flow_live"
+KEY_HASH_HMAC_PREFIX = "hmac-sha256:"
+KEY_HASH_SHA256_PREFIX = "sha256:"
+KEY_PEPPER_ENV = "SMARTMONEY_PRO_KEY_PEPPER"
+KEY_PEPPER_REQUIRED_ENV = "SMARTMONEY_PRO_REQUIRE_KEY_PEPPER"
 DEFAULT_SCOPES = ("funds:read", "quality:read")
 DEFAULT_MAX_WATCHLISTS_PER_KEY = 50
 
@@ -172,8 +177,44 @@ def _iso(dt: datetime) -> str:
     return dt.isoformat(timespec="seconds")
 
 
+def _truthy_env(name: str) -> bool:
+    return str(os.environ.get(name, "")).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _key_pepper() -> str:
+    return os.environ.get(KEY_PEPPER_ENV, "").strip()
+
+
+def _key_pepper_required() -> bool:
+    return _truthy_env(KEY_PEPPER_REQUIRED_ENV)
+
+
 def _hash_key(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+    pepper = _key_pepper()
+    if pepper:
+        digest = hmac.new(
+            pepper.encode("utf-8"),
+            token.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        return KEY_HASH_HMAC_PREFIX + digest
+    if _key_pepper_required():
+        raise RuntimeError(f"{KEY_PEPPER_ENV} is required to create Pro API keys")
+    return KEY_HASH_SHA256_PREFIX + hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _key_hash_matches(stored_hash: str, token: str) -> bool:
+    stored = str(stored_hash or "")
+    if stored.startswith(KEY_HASH_HMAC_PREFIX):
+        pepper = _key_pepper()
+        if not pepper:
+            return False
+        return hmac.compare_digest(stored, _hash_key(token))
+    if stored.startswith(KEY_HASH_SHA256_PREFIX):
+        digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+        return hmac.compare_digest(stored, KEY_HASH_SHA256_PREFIX + digest)
+    # Backward compatibility for pre-pepper rows already present in a Pro DB.
+    return hmac.compare_digest(stored, hashlib.sha256(token.encode("utf-8")).hexdigest())
 
 
 def _parse_token(token: str) -> tuple[str, str]:
@@ -328,13 +369,14 @@ class ProAPIStore:
             if rotation_days is not None else None
         )
         scopes_s = _scopes_to_string(scopes)
+        key_hash = _hash_key(token)
         with self.conn:
             self.conn.execute(
                 """INSERT INTO api_keys(key_id,label,contact_email,key_hash,scopes,tier,rate_per_min,
                                         rate_per_day,created_at,expires_at,rotation_due_at)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (
-                    key_id, label, contact_email, _hash_key(token), scopes_s, tier,
+                    key_id, label, contact_email, key_hash, scopes_s, tier,
                     int(rate_per_min), int(rate_per_day), _iso(now), expires_at,
                     rotation_due_at,
                 ),
@@ -355,6 +397,10 @@ class ProAPIStore:
                     "contact_email": contact_email,
                     "token_stored": False,
                     "token_hash_exposed": False,
+                    "token_binding_scheme": (
+                        "hmac-sha256" if key_hash.startswith(KEY_HASH_HMAC_PREFIX) else "sha256"
+                    ),
+                    "instance_bound": key_hash.startswith(KEY_HASH_HMAC_PREFIX),
                 },
             )
         return token, APIKey(
@@ -513,9 +559,13 @@ class ProAPIStore:
         audit = dict(audit_summary or {})
         status = "ok"
         warnings: list[str] = []
+        pepper_configured = bool(_key_pepper())
         if not active_keys:
             status = "warn"
             warnings.append("no active Pro API key")
+        if _key_pepper_required() and not pepper_configured:
+            status = "warn"
+            warnings.append(f"{KEY_PEPPER_ENV} is required but not configured")
         if int(audit.get("server_errors") or 0) > 0:
             status = "warn"
             warnings.append("Pro API audit contains server errors")
@@ -530,6 +580,13 @@ class ProAPIStore:
             "status": status,
             "warnings": warnings,
             "generated_at": now_iso,
+            "key_security": {
+                "hash_scheme_for_new_keys": "hmac-sha256" if pepper_configured else "sha256",
+                "instance_pepper_configured": pepper_configured,
+                "instance_pepper_required": _key_pepper_required(),
+                "accepts_legacy_sha256_rows": True,
+                "prod_clone_key_reuse_blocked": pepper_configured,
+            },
             "keys": {
                 "total": len(keys),
                 "active": len(active_keys),
@@ -929,7 +986,7 @@ class ProAPIStore:
         row = self.conn.execute("SELECT * FROM api_keys WHERE key_id=?", (key_id,)).fetchone()
         if row is None:
             raise APIKeyError("invalid API key")
-        if not hmac.compare_digest(row["key_hash"], _hash_key(full_token)):
+        if not _key_hash_matches(row["key_hash"], full_token):
             raise APIKeyError("invalid API key")
         if row["revoked_at"]:
             raise APIKeyError("revoked API key")

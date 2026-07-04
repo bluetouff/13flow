@@ -6592,7 +6592,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 ),
             },
             "security": {
-                "token_storage": "plaintext token shown once; SHA-256 hash stored at rest",
+                "token_storage": "plaintext token shown once; server-bound token hash stored at rest in production",
                 "audit": "one api_audit row per accepted, denied or rate-limited Pro request",
                 "cache": "Pro responses are private/no-store and vary by credential header",
                 "service_split": "public web service has no Pro DB write path",

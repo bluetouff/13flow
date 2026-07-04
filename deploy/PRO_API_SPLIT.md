@@ -17,6 +17,8 @@ to a dedicated service account and gunicorn listener.
   - listens on `127.0.0.1:8001`
   - reads `/var/lib/13flow/13flow.db`
   - writes only `/var/lib/13flow-pro/13flow-pro.db`
+  - requires a server-only `SMARTMONEY_PRO_KEY_PEPPER` so Pro tokens are bound to this
+    production instance
   - serves only the Pro API via Apache `/api/pro/`
 - `13flow-mcp.service`
   - user: `flowmcp`
@@ -30,6 +32,8 @@ sudo adduser --system --group --no-create-home --home /nonexistent flowpro
 sudo usermod -a -G flowapp flowpro
 
 sudo install -o root -g flowpro -m 640 /opt/13flow/deploy/13flow-pro.env /etc/13flow/13flow-pro.env
+sudo sed -i "s|# SMARTMONEY_PRO_KEY_PEPPER=<server-only-secret>|SMARTMONEY_PRO_KEY_PEPPER=$(openssl rand -hex 32)|" /etc/13flow/13flow-pro.env
+sudo sed -i "s|# SMARTMONEY_PRO_REQUIRE_KEY_PEPPER=1|SMARTMONEY_PRO_REQUIRE_KEY_PEPPER=1|" /etc/13flow/13flow-pro.env
 sudo install -o root -g root -m 644 /opt/13flow/deploy/13flow-pro.service /etc/systemd/system/13flow-pro.service
 
 sudo mkdir -p /var/lib/13flow-pro

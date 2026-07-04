@@ -100,24 +100,31 @@ SMARTMONEY_DB_READONLY=1
 SMARTMONEY_DB=/var/lib/13flow/13flow.db
 SMARTMONEY_PRO_API=1
 SMARTMONEY_PRO_DB=/var/lib/13flow-pro/13flow-pro.db
+SMARTMONEY_PRO_KEY_PEPPER=<server-only-random-secret>
+SMARTMONEY_PRO_REQUIRE_KEY_PEPPER=1
 ```
 
 Do not grant `/var/lib/13flow-pro` write access to the public `13flow.service`. Apache
 should route only `/api/pro/` to `13flow-pro.service`, while the public site and open JSON
 endpoints stay on the read-only service.
 
-Create an API key offline as the operator. The plaintext token is shown exactly once; only
-its SHA-256 hash is stored.
+Create an API key offline as the operator. The plaintext token is shown exactly once. In
+production, only an HMAC-SHA256 hash derived with the server-only
+`SMARTMONEY_PRO_KEY_PEPPER` is stored, so tokens generated from a GitHub clone or another
+instance cannot authenticate against `13flow.eu`.
 ```bash
-python run.py --create-api-key "Acme Asset Management" \
-  --pro-db /var/lib/13flow/13flow-pro.db \
+sudo -u flowpro env SMARTMONEY_PRO_KEY_PEPPER="$SMARTMONEY_PRO_KEY_PEPPER" \
+  SMARTMONEY_PRO_REQUIRE_KEY_PEPPER=1 \
+  /opt/13flow/.venv/bin/python /opt/13flow/run.py \
+  --create-api-key "Acme Asset Management" \
+  --pro-db /var/lib/13flow-pro/13flow-pro.db \
   --api-key-scopes funds:read,quality:read \
   --api-key-rate-per-min 120 \
   --api-key-rate-per-day 10000
 
-python run.py --list-api-keys --pro-db /var/lib/13flow/13flow-pro.db
-python run.py --revoke-api-key <key_id> --pro-db /var/lib/13flow/13flow-pro.db
-python run.py --prune-pro-audit-days 180 --pro-db /var/lib/13flow/13flow-pro.db
+python run.py --list-api-keys --pro-db /var/lib/13flow-pro/13flow-pro.db
+python run.py --revoke-api-key <key_id> --pro-db /var/lib/13flow-pro/13flow-pro.db
+python run.py --prune-pro-audit-days 180 --pro-db /var/lib/13flow-pro/13flow-pro.db
 ```
 
 Use `Authorization: Bearer <token>` or `X-13FLOW-Key: <token>`.

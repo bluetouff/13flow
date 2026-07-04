@@ -9,6 +9,8 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from smartmoney.api import create_app
 from smartmoney.db import Store
 from smartmoney.pro import APIKeyError, APIKeyExpired, ProAPIStore
@@ -1306,6 +1308,50 @@ def test_pro_operator_events_track_key_lifecycle_without_secrets():
                 "ip_exposed": False,
                 "user_agent_exposed": False,
             }
+
+
+def test_pro_api_key_hash_can_be_bound_to_instance_secret(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        pro_db = str(Path(d) / "peppered-pro.db")
+        monkeypatch.setenv("SMARTMONEY_PRO_KEY_PEPPER", "prod-only-secret")
+        with ProAPIStore(pro_db) as pro:
+            token, key = pro.create_key("Peppered key")
+            row = pro.conn.execute(
+                "SELECT key_hash FROM api_keys WHERE key_id=?",
+                (key.key_id,),
+            ).fetchone()
+            assert row["key_hash"].startswith("hmac-sha256:")
+            assert pro.authenticate(token, "funds:read").key_id == key.key_id
+
+        monkeypatch.setenv("SMARTMONEY_PRO_KEY_PEPPER", "wrong-secret")
+        with ProAPIStore(pro_db) as pro:
+            with pytest.raises(APIKeyError):
+                pro.authenticate(token, "funds:read")
+
+        monkeypatch.delenv("SMARTMONEY_PRO_KEY_PEPPER", raising=False)
+        with ProAPIStore(pro_db) as pro:
+            with pytest.raises(APIKeyError):
+                pro.authenticate(token, "funds:read")
+
+
+def test_pro_key_creation_can_require_instance_pepper(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        pro_db = str(Path(d) / "require-pepper-pro.db")
+        monkeypatch.setenv("SMARTMONEY_PRO_REQUIRE_KEY_PEPPER", "1")
+        monkeypatch.delenv("SMARTMONEY_PRO_KEY_PEPPER", raising=False)
+        with ProAPIStore(pro_db) as pro:
+            with pytest.raises(RuntimeError, match="SMARTMONEY_PRO_KEY_PEPPER"):
+                pro.create_key("No pepper")
+
+        monkeypatch.setenv("SMARTMONEY_PRO_KEY_PEPPER", "prod-only-secret")
+        with ProAPIStore(pro_db) as pro:
+            token, key = pro.create_key("Pepper required")
+            assert token.startswith("13flow_live_")
+            row = pro.conn.execute(
+                "SELECT key_hash FROM api_keys WHERE key_id=?",
+                (key.key_id,),
+            ).fetchone()
+            assert row["key_hash"].startswith("hmac-sha256:")
 
 
 def test_pro_api_expired_key_fails_closed(monkeypatch):

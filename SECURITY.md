@@ -52,7 +52,10 @@ The Pro API is intentionally separate from browser sessions. It is disabled unle
 `SMARTMONEY_PRO_API=1` is set.
 
 - **API-key format** — the plaintext token is high-entropy and shown only once at creation
-  time. The database stores only a SHA-256 hash plus a non-secret key id used for lookup.
+  time. In production, the database stores only an HMAC-SHA256 hash derived with the
+  server-only `SMARTMONEY_PRO_KEY_PEPPER` plus a non-secret key id used for lookup. A token
+  generated from a GitHub clone or another 13FLOW instance cannot authenticate against
+  `13flow.eu` without the production pepper and a row in the production Pro DB.
 - **Scopes** — every Pro route declares a required scope. Current scopes are `funds:read`
   and `quality:read`; missing scope returns **403**.
 - **Rate limits** — per-key minute and day buckets are persisted in `SMARTMONEY_PRO_DB`, so
@@ -72,6 +75,10 @@ The Pro API is intentionally separate from browser sessions. It is disabled unle
 Operational requirements:
 - Put `SMARTMONEY_PRO_DB` outside the code tree, owned by the dedicated `flowpro` service
   user, mode `0640` or as restrictive as your backup/ops model allows.
+- Set `SMARTMONEY_PRO_KEY_PEPPER` to a long random server-only secret in
+  `/etc/13flow/13flow-pro.env`, set `SMARTMONEY_PRO_REQUIRE_KEY_PEPPER=1`, and never commit
+  or print that pepper. Rotate customer keys after enabling this mode so new rows are
+  instance-bound.
 - Keep the market-data DB read-only for gunicorn (`SMARTMONEY_DB_READONLY=1`). Route
   `/api/pro/` to `13flow-pro.service` and remove Pro API env/write access from the public
   `13flow.service`.
