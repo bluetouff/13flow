@@ -524,9 +524,11 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/admin/health" in pro_admin_page
         assert "/admin/pilot-fulfillment" in pro_admin_page
         assert "/admin/buyer-handoff" in pro_admin_page
+        assert "/admin/release-readiness" in pro_admin_page
         assert "/admin/pilot-closeout" in pro_admin_page
         assert "/admin/pilot-renewal" in pro_admin_page
         assert "/admin/pilot-request-assist" in pro_admin_page
+        assert "Release Readiness" in pro_admin_page
         assert "Pilot Fulfillment" in pro_admin_page
         assert "Buyer Handoff" in pro_admin_page
         assert "Pilot Closeout" in pro_admin_page
@@ -536,8 +538,11 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "tokens_included" in pro_admin_page
         assert "renderCloseout" in pro_admin_page
         assert "renderRenewal" in pro_admin_page
+        assert "renderRelease" in pro_admin_page
         assert "adminReviewRequest" in pro_admin_page
         assert "web_worker_creates_tokens" in pro_admin_page
+        assert "auth_self_serve" in pro_admin_page
+        assert "payment_self_serve" in pro_admin_page
         assert "operator_events" in pro_admin_page
         assert "Recent operator events" in pro_admin_page
         assert "Rotation due" in pro_admin_page

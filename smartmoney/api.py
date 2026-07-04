@@ -1021,6 +1021,21 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                       "403": {"description": "Insufficient scope"}},
                     },
                 },
+                "/api/pro/v1/admin/release-readiness": {
+                    "get": {
+                        "security": security,
+                        "summary": "Admin-only go/no-go pack for controlled pilot release",
+                        "parameters": [
+                            {"name": "key_id", "in": "query", "required": False,
+                             "schema": {"type": "string"}},
+                            {"name": "days", "in": "query", "required": False,
+                             "schema": {"type": "integer", "minimum": 1, "maximum": 30,
+                                        "default": 7}},
+                        ],
+                        "responses": {"200": {"description": "Release readiness decision pack"},
+                                      "403": {"description": "Insufficient scope"}},
+                    },
+                },
                 "/api/pro/v1/admin/pilot-closeout": {
                     "get": {
                         "security": security,
@@ -2998,6 +3013,109 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             },
         }
 
+    def _pro_admin_release_readiness_payload(
+        ops: dict,
+        fulfillment: dict,
+        handoff: dict,
+        closeout: dict,
+        renewal: dict,
+    ) -> dict:
+        ops_verdict = ops.get("verdict") or {}
+        closeout_verdict = closeout.get("verdict") or {}
+        renewal_terms = renewal.get("recommended_terms") or {}
+        blockers: list[str] = []
+        notices: list[str] = []
+
+        blockers.extend(list(ops_verdict.get("critical") or []))
+        if fulfillment.get("status") != "ready_to_issue_bounded_pilot":
+            blockers.append("pilot key issuance is not ready")
+        if handoff.get("status") != "ready":
+            blockers.append("buyer handoff is not ready")
+        if not (handoff.get("token_delivery") or {}).get("operator_delivery_required"):
+            blockers.append("token delivery boundary is not operator-controlled")
+
+        if ops_verdict.get("warnings"):
+            notices.extend(list(ops_verdict.get("warnings") or []))
+        if ops_verdict.get("notices"):
+            notices.extend(list(ops_verdict.get("notices") or []))
+        if closeout_verdict.get("status") == "hold":
+            notices.append("pilot closeout context is hold; use this as commercial context, not an automated stop")
+        if renewal.get("decision") == "pause":
+            notices.append("renewal recommendation is pause for the selected pilot context")
+
+        status = "hold" if blockers else "ready_for_controlled_pilot"
+        before_issue = (fulfillment.get("checklist") or {}).get("before_issue") or []
+        handoff_checklist = handoff.get("operator_checklist") or []
+        commands = fulfillment.get("operator_commands") or {}
+        return {
+            "status": status,
+            "generated_at": _now_iso(),
+            "read_only": True,
+            "scope": "admin:read",
+            "decision": {
+                "go": not blockers,
+                "blockers": blockers,
+                "notices": notices,
+                "can_issue_pilot_key": not blockers,
+                "can_send_buyer_handoff": not blockers,
+                "renewal_decision": renewal.get("decision"),
+            },
+            "source_statuses": {
+                "ops": ops.get("status"),
+                "pilot_fulfillment": fulfillment.get("status"),
+                "buyer_handoff": handoff.get("status"),
+                "pilot_closeout": closeout_verdict.get("status"),
+                "pilot_renewal": renewal.get("status"),
+            },
+            "release_boundary": {
+                "controlled_pilot_only": True,
+                "browser_auth_self_serve": False,
+                "self_serve_payment": False,
+                "web_worker_creates_tokens": False,
+                "operator_issued_keys": True,
+                "operator_delivery_required": True,
+                "customer_forbidden_scopes": ["admin:read"],
+                "not_investment_advice": True,
+            },
+            "required_smokes": {
+                "public": commands.get("run_public_smoke"),
+                "pro_workspace": commands.get("run_pro_workspace_smoke"),
+                "pro_key_lifecycle": commands.get("run_key_lifecycle_smoke"),
+            },
+            "minimum_operator_checklist": list(dict.fromkeys(
+                before_issue[:6] + handoff_checklist[:4] + [
+                    "Record the final go/no-go decision outside the web worker.",
+                    "Do not issue admin:read to customers.",
+                ]
+            )),
+            "commercial_context": {
+                "closeout_summary": closeout.get("summary") or {},
+                "renewal_terms": renewal_terms,
+                "customer_message_token_included": (
+                    (renewal.get("customer_message") or {}).get("token_included")
+                ),
+                "not_claimed": ["validated alpha", "investment recommendation", "performance guarantee"],
+            },
+            "privacy": {
+                "tokens_included": False,
+                "secrets_included": False,
+                "tokens_echoed": False,
+                "token_hashes_exposed": False,
+                "audit_ips_exposed": False,
+                "audit_user_agents_exposed": False,
+                "payloads_logged": False,
+            },
+            "operator_next_actions": (
+                ["Hold pilot release until blockers are cleared."]
+                if blockers else [
+                    "Run the required smokes on the deployed SHA.",
+                    "Issue a least-privilege, expiring pilot key only through the operator CLI.",
+                    "Send the buyer handoff without token material in normal channels.",
+                    "Schedule rotation before rotation_due_at.",
+                ]
+            ),
+        }
+
     def _mcp_call_tool(name: str, args: dict) -> dict:
         if name == "product.status":
             return product_status_payload()
@@ -3944,6 +4062,41 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "read_only": True,
                 },
                 "buyer_handoff": handoff,
+            })
+
+        @app.get("/api/pro/v1/admin/release-readiness")
+        @pro_required("admin:read")
+        def pro_admin_release_readiness_ep():
+            key = request.pro_api_key
+            key_id = str(request.args.get("key_id") or "").strip() or None
+            days = clean_int(request.args.get("days"), 7, 1, 30)
+            live = live_status_payload()
+            with ProAPIStore(pro_db_path) as ps:
+                health = ps.admin_health()
+                automation = ps.workspace_automation_summary(max_due=25)
+                closeout = ps.pilot_closeout_report(key_id=key_id, days=days, key_limit=10)
+            ops = _pro_admin_ops_payload(live, health, automation)
+            fulfillment = _pro_admin_pilot_fulfillment_payload(live, health, ops)
+            handoff = _pro_admin_buyer_handoff_payload(live, health, ops)
+            closeout["public_context"] = {
+                "public_state": live.get("public_state"),
+                "latest_13f_quarter": live.get("latest_13f_quarter"),
+                "ops_status": ops.get("status"),
+                "quality_status": ((ops.get("public_data") or {}).get("quality_summary") or {}).get("status"),
+                "trusted_funds": ((ops.get("public_data") or {}).get("quality_summary") or {}).get("trusted_funds"),
+            }
+            renewal = _pro_admin_pilot_renewal_payload(closeout, fulfillment)
+            release = _pro_admin_release_readiness_payload(ops, fulfillment, handoff, closeout, renewal)
+            return jsonify({
+                "meta": {
+                    "api": "13flow-pro",
+                    "version": "v1",
+                    "git_sha": _git_sha(),
+                    "admin_key_id": key.key_id,
+                    "scope": "admin:read",
+                    "read_only": True,
+                },
+                "release_readiness": release,
             })
 
         @app.get("/api/pro/v1/admin/pilot-closeout")
@@ -7712,6 +7865,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     <div class="admin-kpi"><b>-</b><span>Server errors</span></div>
   </section>
   <section class="admin-grid">
+    <section class="admin-panel"><h2>Release Readiness</h2><div id="adminRelease" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
     <section class="admin-panel"><h2>Ops Verdict</h2><div id="adminOps" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
     <section class="admin-panel"><h2>Keys & Usage</h2><div id="adminKeys" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
     <section class="admin-panel"><h2>Audit</h2><div id="adminAudit" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
@@ -7748,6 +7902,27 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || data.detail || ("HTTP " + res.status));
     return data;
+  }
+  function renderRelease(payload={}) {
+    const release = payload.release_readiness || {};
+    const decision = release.decision || {};
+    const boundary = release.release_boundary || {};
+    const smokes = release.required_smokes || {};
+    const statuses = release.source_statuses || {};
+    const privacy = release.privacy || {};
+    const blockers = decision.blockers || [];
+    const notices = decision.notices || [];
+    const actions = release.operator_next_actions || [];
+    $("adminRelease").innerHTML = `<article class="admin-row">
+      <div class="admin-row-top"><h3>${esc((release.status || "unknown").toUpperCase())}</h3><span class="admin-mini">${esc(release.generated_at || "-")}</span></div>
+      <p><span class="pill">go:${esc(String(decision.go))}</span><span class="pill">pilot_key:${esc(String(decision.can_issue_pilot_key))}</span><span class="pill">handoff:${esc(String(decision.can_send_buyer_handoff))}</span><span class="pill">renewal:${esc(decision.renewal_decision || "-")}</span></p>
+      <p class="admin-mini">ops=${esc(statuses.ops || "-")} fulfillment=${esc(statuses.pilot_fulfillment || "-")} handoff=${esc(statuses.buyer_handoff || "-")} closeout=${esc(statuses.pilot_closeout || "-")}</p>
+    </article>
+    <article class="admin-row"><h3>Boundary</h3><p><span class="pill">auth_self_serve:${esc(String(boundary.browser_auth_self_serve))}</span><span class="pill">payment_self_serve:${esc(String(boundary.self_serve_payment))}</span><span class="pill">operator_keys:${esc(String(boundary.operator_issued_keys))}</span><span class="pill">investment_advice:${esc(String(!boundary.not_investment_advice))}</span></p></article>
+    <article class="admin-row"><h3>Required smokes</h3><p>${Object.entries(smokes).map(([name, cmd]) => `<span class="pill">${esc(name)}</span><code>${esc(cmd || "-")}</code>`).join(" ")}</p></article>
+    <article class="admin-row"><h3>Blockers</h3><p>${blockers.length ? blockers.map((x) => `<span class="pill">${esc(x)}</span>`).join("") : '<span class="pill">none</span>'}</p></article>
+    <article class="admin-row"><h3>Notices</h3><p>${notices.length ? notices.slice(0, 6).map((x) => `<span class="pill">${esc(x)}</span>`).join("") : '<span class="pill">none</span>'}</p></article>
+    <article class="admin-row"><h3>Next actions</h3><p>${actions.slice(0, 5).map((x) => `<span class="pill">${esc(x)}</span>`).join("")}</p><p class="admin-mini">tokens=${esc(String(privacy.tokens_included))} secrets=${esc(String(privacy.secrets_included))} payloads_logged=${esc(String(privacy.payloads_logged))}</p></article>`;
   }
   function renderOps(payload={}) {
     const ops = payload.ops || {};
@@ -7877,12 +8052,16 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
   }
   async function refresh() {
     setStatus("Loading admin ops...");
-    const payload = await adminApi("/admin/ops");
-    const fulfillment = await adminApi("/admin/pilot-fulfillment");
-    const handoff = await adminApi("/admin/buyer-handoff");
-    const closeout = await adminApi("/admin/pilot-closeout?days=7");
-    const renewal = await adminApi("/admin/pilot-renewal?days=7");
-    const requestAssist = await adminApi("/admin/pilot-request-assist");
+    const [payload, release, fulfillment, handoff, closeout, renewal, requestAssist] = await Promise.all([
+      adminApi("/admin/ops"),
+      adminApi("/admin/release-readiness?days=7"),
+      adminApi("/admin/pilot-fulfillment"),
+      adminApi("/admin/buyer-handoff"),
+      adminApi("/admin/pilot-closeout?days=7"),
+      adminApi("/admin/pilot-renewal?days=7"),
+      adminApi("/admin/pilot-request-assist"),
+    ]);
+    renderRelease(release);
     renderOps(payload);
     renderHealth({meta: payload.meta || {}, health: (payload.ops || {}).pro_control_plane || {}});
     renderPilot(fulfillment);
@@ -7902,6 +8081,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     sessionStorage.removeItem(TOKEN_KEY);
     $("adminToken").value = "";
     renderHealth({});
+    renderRelease({});
     renderPilot({});
     renderHandoff({});
     renderCloseout({});

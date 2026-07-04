@@ -229,6 +229,7 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         assert "/api/pro/v1/admin/ops" in doc["paths"]
         assert "/api/pro/v1/admin/pilot-fulfillment" in doc["paths"]
         assert "/api/pro/v1/admin/buyer-handoff" in doc["paths"]
+        assert "/api/pro/v1/admin/release-readiness" in doc["paths"]
         assert "/api/pro/v1/admin/pilot-closeout" in doc["paths"]
         assert "/api/pro/v1/admin/pilot-renewal" in doc["paths"]
         assert "/api/pro/v1/admin/pilot-request-assist" in doc["paths"]
@@ -765,6 +766,11 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
             headers={"Authorization": "Bearer " + workspace_token},
         )
         assert forbidden_handoff.status_code == 403
+        forbidden_release = c.get(
+            "/api/pro/v1/admin/release-readiness",
+            headers={"Authorization": "Bearer " + workspace_token},
+        )
+        assert forbidden_release.status_code == 403
         forbidden_closeout = c.get(
             "/api/pro/v1/admin/pilot-closeout",
             headers={"Authorization": "Bearer " + workspace_token},
@@ -914,6 +920,55 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
         assert '"key_hash":' not in handoff_body
         assert "127.0.0.1" not in handoff_body
         assert "pytest" not in handoff_body
+
+        release_response = c.get(
+            f"/api/pro/v1/admin/release-readiness?key_id={workspace_key.key_id}&days=7",
+            headers={"Authorization": "Bearer " + admin_token},
+        )
+        assert release_response.status_code == 200
+        release_payload = release_response.get_json()
+        assert release_payload["meta"]["admin_key_id"] == admin_key.key_id
+        assert release_payload["meta"]["scope"] == "admin:read"
+        assert release_payload["meta"]["read_only"] is True
+        release = release_payload["release_readiness"]
+        assert release["read_only"] is True
+        assert release["scope"] == "admin:read"
+        assert release["status"] == "hold"
+        assert release["decision"]["go"] is False
+        assert "no trusted funds available for signals" in release["decision"]["blockers"]
+        assert release["decision"]["can_issue_pilot_key"] is False
+        assert release["release_boundary"] == {
+            "controlled_pilot_only": True,
+            "browser_auth_self_serve": False,
+            "self_serve_payment": False,
+            "web_worker_creates_tokens": False,
+            "operator_issued_keys": True,
+            "operator_delivery_required": True,
+            "customer_forbidden_scopes": ["admin:read"],
+            "not_investment_advice": True,
+        }
+        assert "smoke-public.sh" in release["required_smokes"]["public"]
+        assert "smoke-pro-workspace.sh" in release["required_smokes"]["pro_workspace"]
+        assert "smoke-pro-key-lifecycle.sh" in release["required_smokes"]["pro_key_lifecycle"]
+        assert any("admin:read" in item for item in release["minimum_operator_checklist"])
+        assert release["commercial_context"]["customer_message_token_included"] is False
+        assert "validated alpha" in release["commercial_context"]["not_claimed"]
+        assert release["privacy"] == {
+            "tokens_included": False,
+            "secrets_included": False,
+            "tokens_echoed": False,
+            "token_hashes_exposed": False,
+            "audit_ips_exposed": False,
+            "audit_user_agents_exposed": False,
+            "payloads_logged": False,
+        }
+        release_body = release_response.get_data(as_text=True)
+        assert admin_token not in release_body
+        assert workspace_token not in release_body
+        assert "13flow_live_" not in release_body
+        assert '"key_hash":' not in release_body
+        assert "127.0.0.1" not in release_body
+        assert "pytest" not in release_body
 
         closeout_response = c.get(
             f"/api/pro/v1/admin/pilot-closeout?key_id={workspace_key.key_id}&days=7",
