@@ -21,6 +21,10 @@ The strategy is better, not cheaper. Do not compete on generic filing download
 volume. Compete on evidence, workflow fit, reproducibility and buyer-specific
 support.
 
+Product scope is intentionally capped by `docs/CORE_V1_BOUNDARY.md`. If a buyer
+request does not fit that boundary, treat it as a custom discussion or parking
+lot item rather than expanding the default pilot.
+
 ## Market map
 
 | Provider | Publicly visible offer | Risk for 13FLOW | 13FLOW response |

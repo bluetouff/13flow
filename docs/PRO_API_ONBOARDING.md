@@ -73,6 +73,9 @@ handling live in `docs/COMMERCIAL_MODEL.md`. Use that document before quoting:
 13FLOW should be handled as a limited-capacity technical evaluation, not as
 cheap raw SEC access or a mature managed SaaS product.
 
+The maintainability gate for what belongs in the first paid pilot is
+`docs/CORE_V1_BOUNDARY.md`.
+
 Pro, MCP and redistribution terms live in
 `docs/PRO_MCP_REDISTRIBUTION_TERMS.md`.
 

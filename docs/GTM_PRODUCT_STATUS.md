@@ -26,6 +26,10 @@ Commercial packaging and competitor positioning are maintained in
 SEC access": sell the audited workflow, support, evidence pack and validation
 boundary.
 
+The maintainability boundary for what belongs in the controlled pilot is
+`docs/CORE_V1_BOUNDARY.md`. Use it before adding any new public, Pro or admin
+surface.
+
 Machine-readable product status:
 
 ```bash

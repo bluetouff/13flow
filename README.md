@@ -71,11 +71,17 @@ data-quality summary, and `uses_synthetic_data=false`. `/api/product-status` is 
 go-to-market truth surface: it states what is sellable now, what is deliberately disabled
 (for example x402), and why full quantitative validation remains blocked until imported
 2013-2026 adjusted-price and normalized Form 4 transaction artifacts are available. See
-[`docs/GTM_PRODUCT_STATUS.md`](docs/GTM_PRODUCT_STATUS.md).
+[`docs/GTM_PRODUCT_STATUS.md`](docs/GTM_PRODUCT_STATUS.md) and the Core V1 scope gate in
+[`docs/CORE_V1_BOUNDARY.md`](docs/CORE_V1_BOUNDARY.md).
 The public Pro packaging page lives at `/pro`; its machine-readable contract is
 `/api/pro-offer`.
 
-## Accounts & auth
+## Accounts & auth (legacy/full build, not current public pilot)
+Current production is a public read-only open build plus operator-issued Pro API
+keys. It does not expose browser account management, public signup or
+self-serve checkout. Keep this section as implementation reference for the full
+build, not as a Core V1 commercial surface.
+
 Read-only market data is public (it's public-domain). The **paid** feature — filing-alert
 subscriptions — sits behind a full accounts system, with the tier enforced **server-side**
 from the user's database row (the client can never assert its own tier).
@@ -108,7 +114,11 @@ link in the API response for local testing), `SMARTMONEY_HIBP_FAIL_CLOSED=1` /
 `SMARTMONEY_DISABLE_HIBP=1` (tune the breach check).
 Sign-in / register / sign-out and subscription management are built into the dashboard.
 
-## Billing (Stripe) — with a local mock for testing
+## Billing (Stripe) - legacy/full build, not current public pilot
+Current controlled-pilot production does not use public Stripe checkout. Pilot
+access is operator-reviewed, with scoped Pro keys issued manually and tested via
+the Pro onboarding runbook.
+
 Upgrading from Free to **Pro** runs through Stripe Checkout; the tier flips to `paid` **only**
 on a signature-verified webhook (never from the browser or the success redirect), handled
 idempotently. The whole flow is in `billing.py`.
