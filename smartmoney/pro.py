@@ -23,6 +23,7 @@ KEY_HASH_HMAC_PREFIX = "hmac-sha256:"
 KEY_HASH_SHA256_PREFIX = "sha256:"
 KEY_PEPPER_ENV = "SMARTMONEY_PRO_KEY_PEPPER"
 KEY_PEPPER_REQUIRED_ENV = "SMARTMONEY_PRO_REQUIRE_KEY_PEPPER"
+KEY_ACCEPT_LEGACY_ENV = "SMARTMONEY_PRO_ACCEPT_LEGACY_SHA256_KEYS"
 DEFAULT_SCOPES = ("funds:read", "quality:read")
 DEFAULT_MAX_WATCHLISTS_PER_KEY = 50
 
@@ -189,6 +190,13 @@ def _key_pepper_required() -> bool:
     return _truthy_env(KEY_PEPPER_REQUIRED_ENV)
 
 
+def _accept_legacy_sha256_keys() -> bool:
+    configured = os.environ.get(KEY_ACCEPT_LEGACY_ENV)
+    if configured is not None:
+        return str(configured).strip().lower() in {"1", "true", "yes", "on"}
+    return not _key_pepper_required()
+
+
 def _hash_key(token: str) -> str:
     pepper = _key_pepper()
     if pepper:
@@ -210,6 +218,8 @@ def _key_hash_matches(stored_hash: str, token: str) -> bool:
         if not pepper:
             return False
         return hmac.compare_digest(stored, _hash_key(token))
+    if not _accept_legacy_sha256_keys():
+        return False
     if stored.startswith(KEY_HASH_SHA256_PREFIX):
         digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
         return hmac.compare_digest(stored, KEY_HASH_SHA256_PREFIX + digest)
@@ -584,7 +594,7 @@ class ProAPIStore:
                 "hash_scheme_for_new_keys": "hmac-sha256" if pepper_configured else "sha256",
                 "instance_pepper_configured": pepper_configured,
                 "instance_pepper_required": _key_pepper_required(),
-                "accepts_legacy_sha256_rows": True,
+                "accepts_legacy_sha256_rows": _accept_legacy_sha256_keys(),
                 "prod_clone_key_reuse_blocked": pepper_configured,
             },
             "keys": {

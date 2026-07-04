@@ -34,6 +34,7 @@ sudo usermod -a -G flowapp flowpro
 sudo install -o root -g flowpro -m 640 /opt/13flow/deploy/13flow-pro.env /etc/13flow/13flow-pro.env
 sudo sed -i "s|# SMARTMONEY_PRO_KEY_PEPPER=<server-only-secret>|SMARTMONEY_PRO_KEY_PEPPER=$(openssl rand -hex 32)|" /etc/13flow/13flow-pro.env
 sudo sed -i "s|# SMARTMONEY_PRO_REQUIRE_KEY_PEPPER=1|SMARTMONEY_PRO_REQUIRE_KEY_PEPPER=1|" /etc/13flow/13flow-pro.env
+sudo sed -i "s|# SMARTMONEY_PRO_ACCEPT_LEGACY_SHA256_KEYS=0|SMARTMONEY_PRO_ACCEPT_LEGACY_SHA256_KEYS=0|" /etc/13flow/13flow-pro.env
 sudo install -o root -g root -m 644 /opt/13flow/deploy/13flow-pro.service /etc/systemd/system/13flow-pro.service
 
 sudo mkdir -p /var/lib/13flow-pro

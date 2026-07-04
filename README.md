@@ -102,6 +102,7 @@ SMARTMONEY_PRO_API=1
 SMARTMONEY_PRO_DB=/var/lib/13flow-pro/13flow-pro.db
 SMARTMONEY_PRO_KEY_PEPPER=<server-only-random-secret>
 SMARTMONEY_PRO_REQUIRE_KEY_PEPPER=1
+SMARTMONEY_PRO_ACCEPT_LEGACY_SHA256_KEYS=0
 ```
 
 Do not grant `/var/lib/13flow-pro` write access to the public `13flow.service`. Apache
@@ -111,7 +112,9 @@ endpoints stay on the read-only service.
 Create an API key offline as the operator. The plaintext token is shown exactly once. In
 production, only an HMAC-SHA256 hash derived with the server-only
 `SMARTMONEY_PRO_KEY_PEPPER` is stored, so tokens generated from a GitHub clone or another
-instance cannot authenticate against `13flow.eu`.
+instance cannot authenticate against `13flow.eu`. With
+`SMARTMONEY_PRO_REQUIRE_KEY_PEPPER=1`, legacy SHA-256 rows are rejected unless
+`SMARTMONEY_PRO_ACCEPT_LEGACY_SHA256_KEYS=1` is explicitly set for a short migration window.
 ```bash
 sudo -u flowpro env SMARTMONEY_PRO_KEY_PEPPER="$SMARTMONEY_PRO_KEY_PEPPER" \
   SMARTMONEY_PRO_REQUIRE_KEY_PEPPER=1 \

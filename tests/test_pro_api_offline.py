@@ -1354,6 +1354,34 @@ def test_pro_key_creation_can_require_instance_pepper(monkeypatch):
             assert row["key_hash"].startswith("hmac-sha256:")
 
 
+def test_prod_strict_mode_rejects_legacy_sha256_rows(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        pro_db = str(Path(d) / "legacy-strict-pro.db")
+        monkeypatch.delenv("SMARTMONEY_PRO_KEY_PEPPER", raising=False)
+        monkeypatch.delenv("SMARTMONEY_PRO_REQUIRE_KEY_PEPPER", raising=False)
+        monkeypatch.delenv("SMARTMONEY_PRO_ACCEPT_LEGACY_SHA256_KEYS", raising=False)
+        with ProAPIStore(pro_db) as pro:
+            token, key = pro.create_key("Legacy key")
+            row = pro.conn.execute(
+                "SELECT key_hash FROM api_keys WHERE key_id=?",
+                (key.key_id,),
+            ).fetchone()
+            assert row["key_hash"].startswith("sha256:")
+            assert pro.authenticate(token, "funds:read").key_id == key.key_id
+
+        monkeypatch.setenv("SMARTMONEY_PRO_REQUIRE_KEY_PEPPER", "1")
+        monkeypatch.setenv("SMARTMONEY_PRO_KEY_PEPPER", "prod-only-secret")
+        with ProAPIStore(pro_db) as pro:
+            with pytest.raises(APIKeyError):
+                pro.authenticate(token, "funds:read")
+            health = pro.admin_health()
+            assert health["key_security"]["accepts_legacy_sha256_rows"] is False
+
+        monkeypatch.setenv("SMARTMONEY_PRO_ACCEPT_LEGACY_SHA256_KEYS", "1")
+        with ProAPIStore(pro_db) as pro:
+            assert pro.authenticate(token, "funds:read").key_id == key.key_id
+
+
 def test_pro_api_expired_key_fails_closed(monkeypatch):
     with tempfile.TemporaryDirectory() as d:
         data_db = str(Path(d) / "expired-data.db")
