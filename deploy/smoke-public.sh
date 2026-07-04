@@ -15,15 +15,48 @@ SITE=${SITE:-https://13flow.eu}
 HTTP_SITE=${HTTP_SITE:-http://13flow.eu}
 EXPECTED_SHA=${EXPECTED_SHA:-}
 REQUIRE_MCP=${REQUIRE_MCP:-1}
+SMOKE_TIMING=${SMOKE_TIMING:-1}
+SMOKE_SLOW_SECONDS=${SMOKE_SLOW_SECONDS:-2}
 
 tmpdir=$(mktemp -d)
 cleanup() { rm -rf "$tmpdir"; }
 trap cleanup EXIT
 
 fail=0
+smoke_start_tick=$(date +%s)
+smoke_last_tick=$smoke_start_tick
+smoke_check_count=0
+smoke_slow_labels=()
+smoke_slow_durations=()
 say(){ printf '%-58s %s\n' "$1" "$2"; }
-ok(){ say "$1" "OK"; }
-bad(){ say "$1" "FAIL - $2"; fail=1; }
+record_check_timing(){
+  [[ "$SMOKE_TIMING" == "1" ]] || return 0
+  local label=$1 now delta
+  now=$(date +%s)
+  delta=$((now - smoke_last_tick))
+  smoke_last_tick=$now
+  smoke_check_count=$((smoke_check_count + 1))
+  if (( delta >= SMOKE_SLOW_SECONDS )); then
+    smoke_slow_labels+=("$label")
+    smoke_slow_durations+=("$delta")
+  fi
+}
+ok(){ record_check_timing "$1"; say "$1" "OK"; }
+bad(){ record_check_timing "$1"; say "$1" "FAIL - $2"; fail=1; }
+print_timing_summary(){
+  [[ "$SMOKE_TIMING" == "1" ]] || return 0
+  local total now i
+  now=$(date +%s)
+  total=$((now - smoke_start_tick))
+  echo
+  echo "PUBLIC SMOKE TIMING: total=${total}s checks=${smoke_check_count} slow_threshold=${SMOKE_SLOW_SECONDS}s"
+  if ((${#smoke_slow_labels[@]})); then
+    echo "PUBLIC SMOKE SLOW CHECKS:"
+    for i in "${!smoke_slow_labels[@]}"; do
+      printf '  %4ss  %s\n' "${smoke_slow_durations[$i]}" "${smoke_slow_labels[$i]}"
+    done
+  fi
+}
 
 fetch() {
   local path=$1 out=$2
@@ -806,6 +839,7 @@ msg = 'missing MCP tools: ' + ', '.join(missing)
     || bad "MCP Pro tool fail-closed without payment/key" "got HTTP $mcp_pro_status"
 fi
 
+print_timing_summary
 echo
 if [[ $fail -eq 0 ]]; then
   echo "PUBLIC SMOKE: all good"

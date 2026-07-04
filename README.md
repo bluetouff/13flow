@@ -411,6 +411,15 @@ EXPECTED_SHA=<deployed-git-sha> /opt/13flow/deploy/smoke-public.sh
 SITE=https://staging.13flow.eu EXPECTED_SHA=<sha> /opt/13flow/deploy/smoke-public.sh
 ```
 
+The public smoke now prints a timing summary and slow checks so a longer release gate can be
+distinguished from slower production routes. For a focused latency guard, run the lightweight
+public perf smoke after the functional smoke:
+
+```bash
+/opt/13flow/deploy/perf-smoke-public.sh
+SAMPLES=7 WARN_MS=1500 FAIL_MS=3000 /opt/13flow/deploy/perf-smoke-public.sh
+```
+
 ## Open build (public, read-only — no auth, no Stripe, no browser alerts)
 There is a first-class **open mode** for a public deployment that exposes only the read-only
 screens (Consensus / Funds / Compare / Confluence) with no accounts and no payment.
