@@ -25,6 +25,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS api_keys (
     key_id       TEXT PRIMARY KEY,
     label        TEXT NOT NULL,
+    contact_email TEXT,
     key_hash     TEXT NOT NULL,
     scopes       TEXT NOT NULL,
     tier         TEXT NOT NULL DEFAULT 'pro',
@@ -235,6 +236,8 @@ class ProAPIStore:
         }
         if "rotation_due_at" not in columns:
             self.conn.execute("ALTER TABLE api_keys ADD COLUMN rotation_due_at TEXT")
+        if "contact_email" not in columns:
+            self.conn.execute("ALTER TABLE api_keys ADD COLUMN contact_email TEXT")
 
     def close(self) -> None:
         self.conn.close()
@@ -310,10 +313,12 @@ class ProAPIStore:
         expires_days: Optional[int] = None,
         rotation_days: Optional[int] = 90,
         actor: str = "cli",
+        contact_email: str = "",
     ) -> tuple[str, APIKey]:
         label = (label or "").strip()
         if not label:
             raise ValueError("label is required")
+        contact_email = (contact_email or "").strip()
         key_id = secrets.token_hex(8)
         token = f"{KEY_PREFIX}_{key_id}_{secrets.token_urlsafe(32)}"
         now = _now()
@@ -325,11 +330,11 @@ class ProAPIStore:
         scopes_s = _scopes_to_string(scopes)
         with self.conn:
             self.conn.execute(
-                """INSERT INTO api_keys(key_id,label,key_hash,scopes,tier,rate_per_min,
+                """INSERT INTO api_keys(key_id,label,contact_email,key_hash,scopes,tier,rate_per_min,
                                         rate_per_day,created_at,expires_at,rotation_due_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (
-                    key_id, label, _hash_key(token), scopes_s, tier,
+                    key_id, label, contact_email, _hash_key(token), scopes_s, tier,
                     int(rate_per_min), int(rate_per_day), _iso(now), expires_at,
                     rotation_due_at,
                 ),
@@ -347,6 +352,7 @@ class ProAPIStore:
                     "rate_per_day": int(rate_per_day),
                     "expires_at": expires_at,
                     "rotation_due_at": rotation_due_at,
+                    "contact_email": contact_email,
                     "token_stored": False,
                     "token_hash_exposed": False,
                 },
@@ -387,7 +393,7 @@ class ProAPIStore:
 
     def list_keys(self) -> list[dict]:
         rows = self.conn.execute(
-            """SELECT key_id,label,scopes,tier,rate_per_min,rate_per_day,created_at,
+            """SELECT key_id,label,contact_email,scopes,tier,rate_per_min,rate_per_day,created_at,
                       expires_at,rotation_due_at,revoked_at,last_used_at
                FROM api_keys ORDER BY created_at DESC"""
         ).fetchall()
@@ -535,6 +541,7 @@ class ProAPIStore:
                     {
                         "id": k["key_id"],
                         "label": k["label"],
+                        "contact_email": k.get("contact_email") or "",
                         "tier": k["tier"],
                         "scopes": str(k.get("scopes") or "").split(),
                         "created_at": k["created_at"],
@@ -930,7 +937,12 @@ class ProAPIStore:
         if row["expires_at"] and (expires_at is None or expires_at <= _now()):
             raise APIKeyExpired("expired API key")
         scopes = tuple((row["scopes"] or "").split())
-        if required_scope and required_scope not in scopes:
+        scope_ok = (
+            not required_scope
+            or required_scope in scopes
+            or (required_scope == "admin:read" and "admin:write" in scopes)
+        )
+        if not scope_ok:
             raise APIKeyForbidden("insufficient scope")
         key = APIKey(
             key_id=row["key_id"], label=row["label"], scopes=scopes, tier=row["tier"],

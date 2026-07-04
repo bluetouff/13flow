@@ -226,6 +226,8 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         assert "/api/pro/v1/workspace/watchlists/{watchlist_id}/signals/snapshot" in doc["paths"]
         assert "/api/pro/v1/workspace/watchlists/{watchlist_id}/signals/history" in doc["paths"]
         assert "/api/pro/v1/admin/health" in doc["paths"]
+        assert "/api/pro/v1/admin/keys" in doc["paths"]
+        assert "/api/pro/v1/admin/keys/{key_id}/revoke" in doc["paths"]
         assert "/api/pro/v1/admin/ops" in doc["paths"]
         assert "/api/pro/v1/admin/pilot-fulfillment" in doc["paths"]
         assert "/api/pro/v1/admin/buyer-handoff" in doc["paths"]
@@ -732,6 +734,10 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
                 "Ops admin", scopes=("admin:read",),
                 rate_per_min=120, rate_per_day=10000,
             )
+            admin_write_token, admin_write_key = pro.create_key(
+                "Ops admin write", scopes=("admin:read", "admin:write"),
+                rate_per_min=120, rate_per_day=10000,
+            )
             pro.audit(workspace_key.key_id, "GET", "/api/pro/v1/status", 200,
                       "127.0.0.1", "pytest")
             pro.audit(workspace_key.key_id, "GET", "/api/pro/v1/funds", 500,
@@ -796,7 +802,7 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
         assert payload["meta"]["admin_key_id"] == admin_key.key_id
         assert payload["meta"]["scope"] == "admin:read"
         health = payload["health"]
-        assert health["keys"]["active"] == 2
+        assert health["keys"]["active"] == 3
         assert health["keys"]["rotation_due"] == 1
         assert any("rotation" in warning for warning in health["warnings"])
         recent = {item["id"]: item for item in health["keys"]["recent"]}
@@ -804,7 +810,7 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
         assert recent[workspace_key.key_id]["rotation_due_at"]
         assert recent[workspace_key.key_id]["expires_at"] is None
         assert health["audit"]["server_errors"] == 1
-        assert health["operator_events"]["api_key_created"] == 2
+        assert health["operator_events"]["api_key_created"] == 3
         assert health["operator_events"]["privacy"]["tokens_stored"] is False
         assert health["external_checks"]["collected_by_web_process"] is False
         assert "13flow-pro-backup.timer" in health["external_checks"]["expected_units"]
@@ -813,6 +819,80 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
         assert "key_hash" not in body
         assert "127.0.0.1" not in body
         assert "pytest" not in body
+
+        create_forbidden = c.post(
+            "/api/pro/v1/admin/keys",
+            json={
+                "label": "Desk key",
+                "contact_email": "desk@example.invalid",
+                "scopes": ["funds:read"],
+            },
+            headers={"Authorization": "Bearer " + admin_token},
+        )
+        assert create_forbidden.status_code == 403
+
+        create_response = c.post(
+            "/api/pro/v1/admin/keys",
+            json={
+                "label": "Desk key",
+                "contact_email": "desk@example.invalid",
+                "scopes": ["funds:read", "quality:read"],
+                "expires_days": 30,
+                "rotation_days": 21,
+                "rate_per_day": 5000,
+            },
+            headers={"Authorization": "Bearer " + admin_write_token},
+        )
+        assert create_response.status_code == 201
+        created_payload = create_response.get_json()
+        created = created_payload["created_key"]
+        created_token = created["token"]
+        assert created["contact_email"] == "desk@example.invalid"
+        assert created["scopes"] == ["funds:read", "quality:read"]
+        assert created["token_shown_once"] is True
+        assert created["token_stored"] is False
+        create_body = create_response.get_data(as_text=True)
+        assert admin_token not in create_body
+        assert admin_write_token not in create_body
+        assert '"key_hash":' not in create_body
+
+        keys_response = c.get(
+            "/api/pro/v1/admin/keys",
+            headers={"Authorization": "Bearer " + admin_write_token},
+        )
+        assert keys_response.status_code == 200
+        keys_payload = keys_response.get_json()["key_management"]
+        created_rows = [row for row in keys_payload["keys"] if row["id"] == created["id"]]
+        assert created_rows and created_rows[0]["contact_email"] == "desk@example.invalid"
+        assert keys_payload["privacy"]["tokens_included"] is False
+        keys_body = keys_response.get_data(as_text=True)
+        assert created_token not in keys_body
+        assert admin_write_token not in keys_body
+
+        status_with_created = c.get(
+            "/api/pro/v1/status",
+            headers={"Authorization": "Bearer " + created_token},
+        )
+        assert status_with_created.status_code == 200
+
+        self_revoke = c.post(
+            f"/api/pro/v1/admin/keys/{admin_write_key.key_id}/revoke",
+            headers={"Authorization": "Bearer " + admin_write_token},
+        )
+        assert self_revoke.status_code == 400
+
+        revoke_response = c.post(
+            f"/api/pro/v1/admin/keys/{created['id']}/revoke",
+            headers={"Authorization": "Bearer " + admin_write_token},
+        )
+        assert revoke_response.status_code == 200
+        assert revoke_response.get_json()["revoked_key_id"] == created["id"]
+
+        status_after_revoke = c.get(
+            "/api/pro/v1/status",
+            headers={"Authorization": "Bearer " + created_token},
+        )
+        assert status_after_revoke.status_code == 401
 
         ops_response = c.get(
             "/api/pro/v1/admin/ops",
@@ -829,7 +909,7 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
         assert ops["public_data"]["public_state"] == "LIVE"
         assert "trusted_funds" in ops["public_data"]["quality_summary"]
         assert "no trusted funds available for signals" in ops["verdict"]["critical"]
-        assert ops["pro_control_plane"]["keys"]["active"] == 2
+        assert ops["pro_control_plane"]["keys"]["active"] == 3
         assert ops["workspace_automation"]["scheduled_watchlists"] == 1
         assert ops["workspace_automation"]["due_count"] == 1
         assert ops["workspace_automation"]["due_sample"][0]["key_id"] == workspace_key.key_id
@@ -862,7 +942,7 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
         assert fulfillment["web_worker_creates_tokens"] is False
         assert fulfillment["tokens_exposed"] is False
         assert fulfillment["secrets_exposed"] is False
-        assert fulfillment["operator_events"]["api_key_created"] == 2
+        assert fulfillment["operator_events"]["api_key_created"] == 4
         assert fulfillment["operator_events"]["privacy"]["tokens_stored"] is False
         assert fulfillment["least_privilege_policy"]["customer_forbidden_scopes"] == ["admin:read"]
         assert "admin:read" not in fulfillment["least_privilege_policy"]["default_customer_scopes"]
@@ -977,7 +1057,7 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
         assert surface_response.status_code == 200
         surface_payload = surface_response.get_json()
         assert surface_payload["meta"]["admin_key_id"] == admin_key.key_id
-        assert surface_payload["ops"]["pro_control_plane"]["keys"]["active"] == 2
+        assert surface_payload["ops"]["pro_control_plane"]["keys"]["active"] == 3
         assert surface_payload["pilot_fulfillment"]["scope"] == "admin:read"
         assert surface_payload["buyer_handoff"]["tokens_included"] is False
         assert surface_payload["pilot_closeout"]["selection"]["key_id"] == workspace_key.key_id

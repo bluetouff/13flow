@@ -517,10 +517,21 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "?token=" not in pro_onboarding_page
         assert "checkout" not in pro_onboarding_page.lower()
 
-        pro_admin_page = c.get("/pro/admin").get_data(as_text=True)
-        assert "Admin Health" in pro_admin_page
+        assert c.get("/pro/admin").status_code == 404
+
+        monkeypatch.setenv(
+            "SMARTMONEY_ADMIN_PANEL_PASSWORD_SHA256",
+            "1c8bfe8f801d79745c4631d09fff36c82aa37fc4cce4fc946683d7b336b63032",
+        )
+        protected = create_app(db, secure_cookies=False, open_mode=True).test_client()
+        assert protected.get("/pro/admin").status_code == 401
+        pro_admin_page = protected.get(
+            "/pro/admin",
+            headers={"Authorization": "Basic YWRtaW46bGV0bWVpbg=="},
+        ).get_data(as_text=True)
+        assert "Admin Console" in pro_admin_page
         assert "data-pro-admin-app" in pro_admin_page
-        assert "admin:read" in pro_admin_page
+        assert "admin:write" in pro_admin_page
         assert "13flow.pro.admin.token" in pro_admin_page
         assert "/api/pro/v1\" + path" in pro_admin_page
         assert "include=surface" in pro_admin_page
@@ -531,14 +542,11 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/admin/pilot-closeout" in pro_admin_page
         assert "/admin/pilot-renewal" in pro_admin_page
         assert "/admin/pilot-request-assist" in pro_admin_page
-        assert "Release Readiness" in pro_admin_page
-        assert "Pilot Fulfillment" in pro_admin_page
-        assert "Buyer Handoff" in pro_admin_page
-        assert "Pilot Closeout" in pro_admin_page
-        assert "Pilot Renewal" in pro_admin_page
-        assert "Pilot Request Assist" in pro_admin_page
-        assert "Create key command" in pro_admin_page
-        assert "tokens_included" in pro_admin_page
+        assert "Create API key" in pro_admin_page
+        assert "data-revoke-key" in pro_admin_page
+        assert "/admin/keys" in pro_admin_page
+        assert "Priority" in pro_admin_page
+        assert "Errors" in pro_admin_page
         assert "renderCloseout" in pro_admin_page
         assert "renderRenewal" in pro_admin_page
         assert "renderRelease" in pro_admin_page
@@ -589,7 +597,8 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Public Checks" in readiness_page
         assert "External Operator Checks" in readiness_page
         assert "/api/commercial-readiness" in readiness_page
-        assert "/pro/admin" in readiness_page
+        assert "/pro/admin" not in readiness_page
+        assert "/api/pro/v1/admin/health" in readiness_page
         assert "validated alpha" in readiness_page
 
         security = c.get("/api/security-posture").get_json()

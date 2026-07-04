@@ -25,6 +25,8 @@ needs a price provider and hits the network at request time, so it's opt-in.
 from __future__ import annotations
 
 import csv
+import hashlib
+import hmac
 import io
 import json
 import os
@@ -997,6 +999,33 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                       "403": {"description": "Insufficient scope"}},
                     },
                 },
+                "/api/pro/v1/admin/keys": {
+                    "get": {
+                        "security": security,
+                        "summary": "Admin-only Pro API key list without token material",
+                        "responses": {"200": {"description": "Pro key list"},
+                                      "403": {"description": "Insufficient scope"}},
+                    },
+                    "post": {
+                        "security": security,
+                        "summary": "Create a scoped non-admin Pro API key; token is returned once",
+                        "responses": {"201": {"description": "Created Pro key"},
+                                      "400": {"description": "Invalid key request"},
+                                      "403": {"description": "Requires admin:write"}},
+                    },
+                },
+                "/api/pro/v1/admin/keys/{key_id}/revoke": {
+                    "post": {
+                        "security": security,
+                        "summary": "Revoke a Pro API key while preserving audit history",
+                        "parameters": [{"name": "key_id", "in": "path", "required": True,
+                                        "schema": {"type": "string"}}],
+                        "responses": {"200": {"description": "Revoked Pro key"},
+                                      "400": {"description": "Invalid revoke request"},
+                                      "403": {"description": "Requires admin:write"},
+                                      "404": {"description": "Not found or already revoked"}},
+                    },
+                },
                 "/api/pro/v1/admin/ops": {
                     "get": {
                         "security": security,
@@ -1100,6 +1129,35 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         if auth.lower().startswith("bearer "):
             return auth.split(" ", 1)[1].strip()
         return request.headers.get("X-13FLOW-Key", "").strip()
+
+    def _admin_panel_password_hash() -> str:
+        return os.environ.get("SMARTMONEY_ADMIN_PANEL_PASSWORD_SHA256", "").strip().lower()
+
+    def _admin_panel_locked_response():
+        resp = make_response("admin_panel_locked", 401)
+        resp.headers["WWW-Authenticate"] = 'Basic realm="13flow-admin"'
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    def admin_panel_required(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            expected_hash = _admin_panel_password_hash()
+            if not expected_hash:
+                abort(404)
+            auth = request.authorization
+            expected_user = os.environ.get("SMARTMONEY_ADMIN_PANEL_USER", "admin")
+            if (
+                not auth
+                or not hmac.compare_digest(auth.username or "", expected_user)
+                or not hmac.compare_digest(
+                    hashlib.sha256((auth.password or "").encode("utf-8")).hexdigest(),
+                    expected_hash,
+                )
+            ):
+                return _admin_panel_locked_response()
+            return fn(*args, **kwargs)
+        return wrapper
 
     def pro_required(scope: str):
         def deco(fn):
@@ -3982,6 +4040,33 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "history": history,
             })
 
+        def _admin_key_public_row(row: dict) -> dict:
+            return {
+                "id": row.get("key_id") or row.get("id"),
+                "label": row.get("label") or "",
+                "contact_email": row.get("contact_email") or "",
+                "scopes": str(row.get("scopes") or "").split(),
+                "tier": row.get("tier") or "pro",
+                "rate_per_min": int(row.get("rate_per_min") or 0),
+                "rate_per_day": int(row.get("rate_per_day") or 0),
+                "created_at": row.get("created_at"),
+                "expires_at": row.get("expires_at"),
+                "rotation_due_at": row.get("rotation_due_at"),
+                "revoked_at": row.get("revoked_at"),
+                "last_used_at": row.get("last_used_at"),
+                "revoked": bool(row.get("revoked_at")),
+            }
+
+        def _admin_keys_payload(ps: ProAPIStore) -> dict:
+            return {
+                "keys": [_admin_key_public_row(row) for row in ps.list_keys()],
+                "privacy": {
+                    "tokens_included": False,
+                    "token_hashes_exposed": False,
+                    "payloads_logged": False,
+                },
+            }
+
         @app.get("/api/pro/v1/admin/health")
         @pro_required("admin:read")
         def pro_admin_health_ep():
@@ -3997,6 +4082,108 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "scope": "admin:read",
                 },
                 "health": health,
+            })
+
+        @app.get("/api/pro/v1/admin/keys")
+        @pro_required("admin:read")
+        def pro_admin_keys_ep():
+            key = request.pro_api_key
+            with ProAPIStore(pro_db_path) as ps:
+                keys = _admin_keys_payload(ps)
+            return jsonify({
+                "meta": {
+                    "api": "13flow-pro",
+                    "version": "v1",
+                    "git_sha": _git_sha(),
+                    "admin_key_id": key.key_id,
+                    "scope": "admin:read",
+                    "read_only": True,
+                },
+                "key_management": keys,
+            })
+
+        @app.post("/api/pro/v1/admin/keys")
+        @pro_required("admin:write")
+        def pro_admin_create_key_ep():
+            key = request.pro_api_key
+            payload = request.get_json(silent=True) or {}
+            label = str(payload.get("label") or "").strip()[:120]
+            contact_email = str(payload.get("contact_email") or "").strip()[:200]
+            scopes_raw = payload.get("scopes") or ["funds:read", "quality:read", "workspace:write"]
+            if isinstance(scopes_raw, str):
+                scopes = [s.strip() for s in scopes_raw.split(",") if s.strip()]
+            else:
+                scopes = [str(s).strip() for s in scopes_raw if str(s).strip()]
+            allowed_scopes = {"funds:read", "quality:read", "workspace:write"}
+            scopes = list(dict.fromkeys(scopes or ["funds:read", "quality:read"]))
+            if not label:
+                return jsonify({"error": "label_required"}), 400
+            if not contact_email or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", contact_email):
+                return jsonify({"error": "valid_contact_email_required"}), 400
+            if any(scope not in allowed_scopes for scope in scopes):
+                return jsonify({"error": "invalid_scope", "allowed_scopes": sorted(allowed_scopes)}), 400
+            rate_per_min = clean_int(payload.get("rate_per_min"), 120, 1, 1000)
+            rate_per_day = clean_int(payload.get("rate_per_day"), 10000, 1, 1000000)
+            expires_days = clean_int(payload.get("expires_days"), 30, 1, 365)
+            rotation_days = clean_int(payload.get("rotation_days"), 21, 1, 365)
+            with ProAPIStore(pro_db_path) as ps:
+                token, created = ps.create_key(
+                    label=label,
+                    contact_email=contact_email,
+                    scopes=scopes,
+                    rate_per_min=rate_per_min,
+                    rate_per_day=rate_per_day,
+                    expires_days=expires_days,
+                    rotation_days=rotation_days,
+                    actor="admin_web",
+                )
+            return jsonify({
+                "meta": {
+                    "api": "13flow-pro",
+                    "version": "v1",
+                    "git_sha": _git_sha(),
+                    "admin_key_id": key.key_id,
+                    "scope": "admin:write",
+                    "read_only": False,
+                },
+                "created_key": {
+                    "id": created.key_id,
+                    "label": created.label,
+                    "contact_email": contact_email,
+                    "scopes": list(created.scopes),
+                    "rate_per_min": created.rate_per_min,
+                    "rate_per_day": created.rate_per_day,
+                    "expires_at": created.expires_at,
+                    "rotation_due_at": created.rotation_due_at,
+                    "token": token,
+                    "token_shown_once": True,
+                    "token_stored": False,
+                },
+            }), 201
+
+        @app.post("/api/pro/v1/admin/keys/<key_id>/revoke")
+        @pro_required("admin:write")
+        def pro_admin_revoke_key_ep(key_id):
+            key = request.pro_api_key
+            safe_key_id = str(key_id or "").strip()
+            if safe_key_id == key.key_id:
+                return jsonify({"error": "cannot_revoke_current_admin_key"}), 400
+            with ProAPIStore(pro_db_path) as ps:
+                revoked = ps.revoke_key(safe_key_id, actor="admin_web")
+                keys = _admin_keys_payload(ps)
+            if not revoked:
+                return jsonify({"error": "key_not_found_or_already_revoked"}), 404
+            return jsonify({
+                "meta": {
+                    "api": "13flow-pro",
+                    "version": "v1",
+                    "git_sha": _git_sha(),
+                    "admin_key_id": key.key_id,
+                    "scope": "admin:write",
+                    "read_only": False,
+                },
+                "revoked_key_id": safe_key_id,
+                "key_management": keys,
             })
 
         @app.get("/api/pro/v1/admin/ops")
@@ -4607,8 +4794,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             {
                 "id": "admin_health_surface",
                 "status": "pass",
-                "evidence": "/pro/admin",
-                "summary": "admin health is available behind admin:read and does not expose tokens or key hashes",
+                "evidence": "/api/pro/v1/admin/health",
+                "summary": "admin health requires admin:read; the web panel is hidden unless server-side admin auth is configured",
             },
         ]
         external_checks = [
@@ -4671,7 +4858,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "Confirm /api/version SHA matches deployed commit.",
                     "Run public smoke.",
                     "Run Pro workspace smoke with a scoped QA key.",
-                    "Open /readiness and /pro/admin with appropriate keys.",
+                    "Open /readiness and confirm admin health with protected admin credentials.",
                     "Keep validation and quality disclosures visible in buyer material.",
                 ],
                 "operator_boundary": (
@@ -4784,7 +4971,6 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 {"label": "Public OpenAPI", "href": "/api/openapi.json"},
                 {"label": "Pro OpenAPI", "href": "/api/pro/v1/openapi.json"},
                 {"label": "Pro terms", "href": "/legal/pro-api"},
-                {"label": "Operator admin health", "href": "/pro/admin"},
             ],
         }
 
@@ -5585,7 +5771,6 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<p class=\"lede\"><a class=\"pill\" href=\"/api/commercial-readiness\">Machine-readable readiness</a> "
             "<a class=\"pill\" href=\"/api/product-status\">Product status</a> "
             "<a class=\"pill\" href=\"/security\">Security posture</a> "
-            "<a class=\"pill\" href=\"/pro/admin\">Pro admin health</a> "
             "<a class=\"pill\" href=\"/validation\">Validation boundary</a></p>"
         )
         return _html_response("Commercial Readiness", body)
@@ -7850,38 +8035,45 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         return _html_response("Pro Workspace", body, script=script)
 
     @app.get("/pro/admin")
+    @admin_panel_required
     def static_pro_admin():
         body = """
 <style>
-.admin-app{display:grid;gap:14px}
-.admin-bar{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:end;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px}
-.admin-panel{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px;min-width:0}
-.admin-panel h2,.admin-panel h3{font-size:18px;margin:0 0 10px}
+.admin-app{display:grid;gap:10px}
+.admin-bar{display:grid;grid-template-columns:minmax(260px,1fr) auto auto;gap:8px;align-items:end;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:10px}
+.admin-panel{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:10px;min-width:0}
+.admin-panel h2,.admin-panel h3{font-size:15px;margin:0 0 8px}
 .admin-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .admin-kpi{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);padding:10px;min-width:0}
 .admin-kpi b{display:block;font-family:var(--mono);font-size:18px;line-height:1.1}
 .admin-kpi span{display:block;color:var(--faint);font-size:11px;margin-top:4px}
-.admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.admin-grid{display:grid;grid-template-columns:1.05fr 1fr;gap:10px}
 .admin-list{display:grid;gap:8px}
-.admin-row{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);padding:10px;display:grid;gap:7px}
+.admin-row{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);padding:8px;display:grid;gap:6px}
 .admin-row-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.admin-row h3{font-size:15px;margin:0;overflow-wrap:anywhere}
-.admin-row p{margin:0;color:var(--muted);font-size:13px}
+.admin-row h3{font-size:13px;margin:0;overflow-wrap:anywhere}
+.admin-row p{margin:0;color:var(--muted);font-size:12px}
 .admin-status{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel);padding:10px;color:var(--muted);font-size:13px}
-.admin-button{border:1px solid var(--line);border-radius:8px;background:var(--panel-2);color:var(--text);padding:10px 13px;font:inherit;cursor:pointer}
+.admin-button{border:1px solid var(--line);border-radius:8px;background:var(--panel-2);color:var(--text);padding:8px 10px;font:inherit;cursor:pointer}
 .admin-button.primary{background:var(--accent);color:#05120d;border-color:transparent}
+.admin-button.danger{border-color:rgba(239,106,82,.45);color:#ffb09f}
+.admin-form{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.admin-form label{display:grid;gap:4px;font-size:12px;color:var(--muted)}
+.admin-form input,.admin-form select{width:100%;box-sizing:border-box}
+.admin-token-once{border-color:rgba(255,197,92,.55);background:rgba(255,197,92,.08);color:var(--text);overflow-wrap:anywhere}
 .admin-mini{font-family:var(--mono);font-size:11px;color:var(--faint)}
 .admin-empty{color:var(--faint);font-size:13px;margin:0}
+.admin-secondary{display:none}
 @media(max-width:900px){.admin-bar,.admin-grid{grid-template-columns:1fr}.admin-kpis{grid-template-columns:1fr 1fr}}
 @media(max-width:640px){.admin-kpis{grid-template-columns:1fr}}
 </style>
 <section class="doc-hero"><div class="doc-copy"><div class="kicker">Pro admin</div>
-<h1>Admin Health & Ops</h1>
-<p class="doc-lede">Read-only control-plane and commercial ops readiness for Pro API keys, data freshness, usage, backups and saved workspaces.</p></div>
-<aside class="doc-panel"><h3>Security boundary</h3><p>Requires a Pro key with admin:read. Tokens stay in tab session storage and are sent only as Authorization headers.</p></aside></section>
+<h1>Admin Console</h1>
+<p class="doc-lede">Compact control plane for status, actionable errors and Pro API key lifecycle.</p></div>
+<aside class="doc-panel"><h3>Locked surface</h3><p>Server-side Basic Auth protects this page. Mutations require an API key with admin:write.</p></aside></section>
 <main class="admin-app" data-pro-admin-app>
   <section class="admin-bar" aria-label="Pro admin access">
-    <label>Admin API key <input id="adminToken" type="password" autocomplete="off" spellcheck="false" placeholder="13flow_live_..."></label>
+    <label>Admin API key <input id="adminToken" type="password" autocomplete="off" spellcheck="false" placeholder="13flow_live_... with admin:read or admin:write"></label>
     <button id="adminConnect" class="admin-button primary" type="button">Connect</button>
     <button id="adminForget" class="admin-button" type="button">Forget</button>
   </section>
@@ -7893,17 +8085,29 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     <div class="admin-kpi"><b>-</b><span>Server errors</span></div>
   </section>
   <section class="admin-grid">
-    <section class="admin-panel"><h2>Release Readiness</h2><div id="adminRelease" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
-    <section class="admin-panel"><h2>Ops Verdict</h2><div id="adminOps" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
-    <section class="admin-panel"><h2>Keys & Usage</h2><div id="adminKeys" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
-    <section class="admin-panel"><h2>Audit</h2><div id="adminAudit" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
-    <section class="admin-panel"><h2>Workspace</h2><div id="adminWorkspace" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
-    <section class="admin-panel"><h2>External Checks</h2><div id="adminExternal" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
-    <section class="admin-panel"><h2>Pilot Fulfillment</h2><div id="adminPilot" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
-    <section class="admin-panel"><h2>Buyer Handoff</h2><div id="adminHandoff" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
-    <section class="admin-panel"><h2>Pilot Closeout</h2><div id="adminCloseout" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
-    <section class="admin-panel"><h2>Pilot Renewal</h2><div id="adminRenewal" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
-    <section class="admin-panel"><h2>Pilot Request Assist</h2><div id="adminRequestAssist" class="admin-list"><p class="admin-empty">No data loaded.</p></div><textarea id="adminRequestNote" class="admin-status" spellcheck="false" rows="9"></textarea><p><button id="adminReviewRequest" class="admin-button primary" type="button">Review request</button></p></section>
+    <section class="admin-panel"><h2>Priority</h2><div id="adminOps" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
+    <section class="admin-panel"><h2>Errors</h2><div id="adminAudit" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
+    <section class="admin-panel"><h2>API Keys</h2><div id="adminKeys" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
+    <section class="admin-panel"><h2>Create API key</h2>
+      <form id="adminCreateKey" class="admin-form">
+        <label>Label <input name="label" required maxlength="120" placeholder="Acme pilot"></label>
+        <label>Email <input name="contact_email" type="email" required maxlength="200" placeholder="ops@example.com"></label>
+        <label>Scopes <select name="scopes"><option value="funds:read,quality:read,workspace:write">funds + quality + workspace</option><option value="funds:read,quality:read">funds + quality</option><option value="funds:read">funds only</option></select></label>
+        <label>Expires days <input name="expires_days" type="number" min="1" max="365" value="30"></label>
+        <label>Rotation days <input name="rotation_days" type="number" min="1" max="365" value="21"></label>
+        <label>Rate/day <input name="rate_per_day" type="number" min="1" max="1000000" value="10000"></label>
+        <button class="admin-button primary" type="submit">Create key</button>
+      </form>
+      <div id="adminCreatedToken" class="admin-status admin-token-once" hidden></div>
+    </section>
+    <section class="admin-panel admin-secondary"><h2>Release Readiness</h2><div id="adminRelease" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
+    <section class="admin-panel admin-secondary"><h2>Workspace</h2><div id="adminWorkspace" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
+    <section class="admin-panel admin-secondary"><h2>External Checks</h2><div id="adminExternal" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
+    <section class="admin-panel admin-secondary"><h2>Pilot Fulfillment</h2><div id="adminPilot" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
+    <section class="admin-panel admin-secondary"><h2>Buyer Handoff</h2><div id="adminHandoff" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
+    <section class="admin-panel admin-secondary"><h2>Pilot Closeout</h2><div id="adminCloseout" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
+    <section class="admin-panel admin-secondary"><h2>Pilot Renewal</h2><div id="adminRenewal" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
+    <section class="admin-panel admin-secondary"><h2>Pilot Request Assist</h2><div id="adminRequestAssist" class="admin-list"><p class="admin-empty">No data loaded.</p></div><textarea id="adminRequestNote" class="admin-status" spellcheck="false" rows="9"></textarea><p><button id="adminReviewRequest" class="admin-button primary" type="button">Review request</button></p></section>
   </section>
 </main>
 """
@@ -7990,13 +8194,16 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
       ["Open alerts", workspace.open_alerts],
       ["Server errors", audit.server_errors],
     ].map(([label, value]) => `<div class="admin-kpi"><b>${esc(number(value))}</b><span>${esc(label)}</span></div>`).join("");
-    $("adminKeys").innerHTML = (keys.recent || []).length ? (keys.recent || []).map((k) => `<article class="admin-row">
+    const rows = keys.recent || [];
+    $("adminKeys").innerHTML = rows.length ? rows.map((k) => `<article class="admin-row">
       <div class="admin-row-top"><h3>${esc(k.label || k.id)}</h3><span class="admin-mini">${esc(k.id)}</span></div>
       <p><span class="pill">${esc(k.revoked ? "revoked" : (k.expired ? "expired" : "active"))}</span><span class="pill">rotation:${esc(k.rotation_due ? "due" : "scheduled")}</span><span class="pill">scopes:${esc((k.scopes || []).join(","))}</span></p>
+      <p class="admin-mini">email=${esc(k.contact_email || "-")}</p>
       <p class="admin-mini">expires=${esc(k.expires_at || "-")} rotation_due=${esc(k.rotation_due_at || "-")} last_used=${esc(k.last_used_at || "-")}</p>
+      <p>${k.revoked ? "" : `<button class="admin-button danger" type="button" data-revoke-key="${esc(k.id)}">Revoke</button>`}</p>
     </article>`).join("") : '<p class="admin-empty">No key usage bucket yet.</p>';
-    $("adminAudit").innerHTML = `<article class="admin-row"><h3>Status</h3><p><span class="pill">${esc(health.status || "unknown")}</span><span class="pill">401:${esc(number(audit.unauthorized))}</span><span class="pill">403:${esc(number(audit.forbidden))}</span><span class="pill">429:${esc(number(audit.rate_limited))}</span></p><p class="admin-mini">latest=${esc(audit.latest_at || "-")}</p></article>` +
-      ((audit.recent_errors || []).map((e) => `<article class="admin-row"><div class="admin-row-top"><h3>${esc(e.status)} ${esc(e.method)}</h3><span class="admin-mini">${esc(e.at)}</span></div><p>${esc(e.route)}</p></article>`).join("") || '<p class="admin-empty">No recent error.</p>');
+    $("adminAudit").innerHTML = `<article class="admin-row"><h3>Status</h3><p><span class="pill">${esc(health.status || "unknown")}</span><span class="pill">5xx:${esc(number(audit.server_errors))}</span><span class="pill">401:${esc(number(audit.unauthorized))}</span><span class="pill">403:${esc(number(audit.forbidden))}</span><span class="pill">429:${esc(number(audit.rate_limited))}</span></p><p class="admin-mini">latest=${esc(audit.latest_at || "-")}</p></article>` +
+      ((audit.recent_errors || []).map((e) => `<article class="admin-row"><div class="admin-row-top"><h3>${esc(e.status)} ${esc(e.method)} ${esc(e.route)}</h3><span class="admin-mini">${esc(e.at)}</span></div><p><span class="pill">key:${esc(e.key_id || "-")}</span></p></article>`).join("") || '<p class="admin-empty">No recent error.</p>');
     $("adminWorkspace").innerHTML = `<article class="admin-row"><h3>Workspace totals</h3><p><span class="pill">watchlists:${esc(number(workspace.watchlists))}</span><span class="pill">snapshots:${esc(number(workspace.signal_snapshots))}</span><span class="pill">alerts:${esc(number(workspace.alerts))}</span><span class="pill">activity:${esc(number(workspace.activity_events))}</span></p><p class="admin-mini">latest_snapshot=${esc(workspace.latest_snapshot_at || "-")}</p></article>`;
     const external = health.external_checks || {};
     $("adminExternal").innerHTML = `<article class="admin-row"><h3>Out-of-process checks</h3><p>${esc(external.reason || "")}</p><p>${(external.expected_units || []).map((x) => `<span class="pill">${esc(x)}</span>`).join("")}</p><p>${(external.expected_smokes || []).map((x) => `<span class="pill">${esc(x)}</span>`).join("")}</p></article>`;
@@ -8118,6 +8325,40 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     renderRenewal({});
     renderRequestAssist({});
     setStatus("Disconnected");
+  });
+  $("adminKeys").addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-revoke-key]");
+    if (!button) return;
+    const keyId = button.getAttribute("data-revoke-key");
+    if (!keyId || !window.confirm(`Revoke API key ${keyId}?`)) return;
+    try {
+      await adminApi(`/admin/keys/${encodeURIComponent(keyId)}/revoke`, {method: "POST"});
+      setStatus(`Revoked API key ${keyId}.`);
+      await refresh();
+    } catch (e) { setStatus(e.message, true); }
+  });
+  $("adminCreateKey").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const payload = {
+      label: form.get("label"),
+      contact_email: form.get("contact_email"),
+      scopes: String(form.get("scopes") || "").split(","),
+      expires_days: Number(form.get("expires_days") || 30),
+      rotation_days: Number(form.get("rotation_days") || 21),
+      rate_per_day: Number(form.get("rate_per_day") || 10000),
+      rate_per_min: 120,
+    };
+    try {
+      const result = await adminApi("/admin/keys", {method: "POST", body: JSON.stringify(payload)});
+      const created = result.created_key || {};
+      const tokenBox = $("adminCreatedToken");
+      tokenBox.hidden = false;
+      tokenBox.textContent = `Token shown once for ${created.label || created.id}: ${created.token || "-"}`;
+      event.currentTarget.reset();
+      setStatus(`Created API key ${created.id || "-"}. Copy the token now.`);
+      await refresh();
+    } catch (e) { setStatus(e.message, true); }
   });
   $("adminReviewRequest").addEventListener("click", async () => {
     try {

@@ -207,7 +207,7 @@ def cmd_quality(db_path, threshold, top) -> None:
 
 
 def cmd_create_api_key(pro_db, label, scopes, rate_per_min, rate_per_day,
-                       expires_days, rotation_days) -> None:
+                       expires_days, rotation_days, contact_email="") -> None:
     scope_list = [s.strip() for s in scopes.split(",") if s.strip()]
     with ProAPIStore(pro_db) as pro:
         token, key = pro.create_key(
@@ -217,10 +217,13 @@ def cmd_create_api_key(pro_db, label, scopes, rate_per_min, rate_per_day,
             rate_per_day=rate_per_day,
             expires_days=expires_days,
             rotation_days=rotation_days,
+            contact_email=contact_email,
         )
     print("Created API key:")
     print(f"  id: {key.key_id}")
     print(f"  label: {key.label}")
+    if contact_email:
+        print(f"  contact_email: {contact_email}")
     print(f"  scopes: {' '.join(key.scopes)}")
     print(f"  rate: {key.rate_per_min}/min, {key.rate_per_day}/day")
     print(f"  expires_at: {key.expires_at or '-'}")
@@ -889,6 +892,8 @@ def main() -> None:
                     help="optional expiration in days for --create-api-key")
     ap.add_argument("--api-key-rotation-days", type=int, default=90,
                     help="rotation reminder in days for --create-api-key (default 90; use -1 for due now)")
+    ap.add_argument("--api-key-contact-email", default="",
+                    help="optional contact email metadata for --create-api-key")
     ap.add_argument("--resolve-sweep", action="store_true",
                     help="re-run the resolver chain over the unresolved tail and back-fill")
     ap.add_argument("--provider", choices=["stooq", "massive"], default="stooq",
@@ -1078,7 +1083,8 @@ def main() -> None:
     if args.create_api_key:
         return cmd_create_api_key(args.pro_db, args.create_api_key, args.api_key_scopes,
                                   args.api_key_rate_per_min, args.api_key_rate_per_day,
-                                  args.api_key_expires_days, args.api_key_rotation_days)
+                                  args.api_key_expires_days, args.api_key_rotation_days,
+                                  args.api_key_contact_email)
     if args.list_api_keys:
         return cmd_list_api_keys(args.pro_db)
     if args.revoke_api_key:

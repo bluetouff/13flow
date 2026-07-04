@@ -203,7 +203,8 @@ if fetch "/readiness" "$readiness_page"; then
   grep -q "Readiness Checklist" "$readiness_page" \
     && grep -q "External Operator Checks" "$readiness_page" \
     && grep -q "/api/commercial-readiness" "$readiness_page" \
-    && grep -q "/pro/admin" "$readiness_page" \
+    && grep -q "/api/pro/v1/admin/health" "$readiness_page" \
+    && ! grep -q "/pro/admin" "$readiness_page" \
     && grep -q "validated alpha" "$readiness_page" \
     && ok "/readiness evidence page" \
     || bad "/readiness evidence page" "missing commercial readiness copy"
@@ -384,43 +385,11 @@ else
 fi
 
 pro_admin_page="$tmpdir/pro-admin.html"
-if fetch "/pro/admin" "$pro_admin_page"; then
-  grep -q "Admin Health" "$pro_admin_page" \
-    && grep -q "data-pro-admin-app" "$pro_admin_page" \
-    && grep -q "admin:read" "$pro_admin_page" \
-    && grep -q "13flow.pro.admin.token" "$pro_admin_page" \
-    && grep -q "include=surface" "$pro_admin_page" \
-    && grep -q "/admin/health" "$pro_admin_page" \
-    && grep -q "/admin/ops" "$pro_admin_page" \
-    && grep -q "/admin/pilot-fulfillment" "$pro_admin_page" \
-    && grep -q "/admin/buyer-handoff" "$pro_admin_page" \
-    && grep -q "/admin/pilot-closeout" "$pro_admin_page" \
-    && grep -q "/admin/pilot-renewal" "$pro_admin_page" \
-    && grep -q "/admin/pilot-request-assist" "$pro_admin_page" \
-    && grep -q "Ops Verdict" "$pro_admin_page" \
-    && grep -q "Pilot Fulfillment" "$pro_admin_page" \
-    && grep -q "Buyer Handoff" "$pro_admin_page" \
-    && grep -q "Pilot Closeout" "$pro_admin_page" \
-    && grep -q "Pilot Renewal" "$pro_admin_page" \
-    && grep -q "Pilot Request Assist" "$pro_admin_page" \
-    && grep -q "Create key command" "$pro_admin_page" \
-    && grep -q "tokens_included" "$pro_admin_page" \
-    && grep -q "renderCloseout" "$pro_admin_page" \
-    && grep -q "renderRenewal" "$pro_admin_page" \
-    && grep -q "adminReviewRequest" "$pro_admin_page" \
-    && grep -q "web_worker_creates_tokens" "$pro_admin_page" \
-    && grep -q "operator_events" "$pro_admin_page" \
-    && grep -q "Recent operator events" "$pro_admin_page" \
-    && grep -q "Rotation due" "$pro_admin_page" \
-    && grep -q "rotation_due_at" "$pro_admin_page" \
-    && grep -q "sessionStorage" "$pro_admin_page" \
-    && grep -q "Authorization" "$pro_admin_page" \
-    && ! grep -qi "localStorage" "$pro_admin_page" \
-    && ! grep -qi "checkout" "$pro_admin_page" \
-    && ok "/pro/admin health page" \
-    || bad "/pro/admin health page" "missing admin health contract"
+admin_code=$(curl -sS -o "$pro_admin_page" -w '%{http_code}' --max-time 20 "$SITE/pro/admin" || echo 000)
+if [[ "$admin_code" == "401" || "$admin_code" == "404" ]]; then
+  ok "/pro/admin is not public ($admin_code)"
 else
-  bad "/pro/admin health page" "curl failed"
+  bad "/pro/admin is not public" "got $admin_code"
 fi
 
 version="$tmpdir/version.json"
