@@ -1024,6 +1024,21 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                       "403": {"description": "Insufficient scope"}},
                     },
                 },
+                "/api/pro/v1/admin/pilot-closeout": {
+                    "get": {
+                        "security": security,
+                        "summary": "Admin-only bounded pilot closeout report",
+                        "parameters": [
+                            {"name": "key_id", "in": "query", "required": False,
+                             "schema": {"type": "string"}},
+                            {"name": "days", "in": "query", "required": False,
+                             "schema": {"type": "integer", "minimum": 1, "maximum": 30,
+                                        "default": 7}},
+                        ],
+                        "responses": {"200": {"description": "Pilot closeout report"},
+                                      "403": {"description": "Insufficient scope"}},
+                    },
+                },
                 "/api/pro/v1/openapi.json": {
                     "get": {"summary": "OpenAPI document for the Pro API",
                             "responses": {"200": {"description": "OpenAPI JSON"}}}
@@ -3876,6 +3891,43 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "read_only": True,
                 },
                 "buyer_handoff": handoff,
+            })
+
+        @app.get("/api/pro/v1/admin/pilot-closeout")
+        @pro_required("admin:read")
+        def pro_admin_pilot_closeout_ep():
+            key = request.pro_api_key
+            key_id = str(request.args.get("key_id") or "").strip() or None
+            days = clean_int(request.args.get("days"), 7, 1, 30)
+            live = live_status_payload()
+            with ProAPIStore(pro_db_path) as ps:
+                health = ps.admin_health()
+                automation = ps.workspace_automation_summary(max_due=25)
+                closeout = ps.pilot_closeout_report(key_id=key_id, days=days, key_limit=10)
+            ops = _pro_admin_ops_payload(live, health, automation)
+            closeout["public_context"] = {
+                "public_state": live.get("public_state"),
+                "latest_13f_quarter": live.get("latest_13f_quarter"),
+                "ops_status": ops.get("status"),
+                "quality_status": ((ops.get("public_data") or {}).get("quality_summary") or {}).get("status"),
+                "trusted_funds": ((ops.get("public_data") or {}).get("quality_summary") or {}).get("trusted_funds"),
+            }
+            closeout["operator_next_actions"] = [
+                "Share only the closeout summary and issued key metadata, never the token.",
+                "Use expand_candidate as a sales follow-up signal, not as investment-performance evidence.",
+                "If verdict is hold, resolve lifecycle, errors or missing usage before expanding the pilot.",
+                "Keep data-quality and legal evidence links visible in renewal notes.",
+            ]
+            return jsonify({
+                "meta": {
+                    "api": "13flow-pro",
+                    "version": "v1",
+                    "git_sha": _git_sha(),
+                    "admin_key_id": key.key_id,
+                    "scope": "admin:read",
+                    "read_only": True,
+                },
+                "pilot_closeout": closeout,
             })
 
         @app.get("/api/pro/v1/openapi.json")
@@ -7277,6 +7329,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     <section class="admin-panel"><h2>External Checks</h2><div id="adminExternal" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
     <section class="admin-panel"><h2>Pilot Fulfillment</h2><div id="adminPilot" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
     <section class="admin-panel"><h2>Buyer Handoff</h2><div id="adminHandoff" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
+    <section class="admin-panel"><h2>Pilot Closeout</h2><div id="adminCloseout" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
   </section>
 </main>
 """
@@ -7382,15 +7435,33 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     <article class="admin-row"><h3>Operator checklist</h3><p>${checklist.slice(0, 6).map((x) => `<span class="pill">${esc(x)}</span>`).join("")}</p></article>
     <article class="admin-row"><h3>Privacy</h3><p><span class="pill">tokens_echoed:${esc(String(privacy.tokens_echoed))}</span><span class="pill">hashes_exposed:${esc(String(privacy.token_hashes_exposed))}</span><span class="pill">payloads_logged:${esc(String(privacy.payloads_logged))}</span></p></article>`;
   }
+  function renderCloseout(payload={}) {
+    const report = payload.pilot_closeout || {};
+    const summary = report.summary || {};
+    const verdict = report.verdict || {};
+    const privacy = report.privacy || {};
+    const keys = report.keys || [];
+    const actions = report.operator_next_actions || [];
+    $("adminCloseout").innerHTML = `<article class="admin-row">
+      <div class="admin-row-top"><h3>${esc((verdict.status || "unknown").toUpperCase())}</h3><span class="admin-mini">${esc((report.window || {}).since || "-")} -> ${esc((report.window || {}).until || "-")}</span></div>
+      <p><span class="pill">keys:${esc(number(summary.keys))}</span><span class="pill">requests:${esc(number(summary.requests))}</span><span class="pill">ok:${esc(number(summary.ok_requests))}</span><span class="pill">errors:${esc(number(summary.server_errors))}</span><span class="pill">snapshots:${esc(number(summary.snapshots))}</span><span class="pill">alerts:${esc(number(summary.alerts))}</span></p>
+      <p class="admin-mini">${(verdict.reasons || []).map((x) => esc(x)).join(" · ")}</p>
+    </article>
+    <article class="admin-row"><h3>Key summaries</h3><p>${keys.slice(0, 5).map((k) => `<span class="pill">${esc((k.key || {}).label || (k.key || {}).id)}:${esc(number((k.usage || {}).requests))} req:${esc(number((k.workspace || {}).watchlists))} wl</span>`).join("") || '<span class="pill">none</span>'}</p></article>
+    <article class="admin-row"><h3>Closeout actions</h3><p>${actions.slice(0, 4).map((x) => `<span class="pill">${esc(x)}</span>`).join("")}</p></article>
+    <article class="admin-row"><h3>Closeout privacy</h3><p><span class="pill">tokens_echoed:${esc(String(privacy.tokens_echoed))}</span><span class="pill">hashes_exposed:${esc(String(privacy.token_hashes_exposed))}</span><span class="pill">payloads_logged:${esc(String(privacy.payloads_logged))}</span></p></article>`;
+  }
   async function refresh() {
     setStatus("Loading admin ops...");
     const payload = await adminApi("/admin/ops");
     const fulfillment = await adminApi("/admin/pilot-fulfillment");
     const handoff = await adminApi("/admin/buyer-handoff");
+    const closeout = await adminApi("/admin/pilot-closeout?days=7");
     renderOps(payload);
     renderHealth({meta: payload.meta || {}, health: (payload.ops || {}).pro_control_plane || {}});
     renderPilot(fulfillment);
     renderHandoff(handoff);
+    renderCloseout(closeout);
   }
   $("adminToken").value = state.token;
   $("adminConnect").addEventListener("click", async () => {
@@ -7405,6 +7476,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     renderHealth({});
     renderPilot({});
     renderHandoff({});
+    renderCloseout({});
     setStatus("Disconnected");
   });
   if (state.token) refresh().catch(() => setStatus("Stored tab key could not authenticate.", true));

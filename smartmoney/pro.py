@@ -721,6 +721,202 @@ class ProAPIStore:
             },
         }
 
+    def pilot_closeout_report(
+        self,
+        *,
+        key_id: Optional[str] = None,
+        days: int = 7,
+        key_limit: int = 10,
+    ) -> dict:
+        """Return a bounded, customer-safe pilot closeout report."""
+        safe_days = max(1, min(30, int(days or 7)))
+        safe_limit = max(1, min(25, int(key_limit or 10)))
+        now = _now()
+        now_iso = _iso(now)
+        since_iso = _iso(now - timedelta(days=safe_days))
+        args: list[object] = []
+        where = ""
+        if key_id:
+            where = "WHERE key_id=?"
+            args.append(key_id)
+        else:
+            where = "WHERE (created_at>=? OR last_used_at>=?) AND scopes NOT LIKE '%admin:read%'"
+            args.extend([since_iso, since_iso])
+        key_rows = self.conn.execute(
+            f"""SELECT key_id,label,scopes,tier,rate_per_min,rate_per_day,created_at,
+                       expires_at,rotation_due_at,revoked_at,last_used_at
+                FROM api_keys
+                {where}
+                ORDER BY COALESCE(last_used_at, created_at) DESC, created_at DESC
+                LIMIT ?""",
+            (*args, safe_limit),
+        ).fetchall()
+        reports = [self._pilot_closeout_for_key(dict(row), since_iso, now_iso) for row in key_rows]
+        totals = {
+            "keys": len(reports),
+            "requests": sum(r["usage"]["requests"] for r in reports),
+            "ok_requests": sum(r["usage"]["ok"] for r in reports),
+            "server_errors": sum(r["usage"]["server_errors"] for r in reports),
+            "rate_limited": sum(r["usage"]["rate_limited"] for r in reports),
+            "watchlists": sum(r["workspace"]["watchlists"] for r in reports),
+            "snapshots": sum(r["workspace"]["snapshots_in_window"] for r in reports),
+            "alerts": sum(r["workspace"]["alerts_total"] for r in reports),
+            "open_alerts": sum(r["workspace"]["open_alerts"] for r in reports),
+        }
+        verdict = "continue"
+        reasons: list[str] = []
+        if not reports:
+            verdict = "hold"
+            reasons.append("no Pro API key matched the closeout window")
+        elif totals["server_errors"] > 0:
+            verdict = "hold"
+            reasons.append("server errors were observed during the pilot window")
+        elif totals["ok_requests"] == 0:
+            verdict = "hold"
+            reasons.append("no successful customer API request was observed")
+        elif any(r["key_lifecycle"]["rotation_required"] or r["key_lifecycle"]["expired"] or r["key_lifecycle"]["revoked"] for r in reports):
+            verdict = "continue"
+            reasons.append("key lifecycle action is required before expansion")
+        elif totals["requests"] >= 10 and (totals["watchlists"] > 0 or totals["snapshots"] > 0):
+            verdict = "expand_candidate"
+            reasons.append("pilot shows repeated usage and workspace adoption")
+        else:
+            reasons.append("pilot is usable but needs more observed workflow evidence before expansion")
+        return {
+            "generated_at": now_iso,
+            "window": {"days": safe_days, "since": since_iso, "until": now_iso},
+            "selection": {"key_id": key_id, "key_limit": safe_limit},
+            "summary": totals,
+            "verdict": {
+                "status": verdict,
+                "reasons": reasons,
+                "not_investment_advice": True,
+                "not_claimed": ["validated alpha", "investment recommendation", "performance attribution"],
+            },
+            "keys": reports,
+            "privacy": {
+                "tokens_echoed": False,
+                "token_hashes_exposed": False,
+                "audit_ips_exposed": False,
+                "audit_user_agents_exposed": False,
+                "payloads_logged": False,
+            },
+        }
+
+    def _pilot_closeout_for_key(self, key: dict, since_iso: str, now_iso: str) -> dict:
+        key_id = key["key_id"]
+        audit = dict(self.conn.execute(
+            """SELECT COUNT(*) AS total,
+                      MAX(at) AS latest_at,
+                      SUM(CASE WHEN status BETWEEN 200 AND 399 THEN 1 ELSE 0 END) AS ok,
+                      SUM(CASE WHEN status=401 THEN 1 ELSE 0 END) AS unauthorized,
+                      SUM(CASE WHEN status=403 THEN 1 ELSE 0 END) AS forbidden,
+                      SUM(CASE WHEN status=429 THEN 1 ELSE 0 END) AS rate_limited,
+                      SUM(CASE WHEN status>=500 THEN 1 ELSE 0 END) AS server_errors
+               FROM api_audit
+               WHERE key_id=? AND at>=?""",
+            (key_id, since_iso),
+        ).fetchone() or {})
+        routes = self.conn.execute(
+            """SELECT method,route,COUNT(*) AS count,MAX(at) AS latest_at,
+                      SUM(CASE WHEN status>=400 THEN 1 ELSE 0 END) AS errors
+               FROM api_audit
+               WHERE key_id=? AND at>=?
+               GROUP BY method,route
+               ORDER BY count DESC, latest_at DESC
+               LIMIT 10""",
+            (key_id, since_iso),
+        ).fetchall()
+        watchlists = self.conn.execute(
+            """SELECT COUNT(*) AS total,
+                      SUM(CASE WHEN created_at>=? THEN 1 ELSE 0 END) AS created_in_window
+               FROM saved_watchlists WHERE key_id=?""",
+            (since_iso, key_id),
+        ).fetchone()
+        snapshots = self.conn.execute(
+            """SELECT COUNT(*) AS total,
+                      SUM(CASE WHEN created_at>=? THEN 1 ELSE 0 END) AS in_window,
+                      MAX(created_at) AS latest_at
+               FROM saved_watchlist_signal_snapshots WHERE key_id=?""",
+            (since_iso, key_id),
+        ).fetchone()
+        alerts = self.conn.execute(
+            """SELECT COUNT(*) AS total,
+                      SUM(CASE WHEN status='open' THEN 1 ELSE 0 END) AS open,
+                      SUM(CASE WHEN status='acknowledged' THEN 1 ELSE 0 END) AS acknowledged,
+                      SUM(CASE WHEN status='dismissed' THEN 1 ELSE 0 END) AS dismissed,
+                      SUM(CASE WHEN first_seen_at>=? THEN 1 ELSE 0 END) AS new_in_window,
+                      MAX(last_seen_at) AS latest_at
+               FROM saved_workspace_alerts WHERE key_id=?""",
+            (since_iso, key_id),
+        ).fetchone()
+        activity = self.conn.execute(
+            """SELECT COUNT(*) AS total, MAX(created_at) AS latest_at
+               FROM saved_workspace_activity WHERE key_id=? AND created_at>=?""",
+            (key_id, since_iso),
+        ).fetchone()
+        top_alerts = self.conn.execute(
+            """SELECT ticker,action,severity,status,last_seen_at
+               FROM saved_workspace_alerts
+               WHERE key_id=?
+               ORDER BY severity DESC, last_seen_at DESC
+               LIMIT 5""",
+            (key_id,),
+        ).fetchall()
+        usage_total = int(audit.get("total") or 0)
+        ok_total = int(audit.get("ok") or 0)
+        errors_total = (
+            int(audit.get("unauthorized") or 0)
+            + int(audit.get("forbidden") or 0)
+            + int(audit.get("rate_limited") or 0)
+            + int(audit.get("server_errors") or 0)
+        )
+        lifecycle = {
+            "revoked": bool(key.get("revoked_at")),
+            "expired": bool(key.get("expires_at") and key["expires_at"] <= now_iso),
+            "rotation_required": bool(key.get("rotation_due_at") and key["rotation_due_at"] <= now_iso),
+            "expires_at": key.get("expires_at"),
+            "rotation_due_at": key.get("rotation_due_at"),
+            "last_used_at": key.get("last_used_at"),
+        }
+        return {
+            "key": {
+                "id": key_id,
+                "label": key["label"],
+                "tier": key["tier"],
+                "scopes": str(key.get("scopes") or "").split(),
+                "created_at": key["created_at"],
+            },
+            "key_lifecycle": lifecycle,
+            "usage": {
+                "requests": usage_total,
+                "ok": ok_total,
+                "errors": errors_total,
+                "unauthorized": int(audit.get("unauthorized") or 0),
+                "forbidden": int(audit.get("forbidden") or 0),
+                "rate_limited": int(audit.get("rate_limited") or 0),
+                "server_errors": int(audit.get("server_errors") or 0),
+                "latest_at": audit.get("latest_at"),
+                "routes": [dict(r) for r in routes],
+            },
+            "workspace": {
+                "watchlists": int((watchlists or {})["total"] or 0),
+                "watchlists_created_in_window": int((watchlists or {})["created_in_window"] or 0),
+                "snapshots_total": int((snapshots or {})["total"] or 0),
+                "snapshots_in_window": int((snapshots or {})["in_window"] or 0),
+                "latest_snapshot_at": (snapshots or {})["latest_at"],
+                "alerts_total": int((alerts or {})["total"] or 0),
+                "open_alerts": int((alerts or {})["open"] or 0),
+                "acknowledged_alerts": int((alerts or {})["acknowledged"] or 0),
+                "dismissed_alerts": int((alerts or {})["dismissed"] or 0),
+                "new_alerts_in_window": int((alerts or {})["new_in_window"] or 0),
+                "latest_alert_at": (alerts or {})["latest_at"],
+                "activity_events_in_window": int((activity or {})["total"] or 0),
+                "latest_activity_at": (activity or {})["latest_at"],
+                "top_alerts": [dict(r) for r in top_alerts],
+            },
+        }
+
     def authenticate(self, token: str, required_scope: str) -> APIKey:
         key_id, full_token = _parse_token(token)
         row = self.conn.execute("SELECT * FROM api_keys WHERE key_id=?", (key_id,)).fetchone()

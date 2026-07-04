@@ -229,6 +229,7 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         assert "/api/pro/v1/admin/ops" in doc["paths"]
         assert "/api/pro/v1/admin/pilot-fulfillment" in doc["paths"]
         assert "/api/pro/v1/admin/buyer-handoff" in doc["paths"]
+        assert "/api/pro/v1/admin/pilot-closeout" in doc["paths"]
 
 
 def test_pro_watchlist_feed_uses_ticker_flow(monkeypatch):
@@ -762,6 +763,11 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
             headers={"Authorization": "Bearer " + workspace_token},
         )
         assert forbidden_handoff.status_code == 403
+        forbidden_closeout = c.get(
+            "/api/pro/v1/admin/pilot-closeout",
+            headers={"Authorization": "Bearer " + workspace_token},
+        )
+        assert forbidden_closeout.status_code == 403
 
         ok = c.get(
             "/api/pro/v1/admin/health",
@@ -896,6 +902,45 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
         assert '"key_hash":' not in handoff_body
         assert "127.0.0.1" not in handoff_body
         assert "pytest" not in handoff_body
+
+        closeout_response = c.get(
+            f"/api/pro/v1/admin/pilot-closeout?key_id={workspace_key.key_id}&days=7",
+            headers={"Authorization": "Bearer " + admin_token},
+        )
+        assert closeout_response.status_code == 200
+        closeout_payload = closeout_response.get_json()
+        assert closeout_payload["meta"]["admin_key_id"] == admin_key.key_id
+        assert closeout_payload["meta"]["scope"] == "admin:read"
+        assert closeout_payload["meta"]["read_only"] is True
+        closeout = closeout_payload["pilot_closeout"]
+        assert closeout["selection"]["key_id"] == workspace_key.key_id
+        assert closeout["window"]["days"] == 7
+        assert closeout["summary"]["keys"] == 1
+        assert closeout["summary"]["requests"] == 2
+        assert closeout["summary"]["server_errors"] == 1
+        assert closeout["verdict"]["status"] == "hold"
+        assert "server errors" in " ".join(closeout["verdict"]["reasons"])
+        assert closeout["verdict"]["not_investment_advice"] is True
+        assert "performance attribution" in closeout["verdict"]["not_claimed"]
+        assert closeout["keys"][0]["key"]["id"] == workspace_key.key_id
+        assert closeout["keys"][0]["usage"]["server_errors"] == 1
+        assert closeout["keys"][0]["workspace"]["watchlists"] == 1
+        assert closeout["public_context"]["public_state"] == "LIVE"
+        assert closeout["privacy"] == {
+            "tokens_echoed": False,
+            "token_hashes_exposed": False,
+            "audit_ips_exposed": False,
+            "audit_user_agents_exposed": False,
+            "payloads_logged": False,
+        }
+        assert any("never the token" in item for item in closeout["operator_next_actions"])
+        closeout_body = closeout_response.get_data(as_text=True)
+        assert admin_token not in closeout_body
+        assert workspace_token not in closeout_body
+        assert "13flow_live_" not in closeout_body
+        assert '"key_hash":' not in closeout_body
+        assert "127.0.0.1" not in closeout_body
+        assert "pytest" not in closeout_body
 
 
 def test_pro_admin_ops_treats_stale_only_quality_gate_as_notice(monkeypatch):
