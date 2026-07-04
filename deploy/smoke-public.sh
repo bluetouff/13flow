@@ -336,7 +336,7 @@ pro_terms_page="$tmpdir/legal-pro-api.html"
 if fetch "/legal/pro-api" "$pro_terms_page"; then
   grep -q "Pro API, MCP and x402 terms" "$pro_terms_page" \
     && grep -q "Self-serve checkout is disabled" "$pro_terms_page" \
-    && grep -q "No public package pricing" "$pro_terms_page" \
+    && grep -q "Paid access is coming soon" "$pro_terms_page" \
     && grep -q "Access can be declined" "$pro_terms_page" \
     && grep -q "No resale, redistribution" "$pro_terms_page" \
     && ok "/legal/pro-api terms" \
@@ -348,15 +348,16 @@ fi
 
 pro_page="$tmpdir/pro.html"
 if fetch "/pro" "$pro_page"; then
-  grep -q "13FLOW Pro API" "$pro_page" \
+  grep -q "13FLOW Builder Sandbox" "$pro_page" \
+    && grep -q "Paid access coming soon" "$pro_page" \
     && grep -q "/api/pro-offer" "$pro_page" \
-    && grep -q "Request access" "$pro_page" \
-    && grep -q "Technical pilot review" "$pro_page" \
-    && grep -q "Operator lead kit" "$pro_page" \
-    && grep -q "not publicly quoted" "$pro_page" \
-    && grep -q "/buyer-pack" "$pro_page" \
-    && grep -q "/pro/onboarding" "$pro_page" \
+    && grep -q "Start sandbox" "$pro_page" \
+    && grep -q "Builder Sandbox" "$pro_page" \
+    && grep -q "Evidence pack" "$pro_page" \
+    && grep -q "/sandbox" "$pro_page" \
+    && grep -q "/trust-artifact" "$pro_page" \
     && ! grep -q "490 EUR / month" "$pro_page" \
+    && ! grep -q '\$19' "$pro_page" \
     && ok "/pro offer page" \
     || bad "/pro offer page" "missing Pro API packaging copy"
 else
@@ -529,7 +530,7 @@ public_checks = {item.get('id'): item for item in (data.get('public_checks') or 
 external_checks = {item.get('id'): item for item in (data.get('external_checks') or [])}
 ok = (
     data.get('status') in {'controlled_pilot_ready', 'controlled_pilot_ready_with_disclosures'}
-    and data.get('sales_motion') == 'controlled_pilot_only'
+    and data.get('sales_motion') == 'sandbox_first_paid_access_coming_soon'
     and data.get('self_serve_checkout') is False
     and data.get('public_quote_ready') is False
     and int(quality.get('trusted_funds') or 0) > 0
@@ -644,7 +645,7 @@ terms = data.get('terms_boundary') or {}
 links = {item.get('href') for item in (data.get('evidence_links') or [])}
 ok = (
     data.get('status') in {'controlled_pilot_ready', 'controlled_pilot_ready_with_disclosures'}
-    and data.get('sales_motion') == 'controlled_pilot_only'
+    and data.get('sales_motion') == 'sandbox_first_paid_access_coming_soon'
     and data.get('self_serve_checkout') is False
     and data.get('public_quote_ready') is False
     and int(snapshot.get('trusted_funds') or 0) > 0
@@ -681,17 +682,17 @@ note_schema = sales_packet.get('operator_note_schema') or {}
 commercial = data.get('commercial_model') or {}
 packages = commercial.get('recommended_packages') or []
 ok = (
-    offer.get('name') == '13FLOW Pro API'
+    offer.get('name') == '13FLOW Builder Sandbox'
     and offer.get('self_serve_checkout') is False
     and (offer.get('contact') or {}).get('email') == 'admin@toonux.com'
-    and [p.get('name') for p in plans] == ['Technical pilot review', 'API integration review', 'MCP integration review']
-    and 'organization name and billing contact' in buyer_checklist
-    and 'Before I issue a scoped pilot key' in (sales_packet.get('lead_reply_template') or '')
-    and note_schema.get('package') == 'Technical pilot review | API integration review | MCP integration review'
-    and commercial.get('pricing_status') == 'paused_until_terms_and_capacity_are_ready'
-    and packages and packages[0].get('price_eur_per_month') == 'not publicly quoted'
-    and (commercial.get('do_not_discount_below') or {}).get('full_live_api_access_eur_per_month') is None
-    and int(limits.get('rate_per_min') or 0) == 120
+    and [p.get('name') for p in plans] == ['Builder Sandbox']
+    and 'builder or research-ops contact email' in buyer_checklist
+    and 'Paid access is not publicly available yet' in (sales_packet.get('lead_reply_template') or '')
+    and note_schema.get('package') == 'Builder Sandbox'
+    and commercial.get('pricing_status') == 'paid_access_coming_soon'
+    and packages and packages[0].get('price_publicly_displayed') is False
+    and (commercial.get('paid_access_candidate') or {}).get('publicly_displayed') is False
+    and int(limits.get('sandbox_rate_per_min') or 0) == 20
     and 'validated alpha' in not_yet
     and bool(commands.get('create_key'))
     and artifact.get('publishable_as_full_validation') is False

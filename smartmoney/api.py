@@ -4970,14 +4970,15 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "generated_at": _now_iso(),
             "git_sha": _git_sha(),
             "status": status,
-            "sales_motion": "single_public_offer_with_sandbox",
+            "sales_motion": "sandbox_first_paid_access_coming_soon",
             "self_serve_checkout": False,
-            "public_quote_ready": True,
-            "displayed_public_price": {
-                "label": "13FLOW Public Builder",
-                "price_usd_per_month": 19,
-                "term": "month-to-month public offer",
-                "billing": "public offer copy is ready; checkout remains manual until billing is wired",
+            "public_quote_ready": False,
+            "paid_access_status": {
+                "label": "Paid access coming soon",
+                "public_price_displayed": False,
+                "checkout_enabled": False,
+                "private_offer_candidate_ready": True,
+                "reason": "keep the paid offer warm, but do not publish it before the product is more differentiated and the proof surface is stronger",
                 "mcp_boundary": "minimal public MCP tools/list and status demo included; no standalone MCP offer",
             },
             "core_v1_boundary": core_v1_boundary_payload(),
@@ -5188,7 +5189,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "id": "legal_acknowledgement",
                 "label": "Research-screen acknowledgement",
                 "required": True,
-                "must_acknowledge": "13FLOW is a research screen, not investment advice, not a performance claim; production keys remain operator-reviewed even with the $19 public offer.",
+                "must_acknowledge": "13FLOW is a research screen, not investment advice, not a performance claim; production keys remain operator-reviewed and paid access is not public yet.",
             },
         ]
         return {
@@ -5222,11 +5223,11 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "token_delivery_channel": "secure channel selected by operator",
                 "rotation_due_at": "set before key delivery",
                 "security_requirements": "IP allow-listing, DPA, retention or custom terms if needed",
-                "boundary_ack": "research screen; no investment advice; $19 public offer; no SLA unless custom contract",
+                "boundary_ack": "research screen; no investment advice; paid access coming soon; no SLA unless custom contract",
             },
             "operator_note_template": [
                 "13FLOW PILOT INTAKE",
-                "package: <13FLOW Public Builder>",
+                "package: <Builder Sandbox>",
                 "organization: <legal or operating name>",
                 "billing_contact: <business contact>",
                 "security_contact: <optional business contact>",
@@ -5236,7 +5237,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "token_delivery_channel: <secure channel>",
                 "rotation_due_at: <YYYY-MM-DD>",
                 "security_requirements: <IP allow-listing / DPA / retention / none>",
-                "boundary_ack: research screen; not investment advice; $19 public offer; no SLA unless custom contract",
+                "boundary_ack: research screen; not investment advice; paid access coming soon; no SLA unless custom contract",
                 "operator_decision: <decline | issue bounded pilot key | request more info>",
             ],
             "pre_issue_checks": [
@@ -5394,7 +5395,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "billing_contact": "ops@example.invalid",
                 "security_contact": "security@example.invalid",
                 "workflow": "agent",
-                "package": (intake.get("pilot_packages") or ["13FLOW Public Builder"])[0],
+                "package": (intake.get("pilot_packages") or ["Builder Sandbox"])[0],
                 "requested_scopes": "funds:read,quality:read,workspace:write",
                 "expected_volume": "60/min, 5000/day, no burst automation before approval",
                 "token_delivery_channel": "operator-approved secure channel",
@@ -5469,8 +5470,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "self_serve_checkout": readiness.get("self_serve_checkout"),
             "core_v1_boundary": core_v1_boundary_payload(),
             "one_liner": (
-                "Source-linked SEC EDGAR-derived 13F trust surfaces, a $19 public "
-                "builder offer, sandbox demos and explicit validation boundaries for "
+                "Source-linked SEC EDGAR-derived 13F trust surfaces, sandbox demos "
+                "and explicit validation boundaries for "
                 "agent builders and research operations."
             ),
             "audience": offer["offer"]["audience"],
@@ -5524,7 +5525,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "Answer the qualification questions and confirm expected request volume.",
                 "Run the public readiness and Pro OpenAPI checks.",
                 "Use /pro/onboarding with the issued key before wiring production code.",
-                "Start with the sandbox and $19 Public Builder boundary before any custom production access discussion.",
+                "Start with the sandbox and trust-layer boundary before any paid production access discussion.",
             ],
             "terms_boundary": {
                 "pricing": commercial.get("pricing_status"),
@@ -5564,7 +5565,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         for pkg in payload.get("pilot_packages") or []:
             packages.append(
                 f"- {pkg.get('name')}: {pkg.get('term')}; "
-                f"price_usd_per_month={pkg.get('price_usd_per_month')}; "
+                f"price_publicly_displayed={pkg.get('price_publicly_displayed')}; "
                 f"sell_when={pkg.get('sell_when')}"
             )
         return "\n".join([
@@ -5630,7 +5631,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             f"- Managed-service SLA: {str(terms.get('managed_service_sla')).lower()}",
             f"- Operator review required for production key: {str(terms.get('operator_review_required')).lower()}",
             "",
-            "This pack is not investment advice and not a performance claim; the public offer is $19/month.",
+            "This pack is not investment advice and not a performance claim; paid access is coming soon and no public price is displayed.",
             "",
         ])
 
@@ -6151,7 +6152,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     const data = await res.json();
     const select = $("pilotPackageSelect");
     const packages = ((data.input_schema || {}).packages || data.pilot_packages || []);
-    const samplePackage = ((data.sample_request || {}).package || "13FLOW Public Builder");
+    const samplePackage = ((data.sample_request || {}).package || "Builder Sandbox");
     const values = packages.length ? packages : [samplePackage];
     select.innerHTML = values.map((x) => `<option>${String(x).replace(/[&<>"]/g, "")}</option>`).join("");
   }
@@ -6195,7 +6196,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<article class=\"card\">"
             f"<h3>{html_escape(pkg.get('name') or 'Pilot')}</h3>"
             f"<p>{html_escape(pkg.get('term') or 'bounded evaluation')}</p>"
-            f"<p><span class=\"pill\">${html_escape(str(pkg.get('price_usd_per_month') or 19))} / month</span></p>"
+            f"<p><span class=\"pill\">paid access coming soon</span></p>"
             f"<p class=\"meta\">{html_escape(pkg.get('sell_when') or '')}</p>"
             "</article>"
             for pkg in payload["pilot_packages"]
@@ -6224,7 +6225,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             f"<p><span class=\"pill\">pricing:{html_escape(str(terms.get('pricing')))}</span></p>"
             f"<p><span class=\"pill\">redistribution:{html_escape(str(terms.get('redistribution')))}</span></p>"
             f"<p><span class=\"pill\">production_key_review:{str(terms.get('operator_review_required')).lower()}</span></p>"
-            "<p class=\"meta\">This pack is not investment advice and not a performance claim; the public offer is $19/month.</p></section></div>"
+            "<p class=\"meta\">This pack is not investment advice and not a performance claim; paid access is coming soon and no public price is displayed.</p></section></div>"
             "<p class=\"lede action-row\"><a class=\"pill\" href=\"/api/buyer-pack\">Machine-readable buyer pack</a> "
             "<a class=\"pill\" href=\"/api/buyer-pack.md\">Markdown export</a> "
             "<a class=\"pill\" href=\"/buyer-pack/print\">Printable pack</a> "
@@ -6249,7 +6250,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<tr>"
             f"<td>{html_escape(pkg.get('name') or '-')}</td>"
             f"<td>{html_escape(pkg.get('term') or '-')}</td>"
-            f"<td>${html_escape(str(pkg.get('price_usd_per_month') or 19))} / month</td>"
+            "<td>paid access coming soon</td>"
             f"<td>{html_escape(pkg.get('sell_when') or '-')}</td>"
             "</tr>"
             for pkg in payload.get("pilot_packages") or []
@@ -6290,7 +6291,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             f"<span class=\"pill\">redistribution:{html_escape(str(terms.get('redistribution')))}</span>"
             f"<span class=\"pill\">investment_advice:{str(terms.get('investment_advice')).lower()}</span>"
             f"<span class=\"pill\">sla:{str(terms.get('managed_service_sla')).lower()}</span></p>"
-            "<p class=\"callout\"><strong>Boundary:</strong> This pack is not investment advice and not a performance claim; the public offer is $19/month.</p>"
+            "<p class=\"callout\"><strong>Boundary:</strong> This pack is not investment advice and not a performance claim; paid access is coming soon and no public price is displayed.</p>"
             "</section>"
         )
         return _html_response("Printable Buyer Pack", body)
@@ -6434,19 +6435,25 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "generated_at": _now_iso(),
             "git_sha": _git_sha(),
             "offer": {
-                "name": "13FLOW Public Builder",
-                "price": {"amount": 19, "currency": "USD", "interval": "month"},
+                "name": "13FLOW Builder Sandbox",
                 "positioning": (
-                    "A trust layer for agent builders and research operations teams that need "
-                    "source-linked SEC 13F context, explicit quality warnings and copyable API/MCP "
-                    "demos before they wire filing evidence into a workflow."
+                    "A source-linked SEC filing trust layer for agent builders and research operations teams. "
+                    "The public product is the sandbox, trust artifact, methodology boundary and copyable API/MCP demo; "
+                    "paid access is being held back until the differentiation is stronger."
                 ),
                 "audience": [
                     "agent builders",
                     "research operations teams",
                 ],
-                "access_model": "single_public_offer_plus_sandbox",
+                "access_model": "public_sandbox_plus_paid_waitlist",
                 "self_serve_checkout": False,
+                "paid_access": {
+                    "status": "coming_soon",
+                    "public_price_displayed": False,
+                    "checkout_enabled": False,
+                    "private_offer_candidate_ready": True,
+                    "reason": "pricing is intentionally not shown until the sandbox, proof artifact and ICP wedge are stronger",
+                },
                 "public_sandbox": {
                     "instant_key_url": "/api/sandbox/key",
                     "docs": "/sandbox",
@@ -6464,28 +6471,28 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "contact": {
                     "email": "admin@toonux.com",
                     "mailto": (
-                        "mailto:admin@toonux.com?subject=13FLOW%20Public%20Builder%20access"
+                        "mailto:admin@toonux.com?subject=13FLOW%20Builder%20Sandbox%20access"
                     ),
-                    "expected_response": "sandbox key is instant; production Pro keys remain operator-scoped and audited",
+                    "expected_response": "sandbox key is instant; production paid access is not publicly sold yet",
                 },
             },
             "core_v1_boundary": core_v1_boundary_payload(),
             "plans": [
                 {
-                    "name": "13FLOW Public Builder",
+                    "name": "Builder Sandbox",
                     "fit": "one agent-builder or research-ops workflow evaluating SEC filing trust, source links and quality warnings",
-                    "commercial_model": "$19 / month, single public offer",
+                    "commercial_model": "public sandbox now; paid access coming soon",
                     "includes": [
                         "instant sandbox-only key for copyable demos",
-                        "one operator-issued scoped production key after fit/security review",
                         "public API, OpenAPI and status/readiness contracts",
                         "minimal public MCP tools/list and product/status demo",
                         "trust-layer artifact, buyer pack and alternatives page",
+                        "paid production access candidate kept private until the value wedge is stronger",
                     ],
                     "success_criteria": [
                         "sandbox status and funds probes run in under 60 seconds",
                         "workflow keeps 13F delay and quality warnings visible",
-                        "buyer accepts no-alpha, no-advice and redistribution boundaries",
+                        "buyer understands the value as trust-layer evidence, not alpha or raw SEC resale",
                     ],
                 },
             ],
@@ -6493,17 +6500,19 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "builder or research-ops contact email",
                 "intended workflow: agent, notebook, dashboard or internal research pipeline",
                 "whether the first integration uses API, MCP tools/list or both",
-                "expected sandbox volume and whether production data is needed",
+                "expected sandbox volume and whether production data would be needed later",
                 "confirmation that sandbox keys must not be treated as production credentials",
                 "confirmation that 13FLOW is a trust layer, not investment advice or validated alpha",
             ],
             "commercial_model": {
-                "pricing_currency": "USD",
-                "pricing_status": "single_public_offer_displayed",
+                "pricing_currency": "not_publicly_displayed",
+                "pricing_status": "paid_access_coming_soon",
+                "public_price_displayed": False,
+                "private_offer_candidate_ready": True,
                 "principle": (
-                    "Publish one simple $19/month offer for now. Include a limited sandbox key and "
-                    "a minimal public MCP demo inside that offer. Do not sell MCP as a separate product "
-                    "until the MCP surface is real enough to support, document and bill on its own."
+                    "Do not display paid pricing yet. Keep the paid access package ready privately, "
+                    "but sell the public product as a differentiated sandbox and trust-layer proof surface "
+                    "until ICP, differentiation and proof surface are stronger."
                 ),
                 "ideal_customer_profiles": [
                     {
@@ -6519,9 +6528,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 ],
                 "recommended_packages": [
                     {
-                        "name": "13FLOW Public Builder",
-                        "price_usd_per_month": 19,
-                        "term": "month-to-month public offer",
+                        "name": "Builder Sandbox",
+                        "price_publicly_displayed": False,
+                        "term": "public sandbox evaluation",
                         "included_keys": 1,
                         "included_limits": {"sandbox_per_min": 20, "sandbox_per_day": 200},
                         "support": "self-guided docs and best-effort email; no SLA",
@@ -6531,15 +6540,17 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                             "minimal public MCP tools/list and status demo",
                             "buyer evidence pack and alternatives page",
                         ],
-                        "sell_when": "an agent builder or research-ops user wants a low-friction trust-layer evaluation",
+                        "sell_when": "an agent builder or research-ops user wants a low-friction trust-layer evaluation before paid access exists",
                     },
                 ],
-                "do_not_discount_below": {
-                    "public_offer_usd_per_month": 19,
-                    "reason": "keep the offer simple; do not introduce custom pricing or an MCP upsell before the product surface is mature",
+                "paid_access_candidate": {
+                    "ready_private": True,
+                    "publicly_displayed": False,
+                    "checkout_enabled": False,
+                    "next_gate": "differentiate with sandbox usage, broader proof artifact and clearer ICP before public pricing",
                 },
                 "pricing_policy": {
-                    "strategy": "single_19_usd_public_offer",
+                    "strategy": "differentiate_before_public_pricing",
                     "do_not_compete_on": [
                         "generic SEC filing download volume",
                         "retail stock-picking screens",
@@ -6552,7 +6563,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                         "sandbox token that cannot authenticate production Pro endpoints",
                         "evidence pack suitable for buyer and agent grounding review",
                     ],
-                    "discount_rule": "do not discount; if $19 is too high, the buyer is not the current ICP",
+                    "discount_rule": "do not negotiate public pricing because no public paid price is displayed yet",
                 },
                 "market_context": [
                     {
@@ -6597,6 +6608,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     ],
                     "bad_fit": [
                         "wants cheap raw SEC access only",
+                        "expects public paid checkout today",
                         "expects a standalone paid MCP product today",
                         "expects investment advice, price targets or validated alpha",
                         "needs redistribution, SLA or enterprise procurement before a custom agreement exists",
@@ -6622,13 +6634,13 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "Which 13F managers, tickers or watchlists matter first?",
                     "Do you need API only, MCP tools/list, or both?",
                     "What request volume do you expect beyond the sandbox defaults?",
-                    "Who owns token custody and rotation if a production key is issued?",
+                    "Who owns token custody and rotation if production access is later issued?",
                     "Do you accept that the current value is trust-layer evidence, not alpha prediction?",
                 ],
                 "lead_reply_template": (
-                    "Thanks for the 13FLOW Public Builder request.\n\n"
+                    "Thanks for the 13FLOW Builder Sandbox request.\n\n"
                     "You can start with the sandbox now: https://13flow.eu/sandbox\n\n"
-                    "Before I issue a production-scoped key, please confirm:\n"
+                    "Paid access is not publicly available yet. Before I issue any production-scoped key later, please confirm:\n"
                     "- Contact email / organization if any:\n"
                     "- Workflow: agent, notebook, dashboard, research ops, or other\n"
                     "- API, MCP tools/list, or both:\n"
@@ -6639,8 +6651,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 ),
                 "operator_note_schema": {
                     "contact": "",
-                    "package": "13FLOW Public Builder",
-                    "price_usd_per_month": 19,
+                    "package": "Builder Sandbox",
+                    "paid_access_status": "coming_soon",
                     "workflow": "agent | notebook | dashboard | research_ops | other",
                     "uses_mcp_minimum": False,
                     "scopes": ["funds:read", "quality:read"],
@@ -6655,10 +6667,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 },
                 "pilot_handoff": [
                     "Send the sandbox page first and confirm the user can run the 60-second probes.",
-                    "If production data is needed, send the Pro OpenAPI URL and three curl probes.",
+                    "If production data is needed later, send the Pro OpenAPI URL and three curl probes.",
                     "Confirm the workflow preserves truncation counters and data-quality warnings.",
-                    "Verify the production key id in api_audit after the first successful calls.",
-                    "Document rotation before moving beyond the $19 public builder evaluation.",
+                    "Verify any production key id in api_audit after the first successful calls.",
+                    "Do not present public paid pricing until differentiation and fit are stronger.",
                 ],
             },
             "included": [
@@ -6689,16 +6701,17 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     ],
                 },
                 {
-                    "capability": "Production key after review",
+                    "capability": "Production access later",
                     "details": [
-                        "one scoped API key can be issued manually after fit and security review",
+                        "paid access is being kept private until the product wedge is stronger",
+                        "operator-issued keys stay scoped, audited and revocable",
                         "API-key authentication by Authorization Bearer or X-13FLOW-Key",
-                        "per-key rate limits and request audit",
                         "bounded payload controls on fund detail endpoints",
                     ],
                 },
             ],
             "not_included_yet": status["offer_boundary"]["do_not_claim_yet"] + [
+                "public paid access",
                 "standalone paid MCP offer",
                 "self-serve card checkout",
             ],
@@ -6712,11 +6725,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             },
             "onboarding": [
                 "Generate the sandbox key on /sandbox and run status, funds and MCP-minimum probes.",
-                "If the workflow needs production data, send contact, workflow and expected volume.",
-                "Operator confirms fit, validation boundary, limits, expiry and secure token channel.",
-                "Operator creates one production key per builder, organization or internal service.",
-                "Plaintext production token is delivered once through an out-of-band secure channel.",
-                "Buyer runs status, funds and bounded fund-detail probes.",
+                "Use the trust artifact, alternatives page and methodology boundary to decide whether the wedge matters.",
+                "If the workflow needs production data later, send contact, workflow and expected volume.",
+                "Operator confirms fit, validation boundary, limits, expiry and secure token channel before any production key.",
+                "Plaintext production token, if issued later, is delivered once through an out-of-band secure channel.",
                 "Operator verifies recent audit rows and documents the key id and rotation date.",
             ],
             "operator_commands": {
@@ -6747,8 +6759,6 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "sandbox_status": "curl -H \"Authorization: Bearer $TOKEN\" https://13flow.eu/api/sandbox/v1/status",
                 "sandbox_funds": "curl -H \"Authorization: Bearer $TOKEN\" https://13flow.eu/api/sandbox/v1/funds",
                 "mcp_minimum": "curl -H \"Authorization: Bearer $TOKEN\" https://13flow.eu/api/sandbox/v1/mcp-minimum",
-                "production_status": "curl -H \"Authorization: Bearer $TOKEN\" https://13flow.eu/api/pro/v1/status",
-                "production_funds": "curl -H \"Authorization: Bearer $TOKEN\" https://13flow.eu/api/pro/v1/funds",
                 "mcp_tools_list": (
                     "curl -fsS https://13flow.eu/api/mcp -H 'Content-Type: application/json' "
                     "-H 'Accept: application/json, text/event-stream' "
@@ -7128,7 +7138,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             f'<div><h4>{icon_app}<span>Product</span></h4>{_foot_link("/app", "Cockpit", icon_app)}'
             f'{_foot_link("/signals", "Signals", icon_signal)}{_foot_link("/funds", "Funds", icon_fund)}'
             f'{_foot_link("/stocks", "Stocks", icon_stock)}{_foot_link("/sandbox", "Sandbox", icon_api)}'
-            f'{_foot_link("/developers", "API docs", icon_api)}{_foot_link("/pro", "$19 plan", icon_pro)}</div>'
+            f'{_foot_link("/developers", "API docs", icon_api)}{_foot_link("/pro", "Paid soon", icon_pro)}</div>'
             f'<div><h4>{icon_security}<span>Trust</span></h4>{_foot_link("/status", "Status", icon_status)}'
             f'{_foot_link("/coverage", "Coverage", icon_coverage)}{_foot_link("/validation", "Validation", icon_signal)}'
             f'{_foot_link("/security", "Security", icon_security)}{_foot_link("/methodology", "Methodology", icon_method)}'
@@ -7689,7 +7699,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         body = (
             "<h1>Developers</h1>"
             "<p class=\"lede\">Public read-only API and minimal MCP entry points for source-linked SEC 13F context. "
-            "The $19 offer includes sandbox demos; production Pro access remains operator-issued and fail-closed.</p>"
+            "The public sandbox includes demos; production Pro access remains operator-issued and paid access is not public yet.</p>"
             "<div class=\"grid\">"
             "<div class=\"card\"><h3>Status</h3><p><a href=\"/status\">/status</a></p>"
             "<p class=\"meta\">Human-readable deployed SHA, live state and validation boundary.</p></div>"
@@ -7719,7 +7729,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<a class=\"pill\" href=\"/methodology/mcp\">MCP methodology</a> "
             "<a class=\"pill\" href=\"/sandbox\">Sandbox</a> "
             "<a class=\"pill\" href=\"/alternatives\">Alternatives</a> "
-            "<a class=\"pill\" href=\"/pro\">$19 offer</a></p></div>"
+            "<a class=\"pill\" href=\"/pro\">Paid access soon</a></p></div>"
         )
         return _html_response("Developers", body)
 
@@ -7739,7 +7749,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "</div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Capacity and support boundary</h2>"
             "<ul><li>13FLOW Pro is currently a limited-capacity, operator-reviewed technical evaluation surface.</li>"
-            "<li>The only public offer is the simple $19/month Public Builder plan; no uptime SLA, support SLA, enterprise procurement promise or managed-service guarantee is offered on the open site.</li>"
+            "<li>Paid access is coming soon, but no public price, checkout, uptime SLA, support SLA, enterprise procurement promise or managed-service guarantee is offered on the open site.</li>"
             "<li>Access can be declined, rate-limited, paused, rotated or revoked for operational, security or legal reasons.</li>"
             "<li>Any paid pilot, production use or redistribution right requires explicit written agreement before a token is issued.</li></ul></div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Allowed use</h2>"
@@ -8907,16 +8917,16 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
         onboarding = "".join(f"<li>{html_escape(step)}</li>" for step in offer["onboarding"])
         body = (
             "<section class=\"purchase-hero\"><div class=\"purchase-copy\">"
-            "<div class=\"home-eyebrow\"><span>$19 / month</span><span>Single public offer</span><span>Sandbox key instant</span><span>MCP minimum included</span></div>"
-            "<h1>13FLOW Public Builder</h1>"
+            "<div class=\"home-eyebrow\"><span>Public sandbox</span><span>Paid access coming soon</span><span>No public price yet</span><span>MCP minimum included</span></div>"
+            "<h1>13FLOW Builder Sandbox</h1>"
             "<p class=\"lede\">A source-linked SEC filing trust layer for agent builders and research operations. "
-            "One simple public offer for now: sandbox first, production key only after operator review, and MCP kept to a minimal included demo.</p>"
+            "The paid offer is ready privately but intentionally not displayed yet; the public product is the sandbox, proof artifact and copyable API/MCP demo.</p>"
             "<div class=\"purchase-actions\"><a href=\"/sandbox\">Start sandbox</a>"
             "<a href=\"/developers\">Copy API demo</a><a href=\"/alternatives\">Why not alternatives?</a>"
             "<a href=\"/trust-artifact\">Trust artifact</a><a href=\"" + contact_link + "\">Contact operator</a></div>"
             f"<p class=\"meta\">{html_escape(contact['expected_response'])}</p></div>"
-            "<aside class=\"purchase-panel\"><h3>What $19 means now</h3>"
-            f"<div class=\"proof-line\"><b>Price</b><span>${pkg['price_usd_per_month']} / month, {html_escape(pkg['term'])}.</span></div>"
+            "<aside class=\"purchase-panel\"><h3>Current public access</h3>"
+            "<div class=\"proof-line\"><b>Paid</b><span>Coming soon. No public price or checkout is displayed yet.</span></div>"
             "<div class=\"proof-line\"><b>Sandbox</b><span>Instant limited key for status, funds and MCP-minimum probes.</span></div>"
             "<div class=\"proof-line\"><b>MCP</b><span>Included only as public tools/list and read-only status demo. No standalone MCP product yet.</span></div>"
             f"<div class=\"proof-line\"><b>Limits</b><span>Sandbox {limits['sandbox_rate_per_min']} / min · {limits['sandbox_rate_per_day']} / day. Production keys remain reviewed and audited.</span></div>"
@@ -8927,11 +8937,11 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<div><b>Trust artifact</b><span><a href=\"/api/trust-artifact\">machine-readable</a></span></div>"
             "<div><b>Alternatives</b><span><a href=\"/alternatives\">positioning</a></span></div>"
             "</div>"
-            "<section class=\"section-band\"><h2>One offer, one ICP</h2>"
+            "<section class=\"section-band\"><h2>Sandbox first, paid later</h2>"
             f"<p class=\"lede\">{html_escape(offer['offer']['positioning'])}</p>"
-            "<p class=\"meta\">No separate MCP offer. No retail stock-picking positioning. No public checkout until billing is properly wired.</p>"
+            "<p class=\"meta\">No separate MCP offer. No retail stock-picking positioning. No public paid access until the trust-layer wedge is stronger.</p>"
             "<div class=\"decision-grid\">" + included + "</div></section>"
-            "<section class=\"section-head\"><div><div class=\"kicker\">The plan</div><h2>$19 Public Builder</h2></div>"
+            "<section class=\"section-head\"><div><div class=\"kicker\">The current path</div><h2>Builder Sandbox</h2></div>"
             f"<p>{html_escape(plan['fit'])}</p></section>"
             "<div class=\"grid\"><div class=\"card\"><h3>Included</h3><ul>"
             + "".join(f"<li>{html_escape(item)}</li>" for item in plan["includes"])
@@ -8940,13 +8950,13 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             + "</ul></div><div class=\"card\"><h3>Support boundary</h3>"
             f"<p>{html_escape(pkg['support'])}</p><p class=\"meta\">{html_escape(pkg['sell_when'])}</p></div></div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Access request checklist</h2>"
-            "<p class=\"lede\">Use the sandbox first. Send these details only if production data is needed.</p>"
+            "<p class=\"lede\">Use the sandbox first. Send these details only if production data becomes necessary later.</p>"
             f"<ul>{checklist}</ul><p><a class=\"pill\" href=\"{contact_link}\">Email operator</a></p></div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Who this is for</h2><div class=\"grid\">" + icp_cards + "</div></div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Commercial boundary</h2>"
             f"<p class=\"lede\">{html_escape(commercial['principle'])}</p>"
             f"<p class=\"meta\">Strategy: {html_escape(commercial['pricing_policy']['strategy'])}. {html_escape(commercial['pricing_policy']['discount_rule'])}</p>"
-            f"<p class=\"meta\">{html_escape(commercial['do_not_discount_below']['reason'])}</p>"
+            f"<p class=\"meta\">Next gate: {html_escape(commercial['paid_access_candidate']['next_gate'])}</p>"
             "<h3>Compete on</h3><ul>" + compete_on + "</ul></div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Qualification filter</h2>"
             "<div class=\"grid\"><div class=\"card\"><h3>Good fit</h3>"
@@ -8957,7 +8967,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Onboarding flow</h2>"
             f"<ol>{onboarding}</ol></div>"
         )
-        return _html_response("Public Builder", body)
+        return _html_response("Builder Sandbox", body)
 
     @app.get("/sandbox")
     def sandbox_page():
@@ -8981,7 +8991,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<p class=\"doc-lede\">Generate a public sandbox-only key, run API probes, and inspect the minimal MCP boundary. "
             "This key is deliberately non-production and cannot unlock /api/pro/*.</p>"
             "<div class=\"actions\"><a class=\"pill cta\" href=\"/api/sandbox/key\">Get sandbox key JSON</a>"
-            "<a class=\"pill\" href=\"/developers\">Developer docs</a><a class=\"pill\" href=\"/pro\">$19 offer</a></div></div>"
+            "<a class=\"pill\" href=\"/developers\">Developer docs</a><a class=\"pill\" href=\"/pro\">Paid access soon</a></div></div>"
             "<aside class=\"doc-panel\"><h3>Boundary</h3><div class=\"mini-list\">"
             f"<div><b>Token:</b> <code>{html_escape(token)}</code></div>"
             f"<div><b>Limits:</b> {payload['limits']['per_min']} / min · {payload['limits']['per_day']} / day.</div>"
@@ -8990,7 +9000,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<section class=\"doc-section\"><h2>Copy/paste API demo</h2>"
             f"<pre><code>{html_escape(curl)}</code></pre></section>"
             "<section class=\"doc-section\"><h2>Minimal MCP demo included</h2>"
-            "<p>The $19 public offer includes this minimum MCP shape only: public discovery and read-only status/product context. It is not a standalone MCP product yet.</p>"
+            "<p>The public sandbox includes this minimum MCP shape only: public discovery and read-only status/product context. It is not a standalone MCP product yet.</p>"
             f"<pre><code>{html_escape(mcp)}</code></pre></section>"
             "<section class=\"split\"><div class=\"doc-section\"><h2>What it proves</h2><ul>"
             "<li>Your workflow can fetch a key and call bounded JSON endpoints.</li>"
@@ -9019,8 +9029,8 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Positioning</div>"
             "<h1>Why not sec-api, Financial Datasets or Dataroma?</h1>"
             "<p class=\"doc-lede\">Because 13FLOW should not pretend to be a cheaper clone of broad data APIs or retail portfolio pages. "
-            "The wedge is narrower: a $19 trust layer for agent builders and research ops that need source-linked filing evidence, quality boundaries and copyable API/MCP demos.</p>"
-            "<div class=\"actions\"><a class=\"pill cta\" href=\"/sandbox\">Try sandbox</a><a class=\"pill\" href=\"/pro\">$19 offer</a>"
+            "The wedge is narrower: a trust layer for agent builders and research ops that need source-linked filing evidence, quality boundaries and copyable API/MCP demos before paid access is public.</p>"
+            "<div class=\"actions\"><a class=\"pill cta\" href=\"/sandbox\">Try sandbox</a><a class=\"pill\" href=\"/pro\">Paid access soon</a>"
             "<a class=\"pill\" href=\"/trust-artifact\">Trust artifact</a></div></div>"
             "<aside class=\"doc-panel\"><h3>Short answer</h3>"
             "<p class=\"callout\"><strong>Use SEC EDGAR for raw truth.</strong> Use broad vendors when you need broad catalogues. Use Dataroma for casual curated browsing. Use 13FLOW when a workflow needs an auditable filing trust layer.</p>"
@@ -9096,7 +9106,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<section class=\"home-hero\"><div class=\"home-copy\">"
             "<div class=\"home-eyebrow\">"
             f"<span id=\"srcText\" class=\"pill\">{html_escape(status_label.replace('LIVE EDGAR', 'LIVE · EDGAR'))}</span>"
-            "<span>13F x Form 4</span><span>$19 public offer</span><span>Sandbox ready</span></div>"
+            "<span>13F x Form 4</span><span>Sandbox public</span><span>Paid access soon</span></div>"
             "<h1>13FLOW</h1>"
             "<p class=\"home-lede\">A source-linked SEC-filings trust layer for agent builders and research operations teams that need 13F ownership, bounded Form 4 context, quality warnings and API/MCP contracts before a workflow cites the data.</p>"
             "<div class=\"home-proof\">"
@@ -9107,7 +9117,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "</div><div class=\"home-actions\">"
             "<a class=\"button\" href=\"/app\">Open research app</a>"
             "<a class=\"button secondary\" href=\"/signals\">Open Signals</a>"
-            "<a class=\"button secondary\" href=\"/pro\">Evaluate Pro API</a>"
+            "<a class=\"button secondary\" href=\"/sandbox\">Try sandbox</a>"
             "<a class=\"button secondary\" href=\"/buyer-pack\">Buyer pack</a></div></div>"
             "<aside class=\"cockpit-shot\" aria-label=\"13FLOW cockpit preview\">"
             "<div class=\"shot-top\"><div><div class=\"shot-title\">Research queue</div>"
@@ -9129,7 +9139,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             f"<div><b>{html_escape(str(quality.get('aum_jump_warnings') or 0))} quality warnings</b><span>{html_escape(str(quality.get('unit_scale_candidates') or 0))} unit-scale candidates</span></div>"
             "</section>"
             "<section class=\"section-head\"><div><div class=\"kicker\">Professional workflow</div><h2>Built for builders who need evidence first</h2></div>"
-            "<p>13FLOW should feel like a compact trust layer: clear price, instant sandbox, visible limitations and source-linked evidence before any production key is issued.</p></section>"
+            "<p>13FLOW should feel like a compact trust layer: instant sandbox, visible limitations and source-linked evidence before any paid production access is offered.</p></section>"
             "<div class=\"journey\">"
             "<a class=\"step\" href=\"/app#confluence\"><div class=\"n\">01 · Triage</div><h3>Signal cockpit</h3><p>Prioritize names where 13F pressure and Form 4 activity overlap, then drill into source evidence.</p></a>"
             "<a class=\"step\" href=\"/funds\"><div class=\"n\">02 · Validate</div><h3>Fund and issuer context</h3><p>Check who moved, what changed, reported values, accessions and quality flags before a model update.</p></a>"
@@ -9152,7 +9162,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<li>No validated alpha claim.</li><li>No probability or expected-return model.</li>"
             "<li>No complete view of shorts, non-US books, full derivatives or intra-quarter fund trading.</li>"
             "<li>No exhaustive insider-only or distribution universe yet.</li>"
-            "<li>No standalone MCP offer yet.</li><li>No production x402 payment flow.</li>"
+            "<li>No public paid access yet.</li><li>No standalone MCP offer yet.</li><li>No production x402 payment flow.</li>"
             "<li>No SLA or redistribution right without written agreement.</li></ul>"
             f"<p><span class=\"pill\">{html_escape(validation['status'])}</span> "
             f"<span class=\"pill\">rows={html_escape(str(artifact['row_count']))}; tickers={html_escape(str(artifact['ticker_count']))}; row_errors={html_escape(str(artifact['row_error_count']))}</span></p>"
