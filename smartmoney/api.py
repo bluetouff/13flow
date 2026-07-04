@@ -2756,6 +2756,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "required_fields": [f.get("id") for f in (intake.get("required_fields") or [])],
                 "operator_note_template": intake.get("operator_note_template") or [],
             },
+            "operator_events": (health.get("operator_events") or {}),
             "least_privilege_policy": {
                 "customer_allowed_scopes": customer_scopes,
                 "customer_forbidden_scopes": ["admin:read"],
@@ -2792,6 +2793,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "curl -fsS \"https://13flow.eu/api/pro/v1/usage?recent_limit=5&route_limit=5\" "
                     "-H \"Authorization: Bearer <issued_token>\""
                 ),
+                "list_operator_events": (
+                    "sudo -u flowpro /opt/13flow/.venv/bin/python /opt/13flow/run.py "
+                    "--pro-db /var/lib/13flow-pro/13flow-pro.db --list-operator-events --operator-events-limit 20"
+                ),
                 "run_public_smoke": "sudo EXPECTED_SHA=$SHA /opt/13flow/deploy/smoke-public.sh",
                 "run_pro_workspace_smoke": (
                     "sudo EXPECTED_SHA=$SHA PRO_TOKEN=\"<workspace_capable_token>\" "
@@ -2814,6 +2819,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "Run the create_bounded_pilot_key command as flowpro.",
                     "Copy the token once into the selected secure delivery channel.",
                     "Record key id, label, scopes, expiry and rotation_due_at in the operator note.",
+                    "Run list_operator_events and confirm api_key.created was recorded without token material.",
                 ],
                 "after_issue": [
                     "Ask the buyer to call /api/pro/v1/status and confirm the key id.",
@@ -7232,16 +7238,19 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     const policy = pack.least_privilege_policy || {};
     const checklist = pack.checklist || {};
     const commands = pack.operator_commands || {};
+    const events = pack.operator_events || {};
     const before = checklist.before_issue || [];
     const after = checklist.after_issue || [];
+    const recent = events.recent || [];
     $("adminPilot").innerHTML = `<article class="admin-row">
       <div class="admin-row-top"><h3>${esc((pack.status || "unknown").toUpperCase())}</h3><span class="admin-mini">${esc(pack.generated_at || "-")}</span></div>
       <p><span class="pill">read_only:${esc(String(pack.read_only))}</span><span class="pill">web_creates_tokens:${esc(String(pack.web_worker_creates_tokens))}</span><span class="pill">tokens_exposed:${esc(String(pack.tokens_exposed))}</span></p>
       <p><span class="pill">scopes:${esc((policy.default_customer_scopes || []).join(","))}</span><span class="pill">forbidden:${esc((policy.customer_forbidden_scopes || []).join(","))}</span></p>
-      <p class="admin-mini">limits=${esc(number(limits.rate_per_min))}/min ${esc(number(limits.rate_per_day))}/day expiry=${esc(number(limits.expires_days))}d rotation=${esc(number(limits.rotation_days))}d</p>
+      <p class="admin-mini">limits=${esc(number(limits.rate_per_min))}/min ${esc(number(limits.rate_per_day))}/day expiry=${esc(number(limits.expires_days))}d rotation=${esc(number(limits.rotation_days))}d operator_events=${esc(number(events.total))}</p>
     </article>
     <article class="admin-row"><h3>Create key command</h3><p><code>${esc(commands.create_bounded_pilot_key || "-")}</code></p></article>
     <article class="admin-row"><h3>Verify command</h3><p><code>${esc(commands.verify_issued_key_status || "-")}</code></p></article>
+    <article class="admin-row"><h3>Recent operator events</h3><p>${recent.length ? recent.slice(0, 6).map((e) => `<span class="pill">${esc(e.event_type)}:${esc(e.key_id || "-")}</span>`).join("") : '<span class="pill">none</span>'}</p><p class="admin-mini">tokens_stored=${esc(String((events.privacy || {}).tokens_stored))} hashes_exposed=${esc(String((events.privacy || {}).token_hashes_exposed))}</p></article>
     <article class="admin-row"><h3>Before issue</h3><p>${before.slice(0, 6).map((x) => `<span class="pill">${esc(x)}</span>`).join("")}</p></article>
     <article class="admin-row"><h3>After issue</h3><p>${after.slice(0, 4).map((x) => `<span class="pill">${esc(x)}</span>`).join("")}</p></article>`;
   }

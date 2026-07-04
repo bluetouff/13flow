@@ -58,6 +58,20 @@ CREATE TABLE IF NOT EXISTS api_audit (
 CREATE INDEX IF NOT EXISTS ix_api_audit_key_at ON api_audit(key_id, at);
 CREATE INDEX IF NOT EXISTS ix_api_audit_key_route_at ON api_audit(key_id, route, at);
 
+CREATE TABLE IF NOT EXISTS pro_operator_events (
+    id          TEXT PRIMARY KEY,
+    event_type  TEXT NOT NULL,
+    key_id      TEXT,
+    label       TEXT NOT NULL DEFAULT '',
+    actor       TEXT NOT NULL DEFAULT 'cli',
+    detail_json TEXT NOT NULL DEFAULT '{}',
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_pro_operator_events_created
+    ON pro_operator_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS ix_pro_operator_events_key_created
+    ON pro_operator_events(key_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS saved_watchlists (
     id                TEXT PRIMARY KEY,
     key_id            TEXT NOT NULL,
@@ -231,6 +245,61 @@ class ProAPIStore:
     def __exit__(self, *exc) -> None:
         self.close()
 
+    def _record_operator_event(
+        self,
+        event_type: str,
+        *,
+        key_id: Optional[str] = None,
+        label: str = "",
+        actor: str = "cli",
+        detail: Optional[dict] = None,
+        created_at: Optional[str] = None,
+    ) -> dict:
+        event = {
+            "id": secrets.token_hex(8),
+            "event_type": str(event_type or "").strip()[:120],
+            "key_id": key_id,
+            "label": str(label or "")[:200],
+            "actor": str(actor or "cli")[:80],
+            "detail": detail or {},
+            "created_at": created_at or _iso(_now()),
+        }
+        if not event["event_type"]:
+            raise ValueError("event_type is required")
+        self.conn.execute(
+            """INSERT INTO pro_operator_events(id,event_type,key_id,label,actor,detail_json,created_at)
+               VALUES (?,?,?,?,?,?,?)""",
+            (
+                event["id"],
+                event["event_type"],
+                event["key_id"],
+                event["label"],
+                event["actor"],
+                _json_compact(event["detail"]),
+                event["created_at"],
+            ),
+        )
+        return event
+
+    def record_operator_event(
+        self,
+        event_type: str,
+        *,
+        key_id: Optional[str] = None,
+        label: str = "",
+        actor: str = "cli",
+        detail: Optional[dict] = None,
+    ) -> dict:
+        """Record a non-secret operator action for audit/fulfillment evidence."""
+        with self.conn:
+            return self._record_operator_event(
+                event_type,
+                key_id=key_id,
+                label=label,
+                actor=actor,
+                detail=detail,
+            )
+
     def create_key(
         self,
         label: str,
@@ -240,6 +309,7 @@ class ProAPIStore:
         rate_per_day: int = 10000,
         expires_days: Optional[int] = None,
         rotation_days: Optional[int] = 90,
+        actor: str = "cli",
     ) -> tuple[str, APIKey]:
         label = (label or "").strip()
         if not label:
@@ -264,18 +334,55 @@ class ProAPIStore:
                     rotation_due_at,
                 ),
             )
+            self._record_operator_event(
+                "api_key.created",
+                key_id=key_id,
+                label=label,
+                actor=actor,
+                created_at=_iso(now),
+                detail={
+                    "scopes": scopes_s.split(),
+                    "tier": tier,
+                    "rate_per_min": int(rate_per_min),
+                    "rate_per_day": int(rate_per_day),
+                    "expires_at": expires_at,
+                    "rotation_due_at": rotation_due_at,
+                    "token_stored": False,
+                    "token_hash_exposed": False,
+                },
+            )
         return token, APIKey(
             key_id=key_id, label=label, scopes=tuple(scopes_s.split()), tier=tier,
             rate_per_min=int(rate_per_min), rate_per_day=int(rate_per_day),
             created_at=_iso(now), expires_at=expires_at, rotation_due_at=rotation_due_at,
         )
 
-    def revoke_key(self, key_id: str) -> bool:
+    def revoke_key(self, key_id: str, *, actor: str = "cli") -> bool:
+        row = self.conn.execute(
+            """SELECT key_id,label,scopes,tier,expires_at,rotation_due_at,revoked_at
+               FROM api_keys WHERE key_id=?""",
+            (key_id,),
+        ).fetchone()
         with self.conn:
             cur = self.conn.execute(
                 "UPDATE api_keys SET revoked_at=? WHERE key_id=? AND revoked_at IS NULL",
                 (_iso(_now()), key_id),
             )
+            if cur.rowcount > 0 and row:
+                self._record_operator_event(
+                    "api_key.revoked",
+                    key_id=key_id,
+                    label=row["label"],
+                    actor=actor,
+                    detail={
+                        "scopes": str(row["scopes"] or "").split(),
+                        "tier": row["tier"],
+                        "expires_at": row["expires_at"],
+                        "rotation_due_at": row["rotation_due_at"],
+                        "token_stored": False,
+                        "token_hash_exposed": False,
+                    },
+                )
         return cur.rowcount > 0
 
     def list_keys(self) -> list[dict]:
@@ -285,6 +392,39 @@ class ProAPIStore:
                FROM api_keys ORDER BY created_at DESC"""
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def list_operator_events(self, limit: int = 25, key_id: Optional[str] = None) -> list[dict]:
+        safe_limit = max(1, min(100, int(limit or 25)))
+        args: list[object] = []
+        where = ""
+        if key_id:
+            where = "WHERE key_id=?"
+            args.append(key_id)
+        rows = self.conn.execute(
+            f"""SELECT id,event_type,key_id,label,actor,detail_json,created_at
+                FROM pro_operator_events
+                {where}
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT ?""",
+            (*args, safe_limit),
+        ).fetchall()
+        events = []
+        for r in rows:
+            detail = {}
+            try:
+                detail = json.loads(r["detail_json"] or "{}")
+            except json.JSONDecodeError:
+                detail = {}
+            events.append({
+                "id": r["id"],
+                "event_type": r["event_type"],
+                "key_id": r["key_id"],
+                "label": r["label"],
+                "actor": r["actor"],
+                "detail": detail,
+                "created_at": r["created_at"],
+            })
+        return events
 
     def admin_health(self) -> dict:
         """Return bounded Pro control-plane health without exposing secrets."""
@@ -356,6 +496,14 @@ class ProAPIStore:
                    (SELECT COUNT(*) FROM saved_workspace_activity) AS activity_events,
                    (SELECT MAX(created_at) FROM saved_workspace_activity) AS latest_activity_at"""
         ).fetchone()
+        operator_summary_row = self.conn.execute(
+            """SELECT COUNT(*) AS total,
+                      MAX(created_at) AS latest_at,
+                      SUM(CASE WHEN event_type='api_key.created' THEN 1 ELSE 0 END) AS created,
+                      SUM(CASE WHEN event_type='api_key.revoked' THEN 1 ELSE 0 END) AS revoked
+               FROM pro_operator_events"""
+        ).fetchone()
+        operator_summary = dict(operator_summary_row or {})
         audit = dict(audit_summary or {})
         status = "ok"
         warnings: list[str] = []
@@ -435,6 +583,19 @@ class ProAPIStore:
                 "open_alerts": int(workspace["open_alerts"] or 0),
                 "activity_events": int(workspace["activity_events"] or 0),
                 "latest_activity_at": workspace["latest_activity_at"],
+            },
+            "operator_events": {
+                "total": int(operator_summary.get("total") or 0),
+                "latest_at": operator_summary.get("latest_at"),
+                "api_key_created": int(operator_summary.get("created") or 0),
+                "api_key_revoked": int(operator_summary.get("revoked") or 0),
+                "recent": self.list_operator_events(limit=10),
+                "privacy": {
+                    "tokens_stored": False,
+                    "token_hashes_exposed": False,
+                    "ip_exposed": False,
+                    "user_agent_exposed": False,
+                },
             },
             "external_checks": {
                 "collected_by_web_process": False,

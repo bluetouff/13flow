@@ -774,6 +774,8 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
         assert recent[workspace_key.key_id]["rotation_due_at"]
         assert recent[workspace_key.key_id]["expires_at"] is None
         assert health["audit"]["server_errors"] == 1
+        assert health["operator_events"]["api_key_created"] == 2
+        assert health["operator_events"]["privacy"]["tokens_stored"] is False
         assert health["external_checks"]["collected_by_web_process"] is False
         assert "13flow-pro-backup.timer" in health["external_checks"]["expected_units"]
         body = ok.get_data(as_text=True)
@@ -830,12 +832,15 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
         assert fulfillment["web_worker_creates_tokens"] is False
         assert fulfillment["tokens_exposed"] is False
         assert fulfillment["secrets_exposed"] is False
+        assert fulfillment["operator_events"]["api_key_created"] == 2
+        assert fulfillment["operator_events"]["privacy"]["tokens_stored"] is False
         assert fulfillment["least_privilege_policy"]["customer_forbidden_scopes"] == ["admin:read"]
         assert "admin:read" not in fulfillment["least_privilege_policy"]["default_customer_scopes"]
         assert fulfillment["default_limits"]["expires_days"] == 30
         assert fulfillment["default_limits"]["rotation_days"] == 21
         assert "--create-api-key" in fulfillment["operator_commands"]["create_bounded_pilot_key"]
         assert "--api-key-scopes funds:read,quality:read,workspace:write" in fulfillment["operator_commands"]["create_bounded_pilot_key"]
+        assert "--list-operator-events" in fulfillment["operator_commands"]["list_operator_events"]
         assert "13flow_live_" not in str(fulfillment)
         assert "<issued_token>" in fulfillment["operator_commands"]["verify_issued_key_status"]
         assert "organization" in fulfillment["intake_boundary"]["required_fields"]
@@ -926,6 +931,40 @@ def test_pro_api_key_revocation_is_immediate():
                 assert False, "revoked key must not authenticate"
             except APIKeyError:
                 pass
+
+
+def test_pro_operator_events_track_key_lifecycle_without_secrets():
+    with tempfile.TemporaryDirectory() as d:
+        pro_db = str(Path(d) / "pro.db")
+        with ProAPIStore(pro_db) as pro:
+            token, key = pro.create_key(
+                "Pilot Buyer",
+                scopes=("funds:read", "quality:read", "workspace:write"),
+                expires_days=30,
+                rotation_days=21,
+            )
+            assert pro.revoke_key(key.key_id) is True
+            events = pro.list_operator_events(limit=10)
+            assert [e["event_type"] for e in events] == ["api_key.revoked", "api_key.created"]
+            assert events[0]["key_id"] == key.key_id
+            assert events[0]["label"] == "Pilot Buyer"
+            assert events[0]["actor"] == "cli"
+            assert events[0]["detail"]["scopes"] == ["funds:read", "quality:read", "workspace:write"]
+            assert events[0]["detail"]["token_stored"] is False
+            assert events[0]["detail"]["token_hash_exposed"] is False
+            raw = str(events)
+            assert token not in raw
+            assert "key_hash" not in raw
+            health = pro.admin_health()
+            assert health["operator_events"]["total"] == 2
+            assert health["operator_events"]["api_key_created"] == 1
+            assert health["operator_events"]["api_key_revoked"] == 1
+            assert health["operator_events"]["privacy"] == {
+                "tokens_stored": False,
+                "token_hashes_exposed": False,
+                "ip_exposed": False,
+                "user_agent_exposed": False,
+            }
 
 
 def test_pro_api_expired_key_fails_closed(monkeypatch):

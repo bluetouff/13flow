@@ -252,6 +252,22 @@ def cmd_revoke_api_key(pro_db, key_id) -> None:
     print("revoked" if ok else "not found or already revoked")
 
 
+def cmd_list_operator_events(pro_db, limit) -> None:
+    with ProAPIStore(pro_db) as pro:
+        rows = pro.list_operator_events(limit=limit)
+    if not rows:
+        print("No operator events.")
+        return
+    print("Operator events:\n")
+    for r in rows:
+        detail = r.get("detail") or {}
+        scopes = ",".join(detail.get("scopes") or [])
+        print(
+            f"  {r['created_at']}  {r['event_type']:<16}  key={r.get('key_id') or '-'}  "
+            f"label={r.get('label') or '-'}  actor={r.get('actor') or '-'}  scopes={scopes or '-'}"
+        )
+
+
 def cmd_prune_pro_audit(pro_db, retention_days) -> None:
     with ProAPIStore(pro_db) as pro:
         result = pro.prune_audit(retention_days)
@@ -902,6 +918,10 @@ def main() -> None:
     ap.add_argument("--create-api-key", metavar="LABEL", help="create a Pro API key")
     ap.add_argument("--list-api-keys", action="store_true", help="list Pro API keys")
     ap.add_argument("--revoke-api-key", metavar="KEY_ID", help="revoke a Pro API key")
+    ap.add_argument("--list-operator-events", action="store_true",
+                    help="list non-secret Pro operator events")
+    ap.add_argument("--operator-events-limit", type=int, default=25,
+                    help="maximum rows for --list-operator-events")
     ap.add_argument("--prune-pro-audit-days", type=int, metavar="DAYS",
                     help="delete Pro API audit rows older than DAYS")
     ap.add_argument("--pro-db", default=os.environ.get("SMARTMONEY_PRO_DB", "13flow-pro.db"),
@@ -1114,6 +1134,8 @@ def main() -> None:
         return cmd_list_api_keys(args.pro_db)
     if args.revoke_api_key:
         return cmd_revoke_api_key(args.pro_db, args.revoke_api_key)
+    if args.list_operator_events:
+        return cmd_list_operator_events(args.pro_db, args.operator_events_limit)
     if args.prune_pro_audit_days:
         return cmd_prune_pro_audit(args.pro_db, args.prune_pro_audit_days)
     if args.create_user:
