@@ -351,9 +351,19 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             ("/legal", "Legal, privacy and data terms"),
             ("/fr", "Construit pour les builders"),
             ("/fr/sandbox", "Sandbox en 60 secondes"),
-            ("/fr/developers", "Developpeurs"),
+            ("/fr/developers", "Développeurs"),
             ("/fr/alternatives", "Pourquoi pas sec-api"),
             ("/fr/trust-artifact", "Trust layer, pas alpha"),
+            ("/fr/status", "Console de preuve production"),
+            ("/fr/coverage", "Couverture des fonds fiables"),
+            ("/fr/validation", "Preuve, pas hype"),
+            ("/fr/security", "Posture sécurité"),
+            ("/fr/methodology", "Méthodologie"),
+            ("/fr/methodology/app", "Contrat d'interprétation"),
+            ("/fr/methodology/mcp", "Contrat MCP"),
+            ("/fr/faq", "Questions fréquentes"),
+            ("/fr/about", "À propos de 13FLOW"),
+            ("/fr/legal", "Mentions légales"),
         ):
             r = c.get(path)
             assert r.status_code == 200, path

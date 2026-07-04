@@ -6870,17 +6870,28 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     I18N_ROUTE_PAIRS = [
         {"id": "home", "en": "/", "fr": "/fr", "en_label": "Home", "fr_label": "Accueil"},
         {"id": "sandbox", "en": "/sandbox", "fr": "/fr/sandbox", "en_label": "Sandbox", "fr_label": "Sandbox"},
-        {"id": "developers", "en": "/developers", "fr": "/fr/developers", "en_label": "Developers", "fr_label": "Developpeurs"},
+        {"id": "developers", "en": "/developers", "fr": "/fr/developers", "en_label": "Developers", "fr_label": "Développeurs"},
         {"id": "alternatives", "en": "/alternatives", "fr": "/fr/alternatives", "en_label": "Alternatives", "fr_label": "Alternatives"},
         {"id": "trust_artifact", "en": "/trust-artifact", "fr": "/fr/trust-artifact", "en_label": "Trust artifact", "fr_label": "Preuve de confiance"},
+        {"id": "status", "en": "/status", "fr": "/fr/status", "en_label": "Status", "fr_label": "Statut"},
+        {"id": "coverage", "en": "/coverage", "fr": "/fr/coverage", "en_label": "Coverage", "fr_label": "Couverture"},
+        {"id": "validation", "en": "/validation", "fr": "/fr/validation", "en_label": "Validation", "fr_label": "Validation"},
+        {"id": "security", "en": "/security", "fr": "/fr/security", "en_label": "Security", "fr_label": "Sécurité"},
+        {"id": "methodology", "en": "/methodology", "fr": "/fr/methodology", "en_label": "Methodology", "fr_label": "Méthodologie"},
+        {"id": "methodology_app", "en": "/methodology/app", "fr": "/fr/methodology/app", "en_label": "Application method", "fr_label": "Méthode app"},
+        {"id": "methodology_mcp", "en": "/methodology/mcp", "fr": "/fr/methodology/mcp", "en_label": "MCP method", "fr_label": "Méthode MCP"},
+        {"id": "buyer_pack", "en": "/buyer-pack", "fr": "/fr/buyer-pack", "en_label": "Buyer pack", "fr_label": "Pack acheteur"},
+        {"id": "about", "en": "/about", "fr": "/fr/about", "en_label": "About", "fr_label": "À propos"},
+        {"id": "faq", "en": "/faq", "fr": "/fr/faq", "en_label": "FAQ", "fr_label": "FAQ"},
+        {"id": "legal", "en": "/legal", "fr": "/fr/legal", "en_label": "Legal", "fr_label": "Mentions légales"},
     ]
     I18N_EN_TO_FR = {item["en"]: item["fr"] for item in I18N_ROUTE_PAIRS}
     I18N_FR_TO_EN = {item["fr"]: item["en"] for item in I18N_ROUTE_PAIRS}
 
     I18N_COPY = {
         "public_sandbox": {"en": "Public sandbox", "fr": "Sandbox public"},
-        "mcp_minimum": {"en": "MCP minimum public demo", "fr": "Demo publique MCP minimale"},
-        "sandbox_only_key": {"en": "Sandbox-only key", "fr": "Cle limitee au sandbox"},
+        "mcp_minimum": {"en": "MCP minimum public demo", "fr": "Démo publique MCP minimale"},
+        "sandbox_only_key": {"en": "Sandbox-only key", "fr": "Clé limitée au sandbox"},
         "not_investment_advice": {"en": "Not investment advice", "fr": "Pas un conseil en investissement"},
     }
 
@@ -6937,16 +6948,28 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         lang = lang if lang in I18N_LANGUAGES else "en"
         language_switcher = _language_switcher(page_path, lang)
         alternates = _alternate_link_tags(page_path)
+        def local_path(path: str) -> str:
+            if lang == "fr":
+                return I18N_EN_TO_FR.get(path, path)
+            if path.startswith("/fr/") or path == "/fr":
+                return I18N_FR_TO_EN.get(path, path[3:] or "/")
+            return path
+
+        def nav_label(en: str, fr: str) -> str:
+            return fr if lang == "fr" else en
+
         nav = (
-            '<nav class="topnav"><a class="brand" href="/"><svg width="34" height="34" viewBox="0 0 64 64" fill="none" aria-hidden="true">'
+            f'<nav class="topnav"><a class="brand" href="{html_escape(local_path("/"), quote=True)}"><svg width="34" height="34" viewBox="0 0 64 64" fill="none" aria-hidden="true">'
             '<path d="M7 15 C 22 15, 22 32, 37 32" stroke="#19c187" stroke-width="7.5" stroke-linecap="round"/>'
             '<path d="M7 49 C 22 49, 22 32, 37 32" stroke="#e0a534" stroke-width="7.5" stroke-linecap="round"/>'
             '<path d="M34 32 L 57 32" stroke="#19c187" stroke-width="8.5" stroke-linecap="round"/>'
             '<circle cx="35" cy="32" r="6.4" fill="#0c1611"/><circle cx="35" cy="32" r="2.7" fill="#fff"/></svg>'
             '<span class="wm">13<span>FL</span><b>OW</b></span></a>'
             '<div class="navlinks"><a class="primary" href="/app">Cockpit</a>'
-            '<a href="/signals">Signals</a><a href="/funds">Funds</a><a href="/stocks">Stocks</a>'
-            f'<a href="/developers">API</a></div>{language_switcher}</nav>'
+            f'<a href="/signals">{html_escape(nav_label("Signals", "Signaux"))}</a>'
+            f'<a href="/funds">{html_escape(nav_label("Funds", "Fonds"))}</a>'
+            f'<a href="/stocks">{html_escape(nav_label("Stocks", "Titres"))}</a>'
+            f'<a href="{html_escape(local_path("/developers"), quote=True)}">API</a></div>{language_switcher}</nav>'
         )
         def _foot_icon(path: str) -> str:
             return (
@@ -6956,7 +6979,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             )
 
         def _foot_link(href: str, label: str, icon: str) -> str:
-            return f'<a class="foot-link" href="{href}">{icon}<span>{label}</span></a>'
+            return f'<a class="foot-link" href="{html_escape(local_path(href), quote=True)}">{icon}<span>{html_escape(label)}</span></a>'
 
         icon_brand = _foot_icon('<path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z"/><path d="M4 7v5c0 1.7 3.6 3 8 3s8-1.3 8-3V7"/><path d="M4 12v5c0 1.7 3.6 3 8 3s8-1.3 8-3v-5"/>')
         icon_app = _foot_icon('<rect x="4" y="4" width="7" height="7" rx="1.4"/><rect x="13" y="4" width="7" height="7" rx="1.4"/><rect x="4" y="13" width="7" height="7" rx="1.4"/><rect x="13" y="13" width="7" height="7" rx="1.4"/>')
@@ -6972,24 +6995,70 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         icon_company = _foot_icon('<circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r="0.7" fill="currentColor" stroke="none"/>')
         icon_doc = _foot_icon('<path d="M5 4h10l4 4v12H5z"/><path d="M15 4v4h4"/><path d="M8 12h8M8 16h6"/>')
         icon_legal = _foot_icon('<path d="M12 3v18"/><path d="M5 7h14"/><path d="M7 7l-3 6h6z"/><path d="M17 7l-3 6h6z"/><path d="M8 21h8"/>')
+        if lang == "fr":
+            footer_intro = "Surfaces de recherche 13F et Form 4 issues de SEC EDGAR pour builders agents, research ops et workflows sourcés."
+            product_title = "Produit"
+            trust_title = "Confiance"
+            project_title = "Projet"
+            footer_fine_left = "Recherche sur filings publics. Pas un conseil en investissement."
+            footer_fine_right = 'Construit par <a href="https://l0g.fr/" rel="noopener">l0g</a> · Source : SEC EDGAR · état LIVE exposé sur /api/live-status'
+            footer_labels = {
+                "signals": "Signaux",
+                "funds": "Fonds",
+                "stocks": "Titres",
+                "api_docs": "Docs API",
+                "status": "Statut",
+                "coverage": "Couverture",
+                "security": "Sécurité",
+                "methodology": "Méthodologie",
+                "app_method": "Méthode app",
+                "mcp_method": "Méthode MCP",
+                "alternatives": "Alternatives",
+                "trust_artifact": "Preuve de confiance",
+                "about": "À propos",
+                "legal": "Mentions légales",
+            }
+        else:
+            footer_intro = "SEC EDGAR-derived 13F and Form 4 research surfaces for agent builders, research ops and source-linked filing workflows."
+            product_title = "Product"
+            trust_title = "Trust"
+            project_title = "Project"
+            footer_fine_left = "Public filings research. Not investment advice."
+            footer_fine_right = 'Built by <a href="https://l0g.fr/" rel="noopener">l0g</a> · Source: SEC EDGAR · LIVE state exposed at /api/live-status'
+            footer_labels = {
+                "signals": "Signals",
+                "funds": "Funds",
+                "stocks": "Stocks",
+                "api_docs": "API docs",
+                "status": "Status",
+                "coverage": "Coverage",
+                "security": "Security",
+                "methodology": "Methodology",
+                "app_method": "Application method",
+                "mcp_method": "MCP method",
+                "alternatives": "Alternatives",
+                "trust_artifact": "Trust artifact",
+                "about": "About",
+                "legal": "Legal",
+            }
+
         footer = (
             '<footer class="site-footer"><div class="foot-grid">'
-            f'<div><h4>{icon_brand}<span>13FLOW</span></h4><p>SEC EDGAR-derived 13F and Form 4 research surfaces '
-            'for agent builders, research ops and source-linked filing workflows.</p></div>'
-            f'<div><h4>{icon_app}<span>Product</span></h4>{_foot_link("/app", "Cockpit", icon_app)}'
-            f'{_foot_link("/signals", "Signals", icon_signal)}{_foot_link("/funds", "Funds", icon_fund)}'
-            f'{_foot_link("/stocks", "Stocks", icon_stock)}{_foot_link("/sandbox", "Sandbox", icon_api)}'
-            f'{_foot_link("/developers", "API docs", icon_api)}</div>'
-            f'<div><h4>{icon_security}<span>Trust</span></h4>{_foot_link("/status", "Status", icon_status)}'
-            f'{_foot_link("/coverage", "Coverage", icon_coverage)}{_foot_link("/validation", "Validation", icon_signal)}'
-            f'{_foot_link("/security", "Security", icon_security)}{_foot_link("/methodology", "Methodology", icon_method)}'
-            f'{_foot_link("/methodology/app", "Application method", icon_doc)}'
-            f'{_foot_link("/methodology/mcp", "MCP method", icon_api)}</div>'
-            f'<div><h4>{icon_company}<span>Project</span></h4>{_foot_link("/alternatives", "Alternatives", icon_doc)}'
-            f'{_foot_link("/trust-artifact", "Trust artifact", icon_doc)}{_foot_link("/about", "About", icon_company)}'
-            f'{_foot_link("/faq", "FAQ", icon_status)}{_foot_link("/legal", "Legal", icon_legal)}</div>'
-            '</div><div class="fine"><span>Public filings research. Not investment advice.</span>'
-            '<span>Built by <a href="https://l0g.fr/" rel="noopener">l0g</a> · Source: SEC EDGAR · LIVE state exposed at /api/live-status</span></div></footer>'
+            f'<div><h4>{icon_brand}<span>13FLOW</span></h4><p>{html_escape(footer_intro)}</p></div>'
+            f'<div><h4>{icon_app}<span>{html_escape(product_title)}</span></h4>{_foot_link("/app", "Cockpit", icon_app)}'
+            f'{_foot_link("/signals", footer_labels["signals"], icon_signal)}{_foot_link("/funds", footer_labels["funds"], icon_fund)}'
+            f'{_foot_link("/stocks", footer_labels["stocks"], icon_stock)}{_foot_link("/sandbox", "Sandbox", icon_api)}'
+            f'{_foot_link("/developers", footer_labels["api_docs"], icon_api)}</div>'
+            f'<div><h4>{icon_security}<span>{html_escape(trust_title)}</span></h4>{_foot_link("/status", footer_labels["status"], icon_status)}'
+            f'{_foot_link("/coverage", footer_labels["coverage"], icon_coverage)}{_foot_link("/validation", "Validation", icon_signal)}'
+            f'{_foot_link("/security", footer_labels["security"], icon_security)}{_foot_link("/methodology", footer_labels["methodology"], icon_method)}'
+            f'{_foot_link("/methodology/app", footer_labels["app_method"], icon_doc)}'
+            f'{_foot_link("/methodology/mcp", footer_labels["mcp_method"], icon_api)}</div>'
+            f'<div><h4>{icon_company}<span>{html_escape(project_title)}</span></h4>{_foot_link("/alternatives", footer_labels["alternatives"], icon_doc)}'
+            f'{_foot_link("/trust-artifact", footer_labels["trust_artifact"], icon_doc)}{_foot_link("/about", footer_labels["about"], icon_company)}'
+            f'{_foot_link("/faq", "FAQ", icon_status)}{_foot_link("/legal", footer_labels["legal"], icon_legal)}</div>'
+            f'</div><div class="fine"><span>{html_escape(footer_fine_left)}</span>'
+            f'<span>{footer_fine_right}</span></div></footer>'
         )
         script_tag = (
             f'<script nonce="{nonce}">{script}</script>'
@@ -8806,7 +8875,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             f"<span class=\"pill\">{html_escape(status_label.replace('LIVE EDGAR', 'LIVE · EDGAR'))}</span>"
             "<span>13F x Form 4</span><span>Sandbox public</span><span>Surface recherche ouverte</span></div>"
             "<h1>13FLOW</h1>"
-            "<p class=\"home-lede\">Une couche de confiance issue des filings SEC pour les agent builders et les equipes research ops: ownership 13F, contexte Form 4 borne, alertes qualite et contrats API/MCP avant qu'un workflow cite la donnee.</p>"
+            "<p class=\"home-lede\">Une couche de confiance issue des filings SEC pour les agent builders et les équipes research ops: ownership 13F, contexte Form 4 borné, alertes qualité et contrats API/MCP avant qu'un workflow cite la donnée.</p>"
             "<div class=\"home-proof\">"
             f"<div class=\"proof-item\"><b>{html_escape(str(counts.get('funds') or 0))}</b><span>fonds suivis</span></div>"
             f"<div class=\"proof-item\"><b>{html_escape(str(counts.get('filings') or 0))}</b><span>filings SEC</span></div>"
@@ -8831,28 +8900,28 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<div class=\"watch-row\"><b>DQ</b><span>Warnings AUM et unit-scale visibles</span><i>visible</i></div>"
             "</div></div></aside></section>"
             "<section class=\"trust-band\">"
-            f"<div><b>Etat live: {html_escape(status_label)}.</b><span>uses_synthetic_data={str(live['uses_synthetic_data']).lower()} · SHA {html_escape(sha_short)}</span></div>"
+            f"<div><b>État live: {html_escape(status_label)}.</b><span>uses_synthetic_data={str(live['uses_synthetic_data']).lower()} · SHA {html_escape(sha_short)}</span></div>"
             f"<div><b>/api/funds sert {html_escape(str(counts.get('funds') or 0))} fonds</b><span>filings={html_escape(str(counts.get('filings') or 0))}</span></div>"
             f"<div><b>Dernier trimestre 13F {html_escape(latest_q)}</b><span>contrats publics et OpenAPI disponibles</span></div>"
-            f"<div><b>{html_escape(str(quality.get('aum_jump_warnings') or 0))} warnings qualite</b><span>{html_escape(str(quality.get('unit_scale_candidates') or 0))} candidats unit-scale</span></div>"
+            f"<div><b>{html_escape(str(quality.get('aum_jump_warnings') or 0))} warnings qualité</b><span>{html_escape(str(quality.get('unit_scale_candidates') or 0))} candidats unit-scale</span></div>"
             "</section>"
-            "<section class=\"section-head\"><div><div class=\"kicker\">Workflow professionnel</div><h2>Construit pour les builders qui veulent l'evidence d'abord</h2></div>"
-            "<p>13FLOW doit rester une couche compacte: sandbox instantane, limites visibles et evidence sourcee avant toute cle production payante.</p></section>"
+            "<section class=\"section-head\"><div><div class=\"kicker\">Workflow professionnel</div><h2>Construit pour les builders qui veulent l'évidence d'abord</h2></div>"
+            "<p>13FLOW doit rester une couche compacte: sandbox instantané, limites visibles et évidence sourcée avant toute clé production payante.</p></section>"
             "<div class=\"journey\">"
             "<a class=\"step\" href=\"/app#confluence\"><div class=\"n\">01 · Triage</div><h3>Cockpit signal</h3><p>Prioriser les noms ou pression 13F et activite Form 4 se recoupent, puis verifier les sources.</p></a>"
-            "<a class=\"step\" href=\"/funds\"><div class=\"n\">02 · Valider</div><h3>Fonds et issuers</h3><p>Verifier qui a bouge, ce qui a change, les accessions et les flags qualite.</p></a>"
-            "<a class=\"step\" href=\"/fr/developers\"><div class=\"n\">03 · Integrer</div><h3>API et agents</h3><p>Utiliser les endpoints read-only, OpenAPI, le sandbox et la frontiere MCP minimale.</p></a>"
+            "<a class=\"step\" href=\"/funds\"><div class=\"n\">02 · Valider</div><h3>Fonds et issuers</h3><p>Vérifier qui a bougé, ce qui a changé, les accessions et les flags qualité.</p></a>"
+            "<a class=\"step\" href=\"/fr/developers\"><div class=\"n\">03 · Intégrer</div><h3>API et agents</h3><p>Utiliser les endpoints read-only, OpenAPI, le sandbox et la frontière MCP minimale.</p></a>"
             "</div>"
             "<section class=\"boundary\"><div class=\"panel\"><h3>Ce qui est live</h3><ul>"
-            "<li>Donnees 13F publiques read-only derivees de SEC EDGAR.</li>"
-            "<li>Artifact trust-layer plus large que l'ancien echantillon 25 tickers quand les holdings live le permettent.</li>"
-            "<li>API publique, MCP minimal, methodologie et pages de statut.</li></ul>"
+            "<li>Données 13F publiques read-only dérivées de SEC EDGAR.</li>"
+            "<li>Artifact trust-layer plus large que l'ancien échantillon 25 tickers quand les holdings live le permettent.</li>"
+            "<li>API publique, MCP minimal, méthodologie et pages de statut.</li></ul>"
             "<p><a class=\"pill\" href=\"/fr/sandbox\">Sandbox</a> <a class=\"pill\" href=\"/api/openapi.json\">OpenAPI</a></p></div>"
             "<div class=\"panel\"><h3>Ce qui n'est pas affirme</h3><ul>"
-            "<li>Pas de claim d'alpha valide.</li><li>Pas de modele de rendement attendu.</li>"
-            "<li>Pas d'acces payant public pour le moment.</li><li>Pas d'offre MCP separee.</li><li>Pas de droit de redistribution sans accord ecrit.</li></ul>"
+            "<li>Pas de claim d'alpha validé.</li><li>Pas de modèle de rendement attendu.</li>"
+            "<li>Pas d'accès payant public pour le moment.</li><li>Pas d'offre MCP séparée.</li><li>Pas de droit de redistribution sans accord écrit.</li></ul>"
             f"<p><span class=\"pill\">{html_escape(validation['status'])}</span> <span class=\"pill\">rows={html_escape(str(artifact['row_count']))}; tickers={html_escape(str(artifact['ticker_count']))}</span></p>"
-            "<p><a class=\"pill\" href=\"/validation\">Evidence validation</a> <a class=\"pill\" href=\"/methodology\">Methodologie</a></p></div></section>"
+            "<p><a class=\"pill\" href=\"/fr/validation\">Validation</a> <a class=\"pill\" href=\"/fr/methodology\">Méthodologie</a></p></div></section>"
         )
         return _html_response("Accueil", body, lang="fr", canonical_path="/")
 
@@ -8871,19 +8940,19 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "curl -fsS -H \"Authorization: Bearer $TOKEN\" https://13flow.eu/api/sandbox/v1/mcp-minimum"
         )
         body = (
-            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Cle instantanee limitee</div>"
+            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Clé instantanée limitée</div>"
             "<h1>Sandbox en 60 secondes</h1>"
-            "<p class=\"doc-lede\">Generez une cle publique sandbox-only, lancez des probes API et inspectez la frontiere MCP minimale. Cette cle reste limitee aux endpoints publics du sandbox et ne deverrouille aucune surface privee operateur/admin.</p>"
-            "<div class=\"actions\"><a class=\"pill cta\" href=\"/api/sandbox/key\">Obtenir la cle JSON</a> <a class=\"pill\" href=\"/fr/developers\">Docs developpeurs</a></div></div>"
-            "<aside class=\"doc-panel\"><h3>Frontiere</h3><div class=\"mini-list\">"
+            "<p class=\"doc-lede\">Générez une clé publique sandbox-only, lancez des probes API et inspectez la frontière MCP minimale. Cette clé reste limitée aux endpoints publics du sandbox et ne déverrouille aucune surface privée opérateur/admin.</p>"
+            "<div class=\"actions\"><a class=\"pill cta\" href=\"/api/sandbox/key\">Obtenir la clé JSON</a> <a class=\"pill\" href=\"/fr/developers\">Docs développeurs</a></div></div>"
+            "<aside class=\"doc-panel\"><h3>Frontière</h3><div class=\"mini-list\">"
             f"<div><b>Token:</b> <code>{html_escape(token)}</code></div>"
             f"<div><b>Limites:</b> {payload['limits']['per_min']} / min · {payload['limits']['per_day']} / jour.</div>"
-            "<div><b>Securite:</b> les tokens sandbox sont des tokens de demo publique et ne creent pas de credentials production.</div>"
+            "<div><b>Sécurité:</b> les tokens sandbox sont des tokens de démo publique et ne créent pas de credentials production.</div>"
             "</div></aside></section>"
-            "<section class=\"doc-section\"><h2>Demo API copiable</h2>"
+            "<section class=\"doc-section\"><h2>Démo API copiable</h2>"
             f"<pre><code>{html_escape(curl)}</code></pre></section>"
-            "<section class=\"split\"><div class=\"doc-section\"><h2>Ce que ca prouve</h2><ul><li>Votre workflow peut recuperer une cle et appeler des endpoints bornes.</li><li>Votre agent garde la source, la methode et les limites visibles.</li></ul></div>"
-            "<div class=\"doc-section\"><h2>Ce que ca ne prouve pas</h2><ul><li>Pas d'acces Pro production.</li><li>Pas de SLA ni droit de redistribution.</li><li>Pas d'offre MCP payante separee.</li></ul></div></section>"
+            "<section class=\"split\"><div class=\"doc-section\"><h2>Ce que ça prouve</h2><ul><li>Votre workflow peut récupérer une clé et appeler des endpoints bornés.</li><li>Votre agent garde la source, la méthode et les limites visibles.</li></ul></div>"
+            "<div class=\"doc-section\"><h2>Ce que ça ne prouve pas</h2><ul><li>Pas d'accès Pro production.</li><li>Pas de SLA ni droit de redistribution.</li><li>Pas d'offre MCP payante séparée.</li></ul></div></section>"
         )
         return _html_response("Sandbox", body, lang="fr", canonical_path="/sandbox")
 
@@ -8899,18 +8968,18 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "curl -fsS https://13flow.eu/api/i18n"
         )
         body = (
-            "<h1>Developpeurs</h1>"
-            "<p class=\"lede\">API publique read-only et entree MCP minimale pour du contexte SEC 13F source. Le sandbox public inclut les demos; l'acces Pro production reste emis par l'operateur et l'acces payant n'est pas encore public.</p>"
+            "<h1>Développeurs</h1>"
+            "<p class=\"lede\">API publique read-only et entrée MCP minimale pour du contexte SEC 13F sourcé. Le sandbox public inclut les démos; l'accès Pro production reste émis par l'opérateur et l'accès payant n'est pas encore public.</p>"
             "<div class=\"grid\">"
-            "<div class=\"card\"><h3>Status</h3><p><a href=\"/status\">/status</a></p><p class=\"meta\">SHA deploye, etat live et frontiere de validation.</p></div>"
+            "<div class=\"card\"><h3>Statut</h3><p><a href=\"/fr/status\">/fr/status</a></p><p class=\"meta\">SHA déployé, état live et frontière de validation.</p></div>"
             "<div class=\"card\"><h3>API publique</h3><p><a href=\"/api/openapi.json\">/api/openapi.json</a></p><p class=\"meta\">Pas de compte navigateur, pas de cookie, pas de checkout.</p></div>"
-            f"<div class=\"card\"><h3>Sandbox</h3><p><a href=\"/fr/sandbox\">/fr/sandbox</a></p><p class=\"meta\">Cle instantanee limitee: {limits['sandbox_rate_per_min']} / min, {limits['sandbox_rate_per_day']} / jour.</p></div>"
-            "<div class=\"card\"><h3>i18n contract</h3><p><a href=\"/api/i18n\">/api/i18n</a></p><p class=\"meta\">Manifeste EN/FR utilise par les tests et le smoke public.</p></div>"
+            f"<div class=\"card\"><h3>Sandbox</h3><p><a href=\"/fr/sandbox\">/fr/sandbox</a></p><p class=\"meta\">Clé instantanée limitée: {limits['sandbox_rate_per_min']} / min, {limits['sandbox_rate_per_day']} / jour.</p></div>"
+            "<div class=\"card\"><h3>Contrat i18n</h3><p><a href=\"/api/i18n\">/api/i18n</a></p><p class=\"meta\">Manifeste EN/FR utilisé par les tests et le smoke public.</p></div>"
             "</div><div class=\"panel\" style=\"margin-top:18px\"><h2>Quick checks</h2>"
             f"<pre><code>{html_escape(curl_status)}</code></pre></div>"
-            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Politique d'usage</h2><ul><li>13FLOW est un outil de recherche, pas un conseil en investissement.</li><li>Les filings 13F sont retardes et incomplets par nature.</li><li>Ne pas presenter les outputs comme alpha valide ou recommandation de trading.</li></ul></div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Politique d'usage</h2><ul><li>13FLOW est un outil de recherche, pas un conseil en investissement.</li><li>Les filings 13F sont retardés et incomplets par nature.</li><li>Ne pas présenter les outputs comme alpha validé ou recommandation de trading.</li></ul></div>"
         )
-        return _html_response("Developpeurs", body, lang="fr", canonical_path="/developers")
+        return _html_response("Développeurs", body, lang="fr", canonical_path="/developers")
 
     @app.get("/fr/alternatives")
     def alternatives_page_fr():
@@ -8919,7 +8988,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<div class=\"doc-card\">"
             f"<h3>{html_escape(item['provider'])}</h3>"
             f"<p>{html_escape(item['observed_offer'])}</p>"
-            f"<p class=\"meta\">Pourquoi pas seulement ca: {html_escape(item['risk_if_competing_directly'])}</p>"
+            f"<p class=\"meta\">Pourquoi pas seulement ça: {html_escape(item['risk_if_competing_directly'])}</p>"
             f"<p>{html_escape(item['thirteenflow_response'])}</p>"
             + (f"<p><a class=\"pill\" href=\"{html_escape(item['source_url'], quote=True)}\" rel=\"noopener\">Source</a></p>" if item.get("source_url") else "")
             + "</div>"
@@ -8928,11 +8997,11 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
         body = (
             "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Positionnement</div>"
             "<h1>Pourquoi pas sec-api, Financial Datasets ou Dataroma ?</h1>"
-            "<p class=\"doc-lede\">13FLOW ne doit pas se vendre comme un clone moins cher de broad data APIs ou de pages portfolio retail. Le wedge est plus etroit: une trust layer pour agent builders et research ops.</p>"
+            "<p class=\"doc-lede\">13FLOW ne doit pas se vendre comme un clone moins cher de broad data APIs ou de pages portfolio retail. Le wedge est plus étroit: une trust layer pour agent builders et research ops.</p>"
             "<div class=\"actions\"><a class=\"pill cta\" href=\"/fr/sandbox\">Tester le sandbox</a><a class=\"pill\" href=\"/fr/trust-artifact\">Artifact</a></div></div>"
-            "<aside class=\"doc-panel\"><h3>Reponse courte</h3><p class=\"callout\"><strong>SEC EDGAR reste la verite brute.</strong> 13FLOW sert quand le workflow a besoin d'evidence sourcee, de frontieres qualite et de contrats API/MCP copiables.</p></aside></section>"
+            "<aside class=\"doc-panel\"><h3>Réponse courte</h3><p class=\"callout\"><strong>SEC EDGAR reste la vérité brute.</strong> 13FLOW sert quand le workflow a besoin d'évidence sourcée, de frontières qualité et de contrats API/MCP copiables.</p></aside></section>"
             "<section class=\"doc-grid\">" + cards + "</section>"
-            "<section class=\"doc-section\"><h2>Discipline ICP</h2><ul><li>ICP primaire: agent builders et research operations.</li><li>Pas retail. Pas discretionary analyst generique.</li><li>Valeur: trust layer et evidence workflow, pas signal alpha.</li></ul></section>"
+            "<section class=\"doc-section\"><h2>Discipline ICP</h2><ul><li>ICP primaire: agent builders et research operations.</li><li>Pas retail. Pas discretionary analyst générique.</li><li>Valeur: trust layer et évidence workflow, pas signal alpha.</li></ul></section>"
         )
         return _html_response("Alternatives", body, lang="fr", canonical_path="/alternatives")
 
@@ -8947,15 +9016,325 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
         body = (
             "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Artifact de preuve</div>"
             "<h1>Trust layer, pas alpha</h1>"
-            "<p class=\"doc-lede\">Artifact machine-readable plus large sur les holdings 13F publics les plus recents. Son role est de prouver couverture, structure source et utilite workflow, meme quand la bonne conclusion est: pas de claim alpha.</p>"
+            "<p class=\"doc-lede\">Artifact machine-readable plus large sur les holdings 13F publics les plus récents. Son rôle est de prouver couverture, structure source et utilité workflow, même quand la bonne conclusion est: pas de claim alpha.</p>"
             "<div class=\"actions\"><a class=\"pill cta\" href=\"/api/trust-artifact\">JSON machine-readable</a><a class=\"pill\" href=\"/fr/sandbox\">Sandbox</a></div></div>"
-            "<aside class=\"doc-panel\"><h3>Etat de l'artifact</h3><div class=\"mini-list\">"
-            f"<div><b>Symbols:</b> {artifact['ticker_count']} symbols latest-public, cap a {artifact['sample_limit']}.</div>"
+            "<aside class=\"doc-panel\"><h3>État de l'artifact</h3><div class=\"mini-list\">"
+            f"<div><b>Symbols:</b> {artifact['ticker_count']} symbols latest-public, cap à {artifact['sample_limit']}.</div>"
             f"<div><b>Plus large que 25 tickers:</b> {str(artifact['larger_than_legacy_25_ticker_validation_sample']).lower()}.</div>"
-            "<div><b>Claim:</b> evidence trust layer seulement; pas d'alpha valide.</div></div></aside></section>"
+            "<div><b>Claim:</b> évidence trust layer seulement; pas d'alpha validé.</div></div></aside></section>"
             f"<section class=\"doc-section\"><h2>Top rows</h2><table><thead><tr><th>Symbol</th><th>Fonds</th><th>Valeur</th><th>Positions</th></tr></thead><tbody>{rows}</tbody></table></section>"
         )
         return _html_response("Artifact de confiance", body, lang="fr", canonical_path="/trust-artifact")
+
+    @app.get("/fr/status")
+    def status_page_fr():
+        live = live_status_payload()
+        product = product_status_payload()
+        counts = live["counts"]
+        quality = live["quality_summary"]
+        coverage = live.get("coverage") or {}
+        cov = coverage.get("overall_value_share")
+        cov_s = "-" if cov is None else f"{float(cov) * 100:.1f}%"
+        validation = product["validation"]
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Console de preuve production</div>"
+            "<h1>Statut</h1>"
+            "<p class=\"doc-lede\">Page lisible pour vérifier l'état réellement servi: SHA, source, fraîcheur des données, couverture et frontière de validation.</p>"
+            "<div class=\"actions\"><a class=\"pill cta\" href=\"/api/live-status\">JSON live</a>"
+            "<a class=\"pill\" href=\"/api/product-status\">Contrat produit</a><a class=\"pill\" href=\"/fr/validation\">Validation</a></div></div>"
+            "<aside class=\"doc-panel\"><h3>État servi</h3>"
+            f"<p><span class=\"pill\">{html_escape(live['public_state'])}</span></p>"
+            f"<p class=\"meta\">uses_synthetic_data={str(live['uses_synthetic_data']).lower()}</p>"
+            f"<p class=\"meta\">commit={html_escape(live['git_sha'])}</p>"
+            f"<p class=\"meta\">généré={html_escape(live['generated_at'])}</p></aside></section>"
+            "<section class=\"doc-metrics\">"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(counts.get('funds') or 0))}</b><span>fonds suivis</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(counts.get('filings') or 0))}</b><span>filings SEC</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(cov_s)}</b><span>couverture valeur</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(live.get('latest_13f_quarter') or 'unknown')}</b><span>dernier trimestre 13F</span></div>"
+            "</section>"
+            "<section class=\"doc-section\"><h2>Lecture opérationnelle</h2>"
+            "<div class=\"runbook\"><div class=\"runstep\"><b>01</b><span>Vérifier le SHA après déploiement.</span></div>"
+            "<div class=\"runstep\"><b>02</b><span>Confirmer LIVE et absence de données synthétiques.</span></div>"
+            "<div class=\"runstep\"><b>03</b><span>Ouvrir l'app, les pages Pro et les docs via Apache.</span></div>"
+            "<div class=\"runstep\"><b>04</b><span>Seulement ensuite qualifier la release de vérifiée.</span></div></div></section>"
+            "<section class=\"split\"><div class=\"panel\"><h2>Qualité</h2>"
+            f"<p><span class=\"pill\">status:{html_escape(str(quality.get('status') or '-'))}</span>"
+            f"<span class=\"pill\">trusted:{html_escape(str(quality.get('trusted_funds') or 0))}</span>"
+            f"<span class=\"pill\">warnings AUM:{html_escape(str(quality.get('aum_jump_warnings') or 0))}</span></p></div>"
+            "<div class=\"panel\"><h2>Validation</h2>"
+            f"<p>{html_escape(validation['blocked_by'])}</p>"
+            f"<p class=\"meta\">score_claim={html_escape(validation['score_claim'])}</p></div></section>"
+            "<section class=\"doc-section\"><h2>Surfaces de vérification</h2>"
+            "<p><a class=\"pill\" href=\"/api/version\">/api/version</a> <a class=\"pill\" href=\"/api/live-status\">/api/live-status</a> "
+            "<a class=\"pill\" href=\"/api/data-quality\">/api/data-quality</a> <a class=\"pill\" href=\"/api/openapi.json\">OpenAPI</a></p></section>"
+        )
+        return _html_response("Statut", body, lang="fr", canonical_path="/status")
+
+    @app.get("/fr/coverage")
+    def coverage_page_fr():
+        payload = coverage_quality_payload()
+        summary = payload["summary"]
+        excluded = payload["excluded_funds"]
+        counts = payload["counts"]
+        trusted_rows = "".join(
+            "<tr>"
+            f"<td>{html_escape(f.get('label') or '-')}<br><span class=\"meta\">CIK {html_escape(f.get('cik') or '-')}</span></td>"
+            f"<td>{html_escape(((f.get('latest_filing') or {}).get('report_date')) or '-')}</td>"
+            f"<td>{html_escape(str(f.get('series_points') or 0))}</td>"
+            "</tr>"
+            for f in payload["trusted_sample"]
+        )
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Couverture et qualité</div>"
+            "<h1>Couverture des fonds fiables</h1>"
+            "<p class=\"doc-lede\">13FLOW n'utilise dans les signaux courants que les fonds qui passent un quality gate automatique et fail-closed. Les fonds périmés, dégradés ou quarantined restent auditables, mais sortent des scores.</p></div>"
+            "<aside class=\"doc-panel\"><h3>Frontière commerciale</h3>"
+            "<p>Ce n'est pas une promesse de performance. C'est une disclosure opérationnelle sur l'univers réellement utilisé par le produit.</p>"
+            f"<p><span class=\"pill\">status:{html_escape(str(summary.get('status') or '-'))}</span><span class=\"pill\">excluded:{len(excluded)}</span></p></aside></section>"
+            "<section class=\"doc-metrics\">"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(summary.get('active_funds') or 0))}</b><span>fonds actifs</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(summary.get('trusted_funds') or 0))}</b><span>fonds fiables</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(summary.get('stale_funds') or 0))}</b><span>fonds périmés</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(counts.get('funds') or 0))}</b><span>fonds en base</span></div></section>"
+            "<section class=\"doc-section\"><h2>Règle d'éligibilité</h2>"
+            "<div class=\"mini-list\"><div><b>Trusted</b> éligible aux signaux produit.</div>"
+            "<div><b>Stale</b> visible pour audit/historique, exclu des signaux courants.</div>"
+            "<div><b>Degraded</b> visible pour audit, exclu des signaux produit.</div>"
+            "<div><b>Quarantined</b> conservé en base, exclu des signaux.</div></div></section>"
+            "<section class=\"doc-section\"><h2>Échantillon trusted</h2>"
+            f"<table><thead><tr><th>Fonds</th><th>Dernier trimestre</th><th>Points de série</th></tr></thead><tbody>{trusted_rows}</tbody></table></section>"
+            "<section class=\"doc-section\"><h2>Liens d'audit</h2>"
+            "<p><a class=\"pill\" href=\"/api/data-quality\">Data-quality JSON</a> <a class=\"pill\" href=\"/api/funds\">Funds JSON</a> "
+            "<a class=\"pill\" href=\"/api/live-status\">Live status</a></p></section>"
+        )
+        return _html_response("Couverture", body, lang="fr", canonical_path="/coverage")
+
+    @app.get("/fr/validation")
+    def validation_page_fr():
+        product = product_status_payload()
+        validation = product["validation"]
+        artifact = validation["current_artifact"]
+        metrics = validation["metrics_snapshot"]
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Preuve, pas hype</div>"
+            "<h1>Validation</h1>"
+            "<p class=\"doc-lede\">Cette page sépare la readiness mécanique d'un jeu de données de toute affirmation d'alpha ou de performance. C'est volontairement conservateur.</p>"
+            "<div class=\"actions\"><a class=\"pill cta\" href=\"/api/product-status\">Product status JSON</a>"
+            "<a class=\"pill\" href=\"/api/methodology/confluence-v1\">Contrat Confluence v1</a></div></div>"
+            "<aside class=\"doc-panel\"><h3>Statut courant</h3>"
+            f"<p><span class=\"pill\">{html_escape(validation['status'])}</span></p>"
+            f"<p>{html_escape(validation['blocked_by'])}</p>"
+            f"<p>Claim public de validation: <code>{str(artifact['public_validation_claim']).lower()}</code></p></aside></section>"
+            "<section class=\"doc-metrics\">"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(artifact['row_count']))}</b><span>lignes features</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(artifact['ticker_count']))}</b><span>tickers</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(artifact['rows_with_form4_accessions']))}</b><span>lignes avec Form 4</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(metrics['hit_rate']))}</b><span>hit rate 60j brut</span></div></section>"
+            "<section class=\"split\"><div class=\"panel\"><h2>Ce que ça prouve</h2><ul>"
+            "<li>Le schéma minimum est valide.</li><li>L'artefact joint 13F et Form 4 sur un échantillon mature.</li><li>Les retours forward sont présents sur les horizons annoncés.</li></ul></div>"
+            "<div class=\"panel\"><h2>Ce que ça ne prouve pas</h2><ul>"
+            "<li>Pas d'alpha validé.</li><li>Pas de probabilité ni d'objectif de prix.</li><li>Pas de couverture historique complète.</li><li>Pas encore de revue coûts, liquidité, delisting et no-lookahead complète.</li></ul></div></section>"
+            "<section class=\"doc-section\"><h2>Métriques descriptives</h2>"
+            f"<p class=\"callout\"><strong>Lecture:</strong> {html_escape(metrics['interpretation'])}</p>"
+            f"<p class=\"meta\">rank_ic={html_escape(str(metrics['rank_ic']))}; p_value={html_escape(str(metrics['rank_ic_permutation_p']))}; spread={html_escape(str(metrics['top_bottom_spread']))}</p></section>"
+        )
+        return _html_response("Validation", body, lang="fr", canonical_path="/validation")
+
+    @app.get("/fr/security")
+    def security_page_fr():
+        payload = security_posture_payload()
+        public = payload["public_surface"]
+        pro = payload["pro_surface"]
+        quality = payload["data_quality"]
+        privacy = payload["privacy"]
+        controls = "".join(f"<li>{html_escape(item)}</li>" for item in public.get("headers") or [])
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Posture sécurité</div>"
+            "<h1>Sécurité de la surface research</h1>"
+            "<p class=\"doc-lede\">Page de preuve pour revue sécurité: contrôles implémentés, limites opérateur et non-claims explicites, sans exposer de secrets, tokens, hashes, IP ou user-agent.</p></div>"
+            f"<aside class=\"doc-panel\"><h3>Statut</h3><p><span class=\"pill\">{html_escape(payload['status'])}</span></p>"
+            f"<p class=\"meta\">généré={html_escape(payload['generated_at'])}</p><p class=\"meta\">sha={html_escape(payload['git_sha'])}</p></aside></section>"
+            "<section class=\"doc-metrics\">"
+            f"<div class=\"doc-metric\"><b>{str(public.get('synthetic_data')).lower()}</b><span>données synthétiques</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(quality.get('trusted_funds') or 0))}</b><span>fonds trusted</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(pro['workspace_limits']['max_watchlists_per_key']))}</b><span>watchlists/clé</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(pro['workspace_limits']['max_request_bytes']))}</b><span>taille max requête</span></div></section>"
+            "<div class=\"split\"><section class=\"panel\"><h2>Surface publique</h2>"
+            f"<p><span class=\"pill\">{html_escape(public['mode'])}</span><span class=\"pill\">auth:{html_escape(public['auth_billing_accounts'])}</span></p>"
+            f"<p>{html_escape(public['mutation_policy'])}</p><ul>{controls}</ul></section>"
+            "<section class=\"panel\"><h2>Surface privée</h2>"
+            f"<p><span class=\"pill\">token_in_url:{str(pro['token_in_url_allowed']).lower()}</span><span class=\"pill\">storage:sessionStorage</span></p>"
+            f"<p>{html_escape(pro['service_boundary'])}</p><p class=\"meta\">{html_escape(pro['audit'])}</p></section></div>"
+            "<div class=\"split\" style=\"margin-top:18px\"><section class=\"panel\"><h2>Vie privée</h2>"
+            f"<p><span class=\"pill\">tokens_echoed:{str(privacy['tokens_echoed']).lower()}</span>"
+            f"<span class=\"pill\">secrets_in_payloads:{str(privacy['secrets_in_payloads']).lower()}</span></p>"
+            f"<p>{html_escape(privacy['payload_policy'])}</p></section>"
+            "<section class=\"panel\"><h2>Frontière data quality</h2>"
+            f"<p>{html_escape(quality['signal_rule'])}</p></section></div>"
+            "<p class=\"lede\"><a class=\"pill\" href=\"/api/security-posture\">Posture machine-readable</a> "
+            "<a class=\"pill\" href=\"/fr/status\">Statut</a></p>"
+        )
+        return _html_response("Sécurité", body, lang="fr", canonical_path="/security")
+
+    @app.get("/fr/methodology")
+    def methodology_hub_fr():
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">À lire avant de croire un signal</div>"
+            "<h1>Méthodologie</h1>"
+            "<p class=\"doc-lede\">Comment 13FLOW transforme des filings publics SEC en surfaces research read-only, et comment la validation borne les claims exposés aux humains comme aux agents.</p>"
+            "<div class=\"actions\"><a class=\"pill cta\" href=\"/fr/methodology/app\">Méthode application</a>"
+            "<a class=\"pill\" href=\"/fr/methodology/mcp\">Méthode MCP</a>"
+            "<a class=\"pill\" href=\"/api/methodology/confluence-v1\">Confluence v1 JSON</a></div></div>"
+            "<aside class=\"doc-panel\"><h3>Doctrine</h3>"
+            "<p class=\"callout\"><strong>13FLOW est un système d'évidence filing.</strong> Il priorise, source et structure. Il ne remplace ni l'analyse fondamentale, ni le risk management, ni la revue juridique.</p></aside></section>"
+            "<section class=\"doc-grid\">"
+            "<a class=\"doc-card\" href=\"/fr/methodology/app\"><h3>Méthode application</h3><p>Pipeline data, limites 13F, quality warnings, scope Confluence et frontière de validation.</p></a>"
+            "<a class=\"doc-card\" href=\"/fr/methodology/mcp\"><h3>Méthode MCP</h3><p>Contrat outil, gating Pro, fail-closed, readiness x402 et sûreté agents.</p></a>"
+            "<a class=\"doc-card\" href=\"/fr/validation\"><h3>Pack validation</h3><p>Évidence mécanique, métriques descriptives, hashes et non-claims explicites.</p></a></section>"
+            "<section class=\"doc-section\"><h2>Mode d'emploi</h2><div class=\"runbook\">"
+            "<div class=\"runstep\"><b>01 · Confirmer</b><span>Ouvrir le statut et vérifier LIVE, SHA et trimestre 13F.</span></div>"
+            "<div class=\"runstep\"><b>02 · Screener</b><span>Utiliser Cockpit, Signaux, Fonds et Titres pour bâtir la file research.</span></div>"
+            "<div class=\"runstep\"><b>03 · Inspecter</b><span>Suivre les accessions SEC, le contexte manager, le recoupement Form 4 et les warnings.</span></div>"
+            "<div class=\"runstep\"><b>04 · Décider</b><span>Décider hors 13FLOW, avec votre modèle et vos limites de risque.</span></div></div></section>"
+        )
+        return _html_response("Méthodologie", body, lang="fr", canonical_path="/methodology")
+
+    @app.get("/fr/methodology/app")
+    def app_methodology_page_fr():
+        payload = app_methodology_payload()
+        state = payload.get("current_state") or {}
+        counts = state.get("counts") or {}
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Méthodologie application</div>"
+            "<h1>Contrat d'interprétation</h1>"
+            "<p class=\"doc-lede\">13FLOW sert une surface read-only issue de SEC EDGAR avec liens sources, quality warnings et limites visibles. Le score Confluence reste un ranking ordinal, pas une probabilité.</p>"
+            "<div class=\"actions\"><a class=\"pill cta\" href=\"/api/methodology/app\">Contrat JSON</a><a class=\"pill\" href=\"/fr/validation\">Validation</a></div></div>"
+            "<aside class=\"doc-panel\"><h3>État courant</h3>"
+            f"<p><span class=\"pill\">fonds:{html_escape(str(counts.get('funds') or 'public'))}</span>"
+            f"<span class=\"pill\">filings:{html_escape(str(counts.get('filings') or 'MCP'))}</span></p>"
+            f"<p class=\"meta\">sha={html_escape(payload['git_sha'][:12])}</p></aside></section>"
+            "<section class=\"doc-section\"><h2>À retenir</h2><ul>"
+            "<li>Les 13F sont retardés et incomplets par construction.</li>"
+            "<li>Les mappings CUSIP/ticker restent accompagnés de provenance et de warnings.</li>"
+            "<li>Les signaux priorisent une revue, ils ne remplacent pas l'analyse.</li>"
+            "<li>Les contrats JSON sont la source pour les agents et notebooks.</li></ul></section>"
+        )
+        return _html_response("Méthode application", body, lang="fr", canonical_path="/methodology/app")
+
+    @app.get("/fr/methodology/mcp")
+    def mcp_methodology_page_fr():
+        payload = mcp_methodology_payload()
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Méthodologie MCP</div>"
+            "<h1>Contrat MCP</h1>"
+            "<p class=\"doc-lede\">Les outils publics MCP restent read-only. Les outils Pro doivent échouer proprement sans clé valide ou paiement configuré, et exposer la frontière produit au lieu de laisser l'agent inventer.</p>"
+            "<div class=\"actions\"><a class=\"pill cta\" href=\"/api/methodology/mcp\">Contrat JSON</a><a class=\"pill\" href=\"/fr/developers\">Docs développeurs</a></div></div>"
+            "<aside class=\"doc-panel\"><h3>Frontière</h3>"
+            f"<p><span class=\"pill\">x402:{html_escape(payload['security']['x402'])}</span></p>"
+            f"<p class=\"meta\">sha={html_escape(payload['git_sha'][:12])}</p></aside></section>"
+            "<section class=\"doc-section\"><h2>Règles MCP</h2><ul>"
+            "<li>Les outils publics ne doivent pas exiger de compte navigateur.</li>"
+            "<li>Les outils Pro échouent fermés sans credential valide.</li>"
+            "<li>Les réponses exposent statut produit, validation boundary et warnings qualité.</li>"
+            "<li>Aucune sortie outil ne doit se présenter comme alpha validé ou recommandation.</li></ul></section>"
+        )
+        return _html_response("Méthode MCP", body, lang="fr", canonical_path="/methodology/mcp")
+
+    @app.get("/fr/faq")
+    def faq_fr():
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Questions fréquentes</div>"
+            "<h1>Deux filings. Une piste de recherche.</h1>"
+            "<p class=\"doc-lede\">13FLOW lit des filings publics SEC: les portefeuilles 13F déclarés par les institutionnels et les transactions Form 4 publiées par les insiders. Le produit cherche les zones où ces pistes indépendantes se recoupent.</p></div>"
+            "<aside class=\"doc-panel\"><h3>Réponse courte</h3><p>13FLOW est un screen research sourcé, pas un conseil en investissement.</p></aside></section>"
+            "<section class=\"doc-grid\">"
+            "<div class=\"doc-card\"><h3>13F · Institutions</h3><p>Les managers au-dessus de 100 M$ en titres déclarables publient des portefeuilles 13F trimestriels. 13FLOW reconstruit holdings, mouvements et accessions sources.</p></div>"
+            "<div class=\"doc-card\"><h3>Form 4 · Insiders</h3><p>Les insiders déclarent rapidement certaines transactions. Le score se concentre sur les transactions P/S à intention de marché et exclut les attributions mécaniques.</p></div>"
+            "<div class=\"doc-card\"><h3>Confluence v1</h3><p>Quand des fonds suivis accumulent un titre et que des insiders achètent, 13FLOW classe ce recoupement comme écran exploratoire.</p></div></section>"
+            "<section class=\"doc-section\"><h2>FAQ</h2><div class=\"mini-list\">"
+            "<div><b>Le score est-il calibré ?</b> Non. Confluence v1 est un ranking ordinal heuristique, pas une probabilité ni un rendement attendu.</div>"
+            "<div><b>D'où viennent les données ?</b> Du dataset local dérivé de SEC EDGAR, avec Form 4 quand un provider live ou précomputé est configuré.</div>"
+            "<div><b>Quelles transactions insiders comptent ?</b> Les achats/ventes P/S open-market ou privés traités comme intention de marché.</div>"
+            "<div><b>Est-ce un conseil en investissement ?</b> Non. Les décisions restent sous votre responsabilité.</div></div></section>"
+            "<section class=\"doc-section\"><h2>Continuer</h2><p><a class=\"pill cta\" href=\"/signals\">Voir les signaux</a> <a class=\"pill\" href=\"/fr/methodology\">Méthodologie</a></p></section>"
+        )
+        return _html_response("FAQ", body, lang="fr", canonical_path="/faq")
+
+    @app.get("/fr/about")
+    def about_page_fr():
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\">"
+            "<div class=\"kicker\">À propos de 13FLOW</div>"
+            "<h1>Intelligence filing, construite dans le labo l0g</h1>"
+            "<p class=\"doc-lede\">13FLOW est opéré par l0g: un laboratoire indépendant de recherche et de data, centré sur le risque macro, les marchés, les données publiques et l'intelligence financière machine-readable.</p>"
+            "<div class=\"actions\"><a class=\"pill cta\" href=\"https://l0g.fr/\" rel=\"noopener\">Visiter l0g.fr</a> "
+            "<a class=\"pill\" href=\"/fr/methodology\">Méthodologie</a> <a class=\"pill\" href=\"/fr/validation\">Validation</a> <a class=\"pill\" href=\"/fr/developers\">API</a></div></div>"
+            "<aside class=\"doc-panel\"><h3>Ce que fait 13FLOW</h3><div class=\"mini-list\">"
+            "<div><b>Pression 13F.</b> Les holdings institutionnels sont structurés depuis SEC EDGAR, avec accessions sources et flags qualité.</div>"
+            "<div><b>Contexte Form 4.</b> L'activité insiders est jointe lorsqu'elle aide un analyste à trier une file research.</div>"
+            "<div><b>Surfaces API et MCP.</b> Les endpoints publics read-only exposent les mêmes limites aux dashboards, notebooks et agents.</div>"
+            "</div></aside></section>"
+            "<section class=\"doc-metrics\">"
+            "<div class=\"doc-metric\"><b>SEC EDGAR</b><span>source publique primaire</span></div>"
+            "<div class=\"doc-metric\"><b>Read-only</b><span>site public ouvert, sans compte navigateur</span></div>"
+            "<div class=\"doc-metric\"><b>Auditable</b><span>statut, méthode et contrats API</span></div>"
+            "<div class=\"doc-metric\"><b>l0g</b><span>labo research derrière le produit</span></div></section>"
+            "<section class=\"doc-section\"><h2>Qu'est-ce que l0g ?</h2>"
+            "<p><a href=\"https://l0g.fr/\" rel=\"noopener\">l0g</a> est un projet de recherche ouverte qui transforme des données publiques macro, marché et réglementaires en dashboards, notes de méthodologie, endpoints machine-readable et analyses sourcées.</p>"
+            "<p>13FLOW est l'un de ces outils: là où l0g.fr suit les régimes macro, le risque dette et les jeux de données publics, 13FLOW se concentre sur les filings SEC, les holdings 13F, les disclosures Form 4, les warnings qualité et les surfaces d'intégration.</p></section>"
+            "<section class=\"doc-section\"><h2>Pourquoi ça existe</h2>"
+            "<div class=\"split\"><div class=\"doc-card\"><h3>Pour les analystes</h3><p>Réduire le bruit des filings SEC en une file vérifiable: qui a bougé, quel issuer change, quelle source le prouve et où la donnée peut se tromper.</p></div>"
+            "<div class=\"doc-card\"><h3>Pour les builders</h3><p>Exposer des contrats read-only stables pour dashboards, notebooks et agents sans prétendre que le signal est un alpha validé.</p></div></div>"
+            "<div class=\"callout\" style=\"margin-top:12px\"><strong>La posture produit est conservatrice.</strong> 13FLOW priorise workflow, structure et auditabilité. Il ne vend pas un signal magique de trading.</div></section>"
+            "<section class=\"doc-section\"><h2>Liens utiles</h2><div class=\"doc-grid\">"
+            "<a class=\"doc-card\" href=\"https://l0g.fr/\" rel=\"noopener\"><h3>l0g.fr</h3><p>L'écosystème research et éditorial derrière 13FLOW.</p></a>"
+            "<a class=\"doc-card\" href=\"/fr/methodology\"><h3>Méthodologie</h3><p>Comment interpréter l'app et les couches MCP.</p></a>"
+            "<a class=\"doc-card\" href=\"/fr/legal\"><h3>Mentions légales et RGPD</h3><p>Éditeur, vie privée, droits RGPD, sources et responsabilité.</p></a></div></section>"
+        )
+        return _html_response("À propos", body, lang="fr", canonical_path="/about")
+
+    @app.get("/fr/legal")
+    def legal_fr():
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\">"
+            "<div class=\"kicker\">Mentions légales, vie privée et RGPD</div>"
+            "<h1>Conditions claires pour un outil public de recherche filing</h1>"
+            "<p class=\"doc-lede\">13FLOW est une interface indépendante et read-only sur des filings publics SEC EDGAR. Cette page couvre l'identité éditeur, les droits RGPD, les logs, cookies, sources et limites de responsabilité.</p>"
+            "<div class=\"actions\"><a class=\"pill cta\" href=\"mailto:admin@toonux.com\">Contacter l'éditeur</a> "
+            "<a class=\"pill\" href=\"/fr/security\">Sécurité</a> <a class=\"pill\" href=\"/api/live-status\">Statut live</a></div></div>"
+            "<aside class=\"doc-panel\"><h3>Version courte</h3><div class=\"mini-list\">"
+            "<div><b>Pas de compte public.</b> Le site ouvert ne demande ni inscription, ni login navigateur, ni profil.</div>"
+            "<div><b>Pas de tracking publicitaire.</b> Les pages publiques n'utilisent pas de pixels sociaux ni de cookies analytics tiers.</div>"
+            "<div><b>Sources publiques.</b> 13FLOW structure des filings SEC EDGAR et expose des surfaces research sourcées.</div></div></aside></section>"
+            "<section class=\"doc-metrics\">"
+            "<div class=\"doc-metric\"><b>Éditeur</b><span>l0g / bluetouff</span></div>"
+            "<div class=\"doc-metric\"><b>Contact</b><span>admin@toonux.com</span></div>"
+            "<div class=\"doc-metric\"><b>Source</b><span>filings publics SEC EDGAR</span></div>"
+            "<div class=\"doc-metric\"><b>Mise à jour</b><span>2026-07-04</span></div></section>"
+            "<section class=\"doc-section\"><h2>Éditeur et entité derrière 13FLOW</h2>"
+            "<p>13FLOW est opéré et publié par <a href=\"https://l0g.fr/\" rel=\"noopener\">l0g</a>, projet indépendant de recherche et de données sur la macroéconomie, les marchés, les sources publiques, le risque systémique et l'intelligence financière machine-readable. Le projet est porté par bluetouff.</p>"
+            "<div class=\"mini-list\"><div><b>Site:</b> https://13flow.eu</div><div><b>Contact et demandes de droits:</b> <a href=\"mailto:admin@toonux.com\">admin@toonux.com</a></div>"
+            "<div><b>Relation aux tiers:</b> 13FLOW n'est pas affilié à la SEC, aux fonds suivis, aux issuers ou aux fournisseurs de données tiers mentionnés.</div></div></section>"
+            "<section class=\"doc-section\"><h2>Données personnelles et RGPD</h2>"
+            "<p>Le site public 13FLOW est conçu comme une surface low-data et read-only. Il ne demande pas de compte public, ne crée pas de profil visiteur et ne pose pas de cookies publicitaires ou analytics comportementaux.</p>"
+            "<div class=\"split\"><div class=\"doc-card\"><h3>Données pouvant être traitées</h3><ul><li>Logs techniques: IP, timestamp, URL demandée, code statut et user-agent.</li><li>Signaux sécurité et anti-abus nécessaires à l'exploitation.</li><li>Messages envoyés volontairement par email.</li><li>Pour un accès privé opérateur: organisation, contact, key id, endpoint, scope, statut et métadonnées d'audit.</li></ul></div>"
+            "<div class=\"doc-card\"><h3>Finalités</h3><ul><li>Opérer le site public et les APIs.</li><li>Sécuriser le service et prévenir les abus.</li><li>Répondre aux demandes légales, privacy, support ou research.</li><li>Administrer un accès API privé quand un accord existe.</li></ul></div></div>"
+            "<p class=\"callout\" style=\"margin-top:12px\"><strong>Base légale.</strong> Intérêt légitime pour la sécurité et l'opération du service, consentement lorsque vous contactez volontairement l'éditeur, obligation légale si applicable.</p></section>"
+            "<section class=\"doc-section\"><h2>Vos droits</h2>"
+            "<p>Au titre du RGPD, vous pouvez demander accès, rectification, effacement, limitation, opposition et portabilité lorsque c'est applicable. Écrivez à <a href=\"mailto:admin@toonux.com\">admin@toonux.com</a>. Une vérification raisonnable d'identité peut être demandée.</p>"
+            "<p>En cas de désaccord, vous pouvez contacter l'autorité française: <a href=\"https://www.cnil.fr/\" rel=\"noopener\">CNIL</a>.</p></section>"
+            "<section class=\"doc-section\"><h2>Cookies, tiers et conservation</h2>"
+            "<div class=\"split\"><div class=\"doc-card\"><h3>Cookies et trackers</h3><p>Le site public n'utilise pas de cookies publicitaires, pixels sociaux ou tags analytics tiers. Les polices sont auto-hébergées.</p></div>"
+            "<div class=\"doc-card\"><h3>Conservation</h3><p>Les logs techniques et traces d'audit sont conservés seulement le temps nécessaire à la sécurité, fiabilité, prévention des abus, preuve légale ou administration active.</p></div></div>"
+            "<p class=\"meta\">Les liens externes, dont l0g.fr, SEC.gov, GitHub ou CNIL, ne sont contactés que si vous les ouvrez.</p></section>"
+            "<section class=\"doc-section\"><h2>Données et sources</h2>"
+            "<p>13FLOW agrège, formate et relie des filings publics SEC EDGAR, notamment les holdings institutionnels 13F-HR et les ownership reports Form 4. 13FLOW ne possède pas les filings SEC sous-jacents et ne vend pas l'accès brut SEC comme donnée propriétaire.</p>"
+            "<p>Délais de filing, amendements, erreurs issuer, tickers manquants, gaps CUSIP et incohérences source peuvent exister. Vérifiez via les accessions, la méthodologie et les endpoints de validation.</p></section>"
+            "<section class=\"doc-section\"><h2>Pas de conseil en investissement</h2>"
+            "<p>13FLOW est un outil de screening et de recherche. Scores, rankings, vues Confluence et réponses API ne constituent pas des recommandations personnalisées, conseils d'investissement, sollicitations, guidances d'exécution, probabilités ou promesses de performance.</p></section>"
+        )
+        return _html_response("Mentions légales", body, lang="fr", canonical_path="/legal")
 
     @app.get("/fr/buyer-pack")
     def buyer_pack_page_fr():
@@ -8968,16 +9347,16 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
         body = (
             "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Pack acheteur</div>"
             "<h1>13FLOW Pack de revue acheteur</h1>"
-            "<p class=\"doc-lede\">Version partageable pour evaluer 13FLOW comme surface de recherche ouverte: statut, preuves, limites, questions operateur et frontiere juridique.</p></div>"
+            "<p class=\"doc-lede\">Version partageable pour évaluer 13FLOW comme surface de recherche ouverte: statut, preuves, limites, questions opérateur et frontière juridique.</p></div>"
             f"<aside class=\"doc-panel\"><h3>Status</h3><p><span class=\"pill\">{html_escape(payload['status'])}</span></p><p class=\"meta\">sales_motion={html_escape(payload['sales_motion'])} · public_quote_ready={str(payload['public_quote_ready']).lower()}</p></aside></section>"
             "<section class=\"doc-metrics\">"
             f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('funds') or 0))}</b><span>fonds suivis</span></div>"
             f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('trusted_funds') or 0))}</b><span>fonds trusted</span></div>"
             f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('latest_13f_quarter') or '-'))}</b><span>dernier 13F</span></div>"
             f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('artifact_tickers') or 0))}</b><span>tickers artifact</span></div></section>"
-            "<div class=\"split\"><section class=\"panel\"><h2>Ce que le pack prouve</h2><ul><li>Etat live et donnees publiques verifiables.</li><li>Frontiere claire: pas de claim performance, pas de conseil en investissement.</li><li>Sandbox public utilisable avant toute discussion payante.</li></ul></section>"
-            "<section class=\"panel\"><h2>A ne pas vendre maintenant</h2><ul><li>Pas de flux paiement public.</li><li>Pas de prix public.</li><li>Pas de SLA ni redistribution sans accord.</li><li>Pas d'alpha valide.</li></ul></section></div>"
-            f"<div class=\"panel\" style=\"margin-top:18px\"><h2>Evidence links</h2><ul>{evidence}</ul></div>"
+            "<div class=\"split\"><section class=\"panel\"><h2>Ce que le pack prouve</h2><ul><li>État live et données publiques vérifiables.</li><li>Frontière claire: pas de claim performance, pas de conseil en investissement.</li><li>Sandbox public utilisable avant toute discussion payante.</li></ul></section>"
+            "<section class=\"panel\"><h2>À ne pas vendre maintenant</h2><ul><li>Pas de flux paiement public.</li><li>Pas de prix public.</li><li>Pas de SLA ni redistribution sans accord.</li><li>Pas d'alpha validé.</li></ul></section></div>"
+            f"<div class=\"panel\" style=\"margin-top:18px\"><h2>Liens de preuve</h2><ul>{evidence}</ul></div>"
             "<p class=\"lede action-row\"><a class=\"pill\" href=\"/api/buyer-pack\">JSON buyer pack</a> <a class=\"pill\" href=\"/api/buyer-pack.md\">Markdown export</a> <a class=\"pill\" href=\"/fr/pro\">Sandbox builders</a></p>"
         )
         return _html_response("Pack acheteur", body, lang="fr", canonical_path="/buyer-pack")
