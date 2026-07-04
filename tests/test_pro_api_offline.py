@@ -227,6 +227,7 @@ def test_pro_openapi_document_is_available_when_pro_enabled(monkeypatch):
         assert "/api/pro/v1/workspace/watchlists/{watchlist_id}/signals/history" in doc["paths"]
         assert "/api/pro/v1/admin/health" in doc["paths"]
         assert "/api/pro/v1/admin/ops" in doc["paths"]
+        assert "/api/pro/v1/admin/pilot-fulfillment" in doc["paths"]
 
 
 def test_pro_watchlist_feed_uses_ticker_flow(monkeypatch):
@@ -750,6 +751,11 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
             headers={"Authorization": "Bearer " + workspace_token},
         )
         assert forbidden_ops.status_code == 403
+        forbidden_fulfillment = c.get(
+            "/api/pro/v1/admin/pilot-fulfillment",
+            headers={"Authorization": "Bearer " + workspace_token},
+        )
+        assert forbidden_fulfillment.status_code == 403
 
         ok = c.get(
             "/api/pro/v1/admin/health",
@@ -809,6 +815,36 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
         assert '"key_hash":' not in ops_body
         assert "127.0.0.1" not in ops_body
         assert "pytest" not in ops_body
+
+        fulfillment_response = c.get(
+            "/api/pro/v1/admin/pilot-fulfillment",
+            headers={"Authorization": "Bearer " + admin_token},
+        )
+        assert fulfillment_response.status_code == 200
+        fulfillment_payload = fulfillment_response.get_json()
+        assert fulfillment_payload["meta"]["admin_key_id"] == admin_key.key_id
+        assert fulfillment_payload["meta"]["scope"] == "admin:read"
+        assert fulfillment_payload["meta"]["read_only"] is True
+        fulfillment = fulfillment_payload["pilot_fulfillment"]
+        assert fulfillment["read_only"] is True
+        assert fulfillment["web_worker_creates_tokens"] is False
+        assert fulfillment["tokens_exposed"] is False
+        assert fulfillment["secrets_exposed"] is False
+        assert fulfillment["least_privilege_policy"]["customer_forbidden_scopes"] == ["admin:read"]
+        assert "admin:read" not in fulfillment["least_privilege_policy"]["default_customer_scopes"]
+        assert fulfillment["default_limits"]["expires_days"] == 30
+        assert fulfillment["default_limits"]["rotation_days"] == 21
+        assert "--create-api-key" in fulfillment["operator_commands"]["create_bounded_pilot_key"]
+        assert "--api-key-scopes funds:read,quality:read,workspace:write" in fulfillment["operator_commands"]["create_bounded_pilot_key"]
+        assert "13flow_live_" not in str(fulfillment)
+        assert "<issued_token>" in fulfillment["operator_commands"]["verify_issued_key_status"]
+        assert "organization" in fulfillment["intake_boundary"]["required_fields"]
+        assert "Record key id" in " ".join(fulfillment["checklist"]["issue"])
+        fulfillment_body = fulfillment_response.get_data(as_text=True)
+        assert admin_token not in fulfillment_body
+        assert '"key_hash":' not in fulfillment_body
+        assert "127.0.0.1" not in fulfillment_body
+        assert "pytest" not in fulfillment_body
 
 
 def test_pro_admin_ops_treats_stale_only_quality_gate_as_notice(monkeypatch):

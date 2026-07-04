@@ -1008,6 +1008,14 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                       "403": {"description": "Insufficient scope"}},
                     },
                 },
+                "/api/pro/v1/admin/pilot-fulfillment": {
+                    "get": {
+                        "security": security,
+                        "summary": "Admin-only pilot key issuance checklist and CLI runbook",
+                        "responses": {"200": {"description": "Pilot fulfillment runbook"},
+                                      "403": {"description": "Insufficient scope"}},
+                    },
+                },
                 "/api/pro/v1/openapi.json": {
                     "get": {"summary": "OpenAPI document for the Pro API",
                             "responses": {"200": {"description": "OpenAPI JSON"}}}
@@ -2713,6 +2721,122 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             },
         }
 
+    def _pro_admin_pilot_fulfillment_payload(live: dict, health: dict, ops: dict) -> dict:
+        intake = pilot_intake_payload()
+        security = security_posture_payload()
+        offer = pro_offer_payload()
+        defaults = offer.get("default_limits") or {}
+        workspace_limits = _pro_workspace_limits_payload()
+        verdict = ops.get("verdict") or {}
+        critical = list(verdict.get("critical") or [])
+        security_ready = security.get("status") == "controlled_pilot_security_ready"
+        ready = not critical and security_ready and intake.get("status") == "operator_review_required"
+        customer_scopes = ["funds:read", "quality:read", "workspace:write"]
+        return {
+            "status": "ready_to_issue_bounded_pilot" if ready else "hold_key_issuance",
+            "generated_at": _now_iso(),
+            "read_only": True,
+            "web_worker_creates_tokens": False,
+            "tokens_exposed": False,
+            "secrets_exposed": False,
+            "scope": "admin:read",
+            "decision_inputs": {
+                "ops_status": ops.get("status"),
+                "critical": critical,
+                "warnings": verdict.get("warnings") or [],
+                "security_status": security.get("status"),
+                "public_state": live.get("public_state"),
+                "latest_13f_quarter": live.get("latest_13f_quarter"),
+                "active_keys": (health.get("keys") or {}).get("active"),
+            },
+            "intake_boundary": {
+                "public_form_submission": intake.get("public_form_submission"),
+                "server_side_pii_storage": (intake.get("privacy") or {}).get("server_side_pii_storage"),
+                "token_collection": (intake.get("privacy") or {}).get("token_collection"),
+                "required_fields": [f.get("id") for f in (intake.get("required_fields") or [])],
+                "operator_note_template": intake.get("operator_note_template") or [],
+            },
+            "least_privilege_policy": {
+                "customer_allowed_scopes": customer_scopes,
+                "customer_forbidden_scopes": ["admin:read"],
+                "default_customer_scopes": customer_scopes,
+                "admin_key_policy": "admin:read is operator-only and must never be issued to customers",
+            },
+            "default_limits": {
+                "rate_per_min": int(defaults.get("rate_per_min") or 120),
+                "rate_per_day": int(defaults.get("rate_per_day") or 10000),
+                "max_watchlists_per_key": workspace_limits["max_watchlists_per_key"],
+                "max_tickers_per_watchlist": workspace_limits["max_tickers_per_watchlist"],
+                "max_request_bytes": workspace_limits["max_request_bytes"],
+                "expires_days": 30,
+                "rotation_days": 21,
+            },
+            "operator_commands": {
+                "create_bounded_pilot_key": (
+                    "sudo -u flowpro /opt/13flow/.venv/bin/python /opt/13flow/run.py "
+                    "--pro-db /var/lib/13flow-pro/13flow-pro.db "
+                    "--create-api-key \"<org> pilot\" "
+                    "--api-key-scopes funds:read,quality:read,workspace:write "
+                    "--api-key-rate-per-min 120 --api-key-rate-per-day 10000 "
+                    "--api-key-expires-days 30 --api-key-rotation-days 21"
+                ),
+                "list_keys_after_issue": (
+                    "sudo -u flowpro /opt/13flow/.venv/bin/python /opt/13flow/run.py "
+                    "--pro-db /var/lib/13flow-pro/13flow-pro.db --list-api-keys"
+                ),
+                "verify_issued_key_status": (
+                    "curl -fsS https://13flow.eu/api/pro/v1/status "
+                    "-H \"Authorization: Bearer <issued_token>\""
+                ),
+                "verify_usage_audit": (
+                    "curl -fsS \"https://13flow.eu/api/pro/v1/usage?recent_limit=5&route_limit=5\" "
+                    "-H \"Authorization: Bearer <issued_token>\""
+                ),
+                "run_public_smoke": "sudo EXPECTED_SHA=$SHA /opt/13flow/deploy/smoke-public.sh",
+                "run_pro_workspace_smoke": (
+                    "sudo EXPECTED_SHA=$SHA PRO_TOKEN=\"<workspace_capable_token>\" "
+                    "/opt/13flow/deploy/smoke-pro-workspace.sh"
+                ),
+                "revoke_if_needed": (
+                    "sudo -u flowpro /opt/13flow/.venv/bin/python /opt/13flow/run.py "
+                    "--pro-db /var/lib/13flow-pro/13flow-pro.db --revoke-api-key <key_id>"
+                ),
+            },
+            "checklist": {
+                "before_issue": [
+                    "Archive the completed pilot intake operator note outside the public site.",
+                    "Run public smoke and Pro workspace smoke on the deployed SHA.",
+                    "Confirm /api/security-posture is controlled_pilot_security_ready.",
+                    "Confirm requested scopes are least-privilege and do not include admin:read.",
+                    "Set expiry and rotation_due_at before token delivery.",
+                ],
+                "issue": [
+                    "Run the create_bounded_pilot_key command as flowpro.",
+                    "Copy the token once into the selected secure delivery channel.",
+                    "Record key id, label, scopes, expiry and rotation_due_at in the operator note.",
+                ],
+                "after_issue": [
+                    "Ask the buyer to call /api/pro/v1/status and confirm the key id.",
+                    "Confirm first successful call appears in usage/audit without exposing token, IP or user-agent in customer payloads.",
+                    "Schedule rotation follow-up before rotation_due_at.",
+                ],
+                "hold_or_decline": [
+                    "Ops status is critical.",
+                    "Security posture is not controlled_pilot_security_ready.",
+                    "Buyer requests admin:read or broad redistribution without a custom agreement.",
+                    "Buyer will not acknowledge research-screen and no-investment-advice boundaries.",
+                ],
+            },
+            "evidence_links": [
+                {"label": "Pilot intake", "href": "/pilot"},
+                {"label": "Pilot intake JSON", "href": "/api/pilot-intake"},
+                {"label": "Security posture", "href": "/api/security-posture"},
+                {"label": "Admin ops", "href": "/api/pro/v1/admin/ops"},
+                {"label": "Pro status", "href": "/api/pro/v1/status"},
+                {"label": "Pro usage", "href": "/api/pro/v1/usage"},
+            ],
+        }
+
     def _mcp_call_tool(name: str, args: dict) -> dict:
         if name == "product.status":
             return product_status_payload()
@@ -3615,6 +3739,28 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "read_only": True,
                 },
                 "ops": ops,
+            })
+
+        @app.get("/api/pro/v1/admin/pilot-fulfillment")
+        @pro_required("admin:read")
+        def pro_admin_pilot_fulfillment_ep():
+            key = request.pro_api_key
+            live = live_status_payload()
+            with ProAPIStore(pro_db_path) as ps:
+                health = ps.admin_health()
+                automation = ps.workspace_automation_summary(max_due=25)
+            ops = _pro_admin_ops_payload(live, health, automation)
+            fulfillment = _pro_admin_pilot_fulfillment_payload(live, health, ops)
+            return jsonify({
+                "meta": {
+                    "api": "13flow-pro",
+                    "version": "v1",
+                    "git_sha": _git_sha(),
+                    "admin_key_id": key.key_id,
+                    "scope": "admin:read",
+                    "read_only": True,
+                },
+                "pilot_fulfillment": fulfillment,
             })
 
         @app.get("/api/pro/v1/openapi.json")
@@ -7014,6 +7160,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     <section class="admin-panel"><h2>Audit</h2><div id="adminAudit" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
     <section class="admin-panel"><h2>Workspace</h2><div id="adminWorkspace" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
     <section class="admin-panel"><h2>External Checks</h2><div id="adminExternal" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
+    <section class="admin-panel"><h2>Pilot Fulfillment</h2><div id="adminPilot" class="admin-list"><p class="admin-empty">No data loaded.</p></div></section>
   </section>
 </main>
 """
@@ -7079,11 +7226,32 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     $("adminExternal").innerHTML = `<article class="admin-row"><h3>Out-of-process checks</h3><p>${esc(external.reason || "")}</p><p>${(external.expected_units || []).map((x) => `<span class="pill">${esc(x)}</span>`).join("")}</p><p>${(external.expected_smokes || []).map((x) => `<span class="pill">${esc(x)}</span>`).join("")}</p></article>`;
     setStatus(`Connected: admin key ${payload.meta?.admin_key_id || "-"} · ${health.status || "unknown"} · generated ${health.generated_at || "-"}`);
   }
+  function renderPilot(payload={}) {
+    const pack = payload.pilot_fulfillment || {};
+    const limits = pack.default_limits || {};
+    const policy = pack.least_privilege_policy || {};
+    const checklist = pack.checklist || {};
+    const commands = pack.operator_commands || {};
+    const before = checklist.before_issue || [];
+    const after = checklist.after_issue || [];
+    $("adminPilot").innerHTML = `<article class="admin-row">
+      <div class="admin-row-top"><h3>${esc((pack.status || "unknown").toUpperCase())}</h3><span class="admin-mini">${esc(pack.generated_at || "-")}</span></div>
+      <p><span class="pill">read_only:${esc(String(pack.read_only))}</span><span class="pill">web_creates_tokens:${esc(String(pack.web_worker_creates_tokens))}</span><span class="pill">tokens_exposed:${esc(String(pack.tokens_exposed))}</span></p>
+      <p><span class="pill">scopes:${esc((policy.default_customer_scopes || []).join(","))}</span><span class="pill">forbidden:${esc((policy.customer_forbidden_scopes || []).join(","))}</span></p>
+      <p class="admin-mini">limits=${esc(number(limits.rate_per_min))}/min ${esc(number(limits.rate_per_day))}/day expiry=${esc(number(limits.expires_days))}d rotation=${esc(number(limits.rotation_days))}d</p>
+    </article>
+    <article class="admin-row"><h3>Create key command</h3><p><code>${esc(commands.create_bounded_pilot_key || "-")}</code></p></article>
+    <article class="admin-row"><h3>Verify command</h3><p><code>${esc(commands.verify_issued_key_status || "-")}</code></p></article>
+    <article class="admin-row"><h3>Before issue</h3><p>${before.slice(0, 6).map((x) => `<span class="pill">${esc(x)}</span>`).join("")}</p></article>
+    <article class="admin-row"><h3>After issue</h3><p>${after.slice(0, 4).map((x) => `<span class="pill">${esc(x)}</span>`).join("")}</p></article>`;
+  }
   async function refresh() {
     setStatus("Loading admin ops...");
     const payload = await adminApi("/admin/ops");
+    const fulfillment = await adminApi("/admin/pilot-fulfillment");
     renderOps(payload);
     renderHealth({meta: payload.meta || {}, health: (payload.ops || {}).pro_control_plane || {}});
+    renderPilot(fulfillment);
   }
   $("adminToken").value = state.token;
   $("adminConnect").addEventListener("click", async () => {
@@ -7096,6 +7264,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     sessionStorage.removeItem(TOKEN_KEY);
     $("adminToken").value = "";
     renderHealth({});
+    renderPilot({});
     setStatus("Disconnected");
   });
   if (state.token) refresh().catch(() => setStatus("Stored tab key could not authenticate.", true));
