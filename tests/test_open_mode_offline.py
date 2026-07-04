@@ -244,9 +244,10 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
             "controlled_pilot_ready",
             "controlled_pilot_ready_with_disclosures",
         }
-        assert readiness["sales_motion"] == "controlled_pilot_only"
+        assert readiness["sales_motion"] == "single_public_offer_with_sandbox"
         assert readiness["self_serve_checkout"] is False
-        assert readiness["public_quote_ready"] is False
+        assert readiness["public_quote_ready"] is True
+        assert readiness["displayed_public_price"]["price_usd_per_month"] == 19
         assert readiness["snapshot"]["quality_gate"]["trusted_funds"] >= 1
         assert readiness["snapshot"]["quality_gate"][
             "human_review_required_for_routine_publication"
@@ -268,8 +269,8 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
             "controlled_pilot_ready",
             "controlled_pilot_ready_with_disclosures",
         }
-        assert buyer_pack["sales_motion"] == "controlled_pilot_only"
-        assert buyer_pack["public_quote_ready"] is False
+        assert buyer_pack["sales_motion"] == "single_public_offer_with_sandbox"
+        assert buyer_pack["public_quote_ready"] is True
         assert buyer_pack["self_serve_checkout"] is False
         assert buyer_pack["snapshot"]["trusted_funds"] >= 1
         assert buyer_pack["terms_boundary"]["operator_review_required"] is True
@@ -334,7 +335,10 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             ("/readiness", "Readiness Checklist"),
             ("/buyer-pack", "13FLOW Buyer Review Pack"),
             ("/buyer-pack/print", "PDF-ready printable view"),
-            ("/pro", "13FLOW Pro API"),
+            ("/pro", "13FLOW Public Builder"),
+            ("/sandbox", "Sandbox in 60 seconds"),
+            ("/alternatives", "Why not sec-api, Financial Datasets or Dataroma?"),
+            ("/trust-artifact", "Trust layer, not alpha"),
             ("/pro/onboarding", "Integration Diagnostic"),
             ("/developers", "MCP tools/list"),
             ("/methodology", "Application methodology"),
@@ -371,6 +375,9 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/api/buyer-pack" in doc["paths"]
         assert "/api/buyer-pack.md" in doc["paths"]
         assert "/api/pro-offer" in doc["paths"]
+        assert "/api/sandbox/key" in doc["paths"]
+        assert "/api/sandbox/v1/status" in doc["paths"]
+        assert "/api/trust-artifact" in doc["paths"]
         assert "/api/methodology/confluence-v1" in doc["paths"]
         assert "/api/methodology/app" in doc["paths"]
         assert "/api/methodology/mcp" in doc["paths"]
@@ -378,37 +385,34 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/api/watchlist/discover" in doc["paths"]
 
         offer = c.get("/api/pro-offer").get_json()
-        assert offer["offer"]["name"] == "13FLOW Pro API"
+        assert offer["offer"]["name"] == "13FLOW Public Builder"
+        assert offer["offer"]["price"] == {"amount": 19, "currency": "USD", "interval": "month"}
         assert offer["offer"]["self_serve_checkout"] is False
         assert offer["offer"]["contact"]["email"] == "admin@toonux.com"
-        assert [p["name"] for p in offer["plans"]] == [
-            "Technical pilot review",
-            "API integration review",
-            "MCP integration review",
-        ]
-        assert "organization name and billing contact" in offer["buyer_checklist"]
+        assert offer["offer"]["public_sandbox"]["scope"].startswith("sandbox-only")
+        assert offer["offer"]["mcp_included_minimum"]["standalone_offer"] is False
+        assert [p["name"] for p in offer["plans"]] == ["13FLOW Public Builder"]
+        assert "builder or research-ops contact email" in offer["buyer_checklist"]
         sales_packet = offer["sales_packet"]
-        assert "Which desk, product or automated workflow" in sales_packet["qualification_questions"][0]
-        assert "Before I issue a scoped pilot key" in sales_packet["lead_reply_template"]
-        assert sales_packet["operator_note_schema"]["package"] == \
-            "Technical pilot review | API integration review | MCP integration review"
-        assert "Verify the key id in api_audit" in sales_packet["pilot_handoff"][3]
+        assert "agent, notebook, dashboard" in sales_packet["qualification_questions"][0]
+        assert "You can start with the sandbox now" in sales_packet["lead_reply_template"]
+        assert sales_packet["operator_note_schema"]["package"] == "13FLOW Public Builder"
+        assert "Verify the production key id in api_audit" in sales_packet["pilot_handoff"][3]
         commercial = offer["commercial_model"]
-        assert commercial["pricing_status"] == "paused_until_terms_and_capacity_are_ready"
-        assert commercial["recommended_packages"][0]["price_eur_per_month"] == "not publicly quoted"
-        assert commercial["do_not_discount_below"]["full_live_api_access_eur_per_month"] is None
-        assert "raw SEC data" in commercial["principle"]
-        assert commercial["pricing_policy"]["strategy"] == "bounded_operator_review_before_any_quote"
-        assert "13F plus Form 4 confluence workflow" in commercial["pricing_policy"]["compete_on"]
-        assert [item["category"] for item in commercial["market_context"]] == [
-            "official_source",
-            "generic_sec_api_vendor",
-            "generic_alternative_data_platform",
-            "generic_free_curated_portfolio_site",
+        assert commercial["pricing_status"] == "single_public_offer_displayed"
+        assert commercial["recommended_packages"][0]["price_usd_per_month"] == 19
+        assert commercial["do_not_discount_below"]["public_offer_usd_per_month"] == 19
+        assert "$19/month" in commercial["principle"]
+        assert commercial["pricing_policy"]["strategy"] == "single_19_usd_public_offer"
+        assert "sandbox token that cannot authenticate production Pro endpoints" in commercial["pricing_policy"]["compete_on"]
+        assert [item["provider"] for item in commercial["market_context"]] == [
+            "SEC EDGAR",
+            "sec-api",
+            "Financial Datasets",
+            "Dataroma",
         ]
-        assert all(item["provider"].startswith(("SEC", "unnamed")) for item in commercial["market_context"])
-        assert "/api/pro/v1/openapi.json" in commercial["evidence_pack"]
-        assert offer["default_limits"]["rate_per_min"] == 120
+        assert "/sandbox" in commercial["evidence_pack"]
+        assert offer["default_limits"]["sandbox_rate_per_min"] == 20
         assert "validated alpha" in offer["not_included_yet"]
         assert "create_key" in offer["operator_commands"]
         assert offer["truth_boundary"]["current_artifact"]["publishable_as_full_validation"] is False
@@ -443,29 +447,34 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert mcp_method["security"]["credential_headers"][0].startswith("Authorization")
 
         pro_page = c.get("/pro").get_data(as_text=True)
-        assert "Request access" in pro_page
+        assert "Start sandbox" in pro_page
         assert "Access request checklist" in pro_page
-        assert "Operator lead kit" in pro_page
-        assert "not publicly quoted" in pro_page
-        assert "Technical pilot review" in pro_page
-        assert "limited-capacity service" in pro_page
+        assert "$19 / month" in pro_page
+        assert "13FLOW Public Builder" in pro_page
+        assert "MCP kept to a minimal included demo" in pro_page
         assert "490 EUR / month" not in pro_page
-        assert "Source-position boundary" in pro_page
-        assert "bounded_operator_review_before_any_quote" in pro_page
-        assert "generic alternative data platform" in pro_page
-        assert "generic sec api vendor" in pro_page
+        assert "single_19_usd_public_offer" in pro_page
         assert "Evidence pack" in pro_page
-        assert 'href="/buyer-pack"' in pro_page
-        assert "Buyer pack" in pro_page
-        assert 'href="/validation"' in pro_page
-        assert 'href="/pro/onboarding"' in pro_page
-        assert "Onboarding diagnostic" in pro_page
-        assert 'href="/pro/workspace"' in pro_page
-        assert "Workspace cockpit" in pro_page
+        assert 'href="/sandbox"' in pro_page
+        assert 'href="/alternatives"' in pro_page
+        assert 'href="/trust-artifact"' in pro_page
+
+        sandbox_key = c.get("/api/sandbox/key").get_json()
+        assert sandbox_key["production_access"] is False
+        token = sandbox_key["token"]
+        assert token.startswith("13flow_sandbox_")
+        assert c.get("/api/sandbox/v1/status").status_code == 401
+        sandbox_status = c.get("/api/sandbox/v1/status", headers={"Authorization": f"Bearer {token}"}).get_json()
+        assert sandbox_status["production_access"] is False
+        mcp_min = c.get("/api/sandbox/v1/mcp-minimum", headers={"Authorization": f"Bearer {token}"}).get_json()
+        assert mcp_min["standalone_mcp_offer"] is False
+        trust_artifact = c.get("/api/trust-artifact").get_json()
+        assert trust_artifact["alpha_claim"] is False
         assert "Public filings research. Not investment advice." in pro_page
         assert 'href="/developers"' in pro_page
-        assert 'href="/api/live-status"' in pro_page
-        assert 'href="/status"' in pro_page
+        assert 'href="/sandbox"' in pro_page
+        assert 'href="/alternatives"' in pro_page
+        assert 'href="/trust-artifact"' in pro_page
 
         pro_workspace_page = c.get("/pro/workspace").get_data(as_text=True)
         assert "Workspace Cockpit" in pro_workspace_page
@@ -794,7 +803,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
 
         pro_terms = c.get("/legal/pro-api").get_data(as_text=True)
         assert "Self-serve checkout is disabled" in pro_terms
-        assert "No public package pricing" in pro_terms
+        assert "only public offer is the simple $19/month" in pro_terms
         assert "Access can be declined" in pro_terms
         assert "No resale, redistribution" in pro_terms
         assert "does not sell raw SEC access as proprietary data" in pro_terms

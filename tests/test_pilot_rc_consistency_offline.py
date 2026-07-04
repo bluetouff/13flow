@@ -48,10 +48,11 @@ def test_pilot_release_candidate_surfaces_share_core_boundary():
     assert {b["source"] for b in boundaries} == {"docs/CORE_V1_BOUNDARY.md"}
 
     assert readiness["sales_motion"] == buyer["sales_motion"] == intake["sales_motion"] == \
-        "controlled_pilot_only"
+        "single_public_offer_with_sandbox"
     assert readiness["self_serve_checkout"] is buyer["self_serve_checkout"] is \
         intake["self_serve_checkout"] is False
-    assert readiness["public_quote_ready"] is buyer["public_quote_ready"] is False
+    assert readiness["public_quote_ready"] is buyer["public_quote_ready"] is True
+    assert readiness["displayed_public_price"]["price_usd_per_month"] == 19
 
     assert security["status"] in {"controlled_pilot_security_ready", "security_review_required"}
     assert security["status"] == (
@@ -62,15 +63,16 @@ def test_pilot_release_candidate_surfaces_share_core_boundary():
     assert security["privacy"]["secrets_in_payloads"] is False
     assert security["privacy"]["self_serve_checkout"] is False
 
-    assert offer["offer"]["access_model"] == "operator_issued_api_key"
+    assert offer["offer"]["access_model"] == "single_public_offer_plus_sandbox"
     assert offer["offer"]["self_serve_checkout"] is False
-    assert offer["commercial_model"]["pricing_status"] == \
-        "paused_until_terms_and_capacity_are_ready"
+    assert offer["commercial_model"]["pricing_status"] ==         "single_public_offer_displayed"
+    assert offer["commercial_model"]["recommended_packages"][0]["price_usd_per_month"] == 19
+    assert offer["offer"]["mcp_included_minimum"]["standalone_offer"] is False
     assert offer["commercial_model"]["qualification_filter"]["bad_fit"] == [
         "wants cheap raw SEC access only",
-        "requires a public self-serve checkout today",
+        "expects a standalone paid MCP product today",
         "expects investment advice, price targets or validated alpha",
-        "needs redistribution without a custom contract",
+        "needs redistribution, SLA or enterprise procurement before a custom agreement exists",
     ]
 
     assert intake["public_submission_endpoint"] is None
@@ -103,6 +105,7 @@ def test_pilot_release_candidate_pages_do_not_show_self_serve_language():
     assert "continue to checkout" not in joined
     assert "stripe checkout" not in joined
     assert "490 eur" not in joined
+    assert "$19" in joined
     assert "validated alpha claim" not in joined
     assert "server_side_pii_storage:false" in joined
     assert "not investment advice" in joined
