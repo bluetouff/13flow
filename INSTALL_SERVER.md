@@ -76,9 +76,9 @@ sudo -u smartmoney -H bash -c '
 ```
 
 ## 5b. Pro access
-Core V1 has no browser accounts or self-serve checkout. Paid access is issued
-with scoped Pro API keys from the Pro control-plane DB; see
-`docs/PRO_API_ONBOARDING.md`.
+Core V1 has no browser accounts or self-serve checkout. Pro access is issued
+with scoped API keys from the Pro control-plane DB and gated through the admin
+readiness endpoint.
 
 ## 6. Run the API as a systemd service (gunicorn)
 ```bash

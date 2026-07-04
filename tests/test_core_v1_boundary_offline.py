@@ -8,12 +8,21 @@ def _read(path):
     return (ROOT / path).read_text(encoding="utf-8")
 
 
+REMOVED_DOCS = [
+    "docs/" + "COMMERCIAL" + "_MODEL.md",
+    "docs/" + "FIRST" + "_COMMERCIAL" + "_OUTREACH.md",
+    "docs/" + "GTM" + "_PRODUCT" + "_STATUS.md",
+    "docs/" + "PRO" + "_API" + "_ONBOARDING.md",
+    "docs/" + "PRO" + "_MCP" + "_REDISTRIBUTION" + "_TERMS.md",
+]
+
+
 def test_core_v1_boundary_documents_maintainable_scope():
     text = _read("docs/CORE_V1_BOUNDARY.md")
 
     assert "13FLOW Core V1 boundary" in text
-    assert "controlled pilot" in text
-    assert "Which paying workflow does it unblock?" in text
+    assert "operator issued" in text
+    assert "Which research or operator workflow does it unblock?" in text
     assert "/api/pro/v1/workspace/*" in text
     assert "/api/pro/v1/admin/ops" in text
     assert "/api/pro/v1/admin/release-readiness" in text
@@ -28,27 +37,18 @@ def test_core_v1_boundary_documents_maintainable_scope():
 
 
 def test_operator_docs_link_to_core_v1_gate():
-    for path in (
-        "README.md",
-        "docs/GTM_PRODUCT_STATUS.md",
-        "docs/PRO_API_ONBOARDING.md",
-    ):
+    text = _read("README.md")
+    assert "docs/CORE_V1_BOUNDARY.md" in text
+
+
+def test_commercial_marketing_and_client_docs_are_not_tracked_in_repo():
+    for path in REMOVED_DOCS:
+        assert not (ROOT / path).exists(), path
+
+    for path in ("README.md", "docs/CORE_V1_BOUNDARY.md"):
         text = _read(path)
-        assert "docs/CORE_V1_BOUNDARY.md" in text, path
-
-
-def test_commercial_and_marketing_docs_are_not_tracked_in_repo():
-    assert not (ROOT / "docs/COMMERCIAL_MODEL.md").exists()
-    assert not (ROOT / "docs/FIRST_COMMERCIAL_OUTREACH.md").exists()
-
-    for path in (
-        "README.md",
-        "docs/GTM_PRODUCT_STATUS.md",
-        "docs/PRO_API_ONBOARDING.md",
-    ):
-        text = _read(path)
-        assert "docs/COMMERCIAL_MODEL.md" not in text, path
-        assert "docs/FIRST_COMMERCIAL_OUTREACH.md" not in text, path
+        for removed_doc in REMOVED_DOCS:
+            assert removed_doc not in text, path
         assert "cold email" not in text.lower(), path
 
 
@@ -59,20 +59,8 @@ def test_readme_marks_browser_auth_and_checkout_as_removed_from_core_v1():
     assert "/api/pro/v1/admin/release-readiness" in readme
     assert "no public signup" in readme
     assert "no Stripe billing flow" in readme
-    assert "operator-reviewed Pro API access" in readme
+    assert "Pro API access is operator" in readme
+    assert "issued: create a scoped key" in readme
     assert "create-user" not in readme
     assert "POST /api/billing" not in readme
     assert "Stripe Checkout" not in readme
-
-
-def test_pro_api_onboarding_freezes_controlled_pilot_scope():
-    runbook = _read("docs/PRO_API_ONBOARDING.md")
-
-    assert "Controlled pilot scope" in runbook
-    assert "Before issuing a key, the release-readiness endpoint must return `go: true`" in runbook
-    assert "funds:read,quality:read,workspace:write" in runbook
-    assert "--api-key-expires-days 30" in runbook
-    assert "--api-key-rotation-days 21" in runbook
-    assert "customer `admin:read` scope" in runbook
-    assert "self-serve payment" in runbook
-    assert "not repeated in chat, email archives, tickets, URLs or browser storage" in runbook

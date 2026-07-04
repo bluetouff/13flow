@@ -970,6 +970,27 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
         assert "127.0.0.1" not in release_body
         assert "pytest" not in release_body
 
+        surface_response = c.get(
+            f"/api/pro/v1/admin/release-readiness?key_id={workspace_key.key_id}&days=7&include=surface",
+            headers={"Authorization": "Bearer " + admin_token},
+        )
+        assert surface_response.status_code == 200
+        surface_payload = surface_response.get_json()
+        assert surface_payload["meta"]["admin_key_id"] == admin_key.key_id
+        assert surface_payload["ops"]["pro_control_plane"]["keys"]["active"] == 2
+        assert surface_payload["pilot_fulfillment"]["scope"] == "admin:read"
+        assert surface_payload["buyer_handoff"]["tokens_included"] is False
+        assert surface_payload["pilot_closeout"]["selection"]["key_id"] == workspace_key.key_id
+        assert surface_payload["pilot_renewal"]["tokens_included"] is False
+        assert surface_payload["pilot_request_assist"]["request_persisted"] is False
+        surface_body = surface_response.get_data(as_text=True)
+        assert admin_token not in surface_body
+        assert workspace_token not in surface_body
+        assert "13flow_live_" not in surface_body
+        assert '"key_hash":' not in surface_body
+        assert "127.0.0.1" not in surface_body
+        assert "pytest" not in surface_body
+
         closeout_response = c.get(
             f"/api/pro/v1/admin/pilot-closeout?key_id={workspace_key.key_id}&days=7",
             headers={"Authorization": "Bearer " + admin_token},

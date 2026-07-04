@@ -379,12 +379,13 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "raw SEC data" in commercial["principle"]
         assert commercial["pricing_policy"]["strategy"] == "bounded_operator_review_before_any_quote"
         assert "13F plus Form 4 confluence workflow" in commercial["pricing_policy"]["compete_on"]
-        assert [item["provider"] for item in commercial["market_context"]] == [
-            "SEC.gov",
-            "SEC-API.io",
-            "Quiver Quantitative",
-            "Dataroma",
+        assert [item["category"] for item in commercial["market_context"]] == [
+            "official_source",
+            "generic_sec_api_vendor",
+            "generic_alternative_data_platform",
+            "generic_free_curated_portfolio_site",
         ]
+        assert all(item["provider"].startswith(("SEC", "unnamed")) for item in commercial["market_context"])
         assert "/api/pro/v1/openapi.json" in commercial["evidence_pack"]
         assert offer["default_limits"]["rate_per_min"] == 120
         assert "validated alpha" in offer["not_included_yet"]
@@ -428,9 +429,10 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Technical pilot review" in pro_page
         assert "limited-capacity service" in pro_page
         assert "490 EUR / month" not in pro_page
-        assert "Competitive position" in pro_page
+        assert "Source-position boundary" in pro_page
         assert "bounded_operator_review_before_any_quote" in pro_page
-        assert "Quiver Quantitative" in pro_page
+        assert "generic alternative data platform" in pro_page
+        assert "generic sec api vendor" in pro_page
         assert "Evidence pack" in pro_page
         assert 'href="/buyer-pack"' in pro_page
         assert "Buyer pack" in pro_page
@@ -521,6 +523,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "admin:read" in pro_admin_page
         assert "13flow.pro.admin.token" in pro_admin_page
         assert "/api/pro/v1\" + path" in pro_admin_page
+        assert "include=surface" in pro_admin_page
         assert "/admin/health" in pro_admin_page
         assert "/admin/pilot-fulfillment" in pro_admin_page
         assert "/admin/buyer-handoff" in pro_admin_page

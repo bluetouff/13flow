@@ -119,7 +119,7 @@ sudo /opt/13flow/.venv/bin/python /opt/13flow/run.py \
 
 The mature end date intentionally excludes the latest 13F quarter when the local
 price file cannot yet provide complete 120-trading-day forward returns. Review
-the gate output before using the file in product or sales material.
+the gate output before using the file in any public methodology material.
 Complete Confluence validation still requires broader coverage, price-source
 review, delisting treatment, costs, no-lookahead checks and out-of-sample
 metrics.

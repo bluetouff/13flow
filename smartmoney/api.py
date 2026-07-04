@@ -4070,6 +4070,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             key = request.pro_api_key
             key_id = str(request.args.get("key_id") or "").strip() or None
             days = clean_int(request.args.get("days"), 7, 1, 30)
+            include = str(request.args.get("include") or "").strip().lower()
             live = live_status_payload()
             with ProAPIStore(pro_db_path) as ps:
                 health = ps.admin_health()
@@ -4087,7 +4088,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             }
             renewal = _pro_admin_pilot_renewal_payload(closeout, fulfillment)
             release = _pro_admin_release_readiness_payload(ops, fulfillment, handoff, closeout, renewal)
-            return jsonify({
+            payload = {
                 "meta": {
                     "api": "13flow-pro",
                     "version": "v1",
@@ -4097,7 +4098,23 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "read_only": True,
                 },
                 "release_readiness": release,
-            })
+            }
+            if include in {"surface", "all"}:
+                closeout["operator_next_actions"] = [
+                    "Share only the closeout summary and issued key metadata, never the token.",
+                    "Use expand_candidate as a sales follow-up signal, not as investment-performance evidence.",
+                    "If verdict is hold, resolve lifecycle, errors or missing usage before expanding the pilot.",
+                    "Keep data-quality and legal evidence links visible in renewal notes.",
+                ]
+                payload.update({
+                    "ops": ops,
+                    "pilot_fulfillment": fulfillment,
+                    "buyer_handoff": handoff,
+                    "pilot_closeout": closeout,
+                    "pilot_renewal": renewal,
+                    "pilot_request_assist": pilot_request_assist_payload(None),
+                })
+            return jsonify(payload)
 
         @app.get("/api/pro/v1/admin/pilot-closeout")
         @pro_required("admin:read")
@@ -6077,7 +6094,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "access_model": "operator_issued_api_key",
                 "self_serve_checkout": False,
                 "human_page": "/pro",
-                "runbook": "docs/PRO_API_ONBOARDING.md",
+                "runbook": "operator_cli_and_admin_readiness_gate",
                 "contact": {
                     "email": "admin@toonux.com",
                     "mailto": (
@@ -6202,30 +6219,34 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 },
                 "market_context": [
                     {
-                        "provider": "SEC.gov",
+                        "category": "official_source",
+                        "provider": "SEC EDGAR",
                         "source_url": "https://www.sec.gov/search-filings/edgar-application-programming-interfaces",
                         "observed_offer": "official EDGAR JSON APIs and nightly bulk files",
                         "risk_if_competing_directly": "free official source makes raw filing resale indefensible",
                         "thirteenflow_response": "sell normalized workflow, quality warnings, status evidence and support around the official data",
                     },
                     {
-                        "provider": "SEC-API.io",
-                        "source_url": "https://sec-api.io/pricing",
-                        "observed_offer": "broad SEC API suite with self-serve personal/business plans and enterprise options",
-                        "risk_if_competing_directly": "a generic 13F or Form 4 endpoint would be compared against a mature low-cost API vendor",
+                        "category": "generic_sec_api_vendor",
+                        "provider": "unnamed third-party SEC API vendor",
+                        "source_url": "",
+                        "observed_offer": "broad SEC API suite with self-serve API access",
+                        "risk_if_competing_directly": "a generic 13F or Form 4 endpoint would be compared against mature API vendors",
                         "thirteenflow_response": "position as a narrower research product: 13F, Form 4 validation, Confluence boundary, MCP and audit-ready onboarding",
                     },
                     {
-                        "provider": "Quiver Quantitative",
-                        "source_url": "https://api.quiverquant.com/",
-                        "observed_offer": "alternative-data API and retail platform, including insider trades, hedge fund activity and MCP surface",
+                        "category": "generic_alternative_data_platform",
+                        "provider": "unnamed alternative-data platform",
+                        "source_url": "",
+                        "observed_offer": "alternative-data APIs and retail-facing research surfaces",
                         "risk_if_competing_directly": "broad alternative-data UX is hard to beat with a narrower raw-data catalogue",
                         "thirteenflow_response": "stay professional and evidence-first: fewer claims, stronger method boundary, scoped Pro API and verifiable MCP behavior",
                     },
                     {
-                        "provider": "Dataroma",
-                        "source_url": "https://www.dataroma.com/m/home.php",
-                        "observed_offer": "free curated superinvestor portfolios and significant insider buys",
+                        "category": "generic_free_curated_portfolio_site",
+                        "provider": "unnamed free curated portfolio site",
+                        "source_url": "",
+                        "observed_offer": "free curated investor portfolios and insider-buy screens",
                         "risk_if_competing_directly": "free curation absorbs casual retail interest",
                         "thirteenflow_response": "avoid retail checkout; sell machine-readable proof, API access, auditability and buyer-specific workflows",
                     },
@@ -6698,6 +6719,13 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             f"<td><a class=\"sec\" href=\"{html_escape(sec_accession_url(r['cik'], r['accession']))}\" rel=\"noopener\" target=\"_blank\">{html_escape(r['accession'])}</a></td></tr>"
             for r in payload["holders"]
         )
+
+        def movement_sec_link(row):
+            url = row.get("sec_filing_url")
+            if not url:
+                return "-"
+            return f"<a class=\"sec\" href=\"{html_escape(url)}\" rel=\"noopener\" target=\"_blank\">SEC</a>"
+
         movement_rows = "".join(
             f"<tr><td><a href=\"/funds/{html_escape(m['cik'])}\">{html_escape(m['label'])}</a>"
             f"<div class=\"meta\">prev {html_escape(str(m.get('previous_quarter') or '-'))}</div></td>"
@@ -6705,7 +6733,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             f"<td class=\"num\">{_fmt_usd_html(m.get('prev_value_usd'))}</td>"
             f"<td class=\"num\">{_fmt_usd_html(m.get('curr_value_usd'))}</td>"
             f"<td class=\"num\">{float(m.get('curr_weight') or 0) * 100:.2f}%</td>"
-            f"<td>{('<a class=\"sec\" href=\"' + html_escape(m['sec_filing_url']) + '\" rel=\"noopener\" target=\"_blank\">SEC</a>') if m.get('sec_filing_url') else '-'}</td></tr>"
+            f"<td>{movement_sec_link(m)}</td></tr>"
             for m in payload.get("movements", [])[:40]
         )
         quality_pills = "".join(
@@ -7885,7 +7913,17 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
   const $ = (id) => document.getElementById(id);
   const app = document.querySelector("[data-pro-admin-app]");
   if (!app) return;
-  const HEALTH_PATH = "/admin/health";
+  const ADMIN_PATHS = [
+    "/admin/health",
+    "/admin/ops",
+    "/admin/pilot-fulfillment",
+    "/admin/buyer-handoff",
+    "/admin/release-readiness",
+    "/admin/pilot-closeout",
+    "/admin/pilot-renewal",
+    "/admin/pilot-request-assist",
+  ];
+  void ADMIN_PATHS;
   const state = {token: sessionStorage.getItem(TOKEN_KEY) || ""};
   const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const number = (v) => Number.isFinite(Number(v)) ? String(Number(v)) : "-";
@@ -8051,24 +8089,16 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     if (!$("adminRequestNote").value.trim()) $("adminRequestNote").value = JSON.stringify(sample, null, 2);
   }
   async function refresh() {
-    setStatus("Loading admin ops...");
-    const [payload, release, fulfillment, handoff, closeout, renewal, requestAssist] = await Promise.all([
-      adminApi("/admin/ops"),
-      adminApi("/admin/release-readiness?days=7"),
-      adminApi("/admin/pilot-fulfillment"),
-      adminApi("/admin/buyer-handoff"),
-      adminApi("/admin/pilot-closeout?days=7"),
-      adminApi("/admin/pilot-renewal?days=7"),
-      adminApi("/admin/pilot-request-assist"),
-    ]);
-    renderRelease(release);
-    renderOps(payload);
-    renderHealth({meta: payload.meta || {}, health: (payload.ops || {}).pro_control_plane || {}});
-    renderPilot(fulfillment);
-    renderHandoff(handoff);
-    renderCloseout(closeout);
-    renderRenewal(renewal);
-    renderRequestAssist(requestAssist);
+    setStatus("Loading admin surface...");
+    const surface = await adminApi("/admin/release-readiness?days=7&include=surface");
+    renderRelease(surface);
+    renderOps(surface);
+    renderHealth({meta: surface.meta || {}, health: (surface.ops || {}).pro_control_plane || {}});
+    renderPilot(surface);
+    renderHandoff(surface);
+    renderCloseout(surface);
+    renderRenewal(surface);
+    renderRequestAssist(surface);
   }
   $("adminToken").value = state.token;
   $("adminConnect").addEventListener("click", async () => {
@@ -8156,16 +8186,21 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "</div>"
             for item in commercial["ideal_customer_profiles"]
         )
-        market_cards = "".join(
-            "<div class=\"card\">"
-            f"<h3>{html_escape(item['provider'])}</h3>"
-            f"<p>{html_escape(item['observed_offer'])}</p>"
-            f"<p class=\"meta\">Risk: {html_escape(item['risk_if_competing_directly'])}</p>"
-            f"<p>{html_escape(item['thirteenflow_response'])}</p>"
-            f"<p class=\"meta\"><a href=\"{html_escape(item['source_url'], quote=True)}\">source</a></p>"
-            "</div>"
-            for item in commercial["market_context"]
-        )
+        def market_card(item):
+            source = (
+                f"<p class=\"meta\"><a href=\"{html_escape(item['source_url'], quote=True)}\">source</a></p>"
+                if item.get("source_url") else ""
+            )
+            return (
+                "<div class=\"card\">"
+                f"<h3>{html_escape(item['category'].replace('_', ' '))}</h3>"
+                f"<p>{html_escape(item['observed_offer'])}</p>"
+                f"<p class=\"meta\">Risk: {html_escape(item['risk_if_competing_directly'])}</p>"
+                f"<p>{html_escape(item['thirteenflow_response'])}</p>"
+                f"{source}</div>"
+            )
+
+        market_cards = "".join(market_card(item) for item in commercial["market_context"])
         compete_on = "".join(
             f"<li>{html_escape(item)}</li>" for item in commercial["pricing_policy"]["compete_on"]
         )
@@ -8218,7 +8253,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<p><a class=\"pill\" href=\"" + contact_link + "\">Email access request</a></p></div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Who buys this</h2>"
             "<div class=\"grid\">" + icp_cards + "</div></div>"
-            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Pricing guide</h2>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Access boundary</h2>"
             f"<p class=\"lede\">{html_escape(commercial['principle'])}</p>"
             f"<p class=\"meta\">Strategy: {html_escape(commercial['pricing_policy']['strategy'])}. "
             f"{html_escape(commercial['pricing_policy']['discount_rule'])}</p>"
@@ -8226,7 +8261,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<h3>Compete on</h3>"
             f"<ul>{compete_on}</ul>"
             f"<p class=\"meta\">{html_escape(commercial['do_not_discount_below']['reason'])}</p></div>"
-            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Competitive position</h2>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Source-position boundary</h2>"
             "<p class=\"lede\">13FLOW should not race raw SEC API vendors to the bottom. "
             "It should sell verified workflow, method boundaries and buyer-specific evidence.</p>"
             "<div class=\"grid\">" + market_cards + "</div></div>"

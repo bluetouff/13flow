@@ -389,6 +389,7 @@ if fetch "/pro/admin" "$pro_admin_page"; then
     && grep -q "data-pro-admin-app" "$pro_admin_page" \
     && grep -q "admin:read" "$pro_admin_page" \
     && grep -q "13flow.pro.admin.token" "$pro_admin_page" \
+    && grep -q "include=surface" "$pro_admin_page" \
     && grep -q "/admin/health" "$pro_admin_page" \
     && grep -q "/admin/ops" "$pro_admin_page" \
     && grep -q "/admin/pilot-fulfillment" "$pro_admin_page" \

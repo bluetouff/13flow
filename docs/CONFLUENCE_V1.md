@@ -150,8 +150,8 @@ python run.py --db /var/lib/13flow/13flow.db \
 python run.py --validation-dataset /path/to/confluence_features.csv --validation-json
 ```
 
-The JSON gate contains a `manifest.evidence` block. Treat it as the first commercial
-reality check:
+The JSON gate contains a `manifest.evidence` block. Treat it as the first
+publication-readiness reality check:
 
 - `feature_scope_counts` must include `13f_form4_joined` for a complete Confluence sample;
 - `rows_with_form4_accessions` proves that visible Form 4 accessions were joined without

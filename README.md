@@ -68,20 +68,19 @@ served at `/funds`, `/funds/<cik>`, `/stocks`, `/stocks/<ticker>`, `/signals`, a
 `/api/live-status` is the public,
 machine-readable proof of live state: SHA, source (`SEC EDGAR`), latest quarter, row counts,
 data-quality summary, and `uses_synthetic_data=false`. `/api/product-status` is the
-go-to-market truth surface: it states what is sellable now, what is deliberately disabled
-(for example x402), and why full quantitative validation remains blocked until imported
-2013-2026 adjusted-price and normalized Form 4 transaction artifacts are available. See
-[`docs/GTM_PRODUCT_STATUS.md`](docs/GTM_PRODUCT_STATUS.md) and the Core V1 scope gate in
-[`docs/CORE_V1_BOUNDARY.md`](docs/CORE_V1_BOUNDARY.md).
-The public Pro packaging page lives at `/pro`; its machine-readable contract is
+machine-readable operational status surface: it states live data coverage, disabled
+claims, and why full quantitative validation remains blocked until imported 2013-2026
+adjusted-price and normalized Form 4 transaction artifacts are available. See the
+Core V1 scope gate in [`docs/CORE_V1_BOUNDARY.md`](docs/CORE_V1_BOUNDARY.md).
+The public Pro capability page lives at `/pro`; its machine-readable contract is
 `/api/pro-offer`.
 
 ## No browser accounts or checkout
 Core V1 deliberately has no browser account system, no public signup, no
-self-serve checkout and no Stripe billing flow. The commercial path is
-operator-reviewed Pro API access: create a scoped key, deliver the plaintext
-token once through an approved secure channel, verify `/api/pro/v1/status`, and
-keep audit/rotation in the Pro control plane.
+self-serve checkout and no Stripe billing flow. Pro API access is operator
+issued: create a scoped key, deliver the plaintext token once through an
+approved secure channel, verify `/api/pro/v1/status`, and keep audit/rotation
+in the Pro control plane.
 
 ## Pro API
 The Pro API is an explicit, versioned API-key surface for institutional and automated use.
@@ -147,11 +146,9 @@ Operational baseline:
 - keep Pro audit rows long enough for incident response, then prune with
   `--prune-pro-audit-days`;
 - back up `SMARTMONEY_PRO_DB` with encrypted backups only. See
-  [`deploy/PRO_API_SPLIT.md`](deploy/PRO_API_SPLIT.md), `deploy/backup-pro-db.sh`, and
-  [`docs/PRO_API_ONBOARDING.md`](docs/PRO_API_ONBOARDING.md).
+  [`deploy/PRO_API_SPLIT.md`](deploy/PRO_API_SPLIT.md) and `deploy/backup-pro-db.sh`.
 
-Before issuing or renewing a controlled-pilot key, use the operator runbook in
-[`docs/PRO_API_ONBOARDING.md`](docs/PRO_API_ONBOARDING.md) and confirm
+Before issuing or renewing a Pro key, confirm
 `/api/pro/v1/admin/release-readiness` returns `go: true` with no blockers.
 
 `GET /api/pro/v1/fund/<cik>` is the institutional detail endpoint: it returns the selected

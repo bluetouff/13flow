@@ -83,7 +83,7 @@ Operational requirements:
   `deploy/verify-pro-db-backup.sh` before pruning Pro audit rows; for public-key
   backups, perform that restore check only on a host with the matching private key.
 - Define a retention window for Pro audit rows. A practical starting point is 180 days
-  online plus encrypted backups retained according to the legal/commercial policy.
+  online plus encrypted backups retained according to the legal and operational policy.
 - Keep edge rate limiting in front of the app as a second layer. The app-level limiter is a
   product/abuse control, not a DDoS shield.
 
@@ -156,7 +156,7 @@ are about output encoding and a strict CSP.
   (CSP) plus `base-uri 'none'`.
 - **Third-party surface.** Public UI fonts are self-hosted from `/assets/fonts/`; the CSP no
   longer allows Google Fonts origins. No third-party JS, analytics, or trackers are loaded by
-  the public dashboard, FAQ, legal notice, buyer pack or Pro cockpit pages.
+  the public dashboard, FAQ, legal notice, evidence pages or Pro cockpit pages.
 
 ## Open (public, read-only) build
 Core V1 always registers the public read-only surface plus the separate Pro API
