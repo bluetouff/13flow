@@ -6845,23 +6845,24 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         nonce = secrets.token_urlsafe(16)
         nav = (
             '<nav class="topnav"><a class="brand" href="/">13<span>FL</span><b>OW</b></a>'
-            '<div class="navlinks"><a class="primary" href="/app">Cockpit</a><a href="/confluence">Confluence</a>'
-            '<a href="/funds">Funds</a><a href="/stocks">Stocks</a><a href="/signals">Signals</a>'
-            '<a href="/status">Status</a><a href="/coverage">Coverage</a><a href="/security">Security</a><a href="/validation">Validation</a><a href="/methodology">Methodology</a>'
-            '<a href="/developers">API</a><a href="/pro">Pro</a><a href="/pilot">Pilot</a><a href="/about">About</a></div></nav>'
+            '<div class="navlinks"><a class="primary" href="/app">Cockpit</a>'
+            '<a href="/signals">Signals</a><a href="/funds">Funds</a><a href="/stocks">Stocks</a>'
+            '<a href="/developers">API</a><a href="/pro">Pro</a></div></nav>'
         )
         footer = (
             '<footer class="site-footer"><div class="foot-grid">'
             '<div><h4>13FLOW</h4><p>SEC EDGAR-derived 13F and Form 4 research surfaces '
             'for analysts, APIs and agent workflows.</p></div>'
-            '<div><h4>Product</h4><a href="/confluence">Confluence</a><a href="/funds">Funds</a><a href="/stocks">Stocks</a>'
-            '<a href="/signals">Signals</a><a href="/validation">Validation</a><a href="/pro">Pro API</a><a href="/pilot">Pilot intake</a></div>'
-            '<div><h4>Method</h4><a href="/methodology">Overview</a>'
-            '<a href="/methodology/app">Application</a><a href="/methodology/mcp">MCP</a>'
-            '<a href="/api/methodology/confluence-v1">Confluence v1</a></div>'
-            '<div><h4>Trust</h4><a href="/status">Status</a><a href="/coverage">Coverage</a><a href="/security">Security</a><a href="/about">About</a><a href="/developers">Developers</a>'
-            '<a href="/api/openapi.json">OpenAPI</a><a href="/api/live-status">Live status</a>'
-            '<a href="/legal">Legal</a></div>'
+            '<div><h4>Product</h4><a href="/app">Cockpit</a><a href="/signals">Signals</a>'
+            '<a href="/funds">Funds</a><a href="/stocks">Stocks</a><a href="/pro">Pro API</a>'
+            '<a href="/developers">API docs</a></div>'
+            '<div><h4>Trust</h4><a href="/status">Status</a><a href="/coverage">Coverage</a>'
+            '<a href="/validation">Validation</a><a href="/security">Security</a>'
+            '<a href="/methodology">Methodology</a><a href="/methodology/app">Application method</a>'
+            '<a href="/methodology/mcp">MCP method</a></div>'
+            '<div><h4>Company</h4><a href="/pilot">Pilot intake</a><a href="/buyer-pack">Buyer pack</a>'
+            '<a href="/about">About</a><a href="/faq">FAQ</a><a href="/legal">Legal</a>'
+            '<a href="/legal/pro-api">Pro terms</a></div>'
             '</div><div class="fine"><span>Public filings research. Not investment advice.</span>'
             '<span>Built by <a href="https://l0g.fr/" rel="noopener">l0g</a> · Source: SEC EDGAR · LIVE state exposed at /api/live-status</span></div></footer>'
         )
@@ -8793,7 +8794,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             f"<div class=\"proof-item\"><b>{html_escape(latest_q)}</b><span>latest 13F quarter</span></div>"
             "</div><div class=\"home-actions\">"
             "<a class=\"button\" href=\"/app\">Open research app</a>"
-            "<a class=\"button secondary\" href=\"/confluence\">Open Confluence</a>"
+            "<a class=\"button secondary\" href=\"/signals\">Open Signals</a>"
             "<a class=\"button secondary\" href=\"/pro\">Evaluate Pro API</a></div></div>"
             "<aside class=\"cockpit-shot\" aria-label=\"13FLOW cockpit preview\">"
             "<div class=\"shot-top\"><div><div class=\"shot-title\">Confluence cockpit</div>"

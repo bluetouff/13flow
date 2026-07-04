@@ -161,8 +161,13 @@ def test_dashboard_initial_html_exposes_live_state_for_crawlers():
         assert "uses_synthetic_data=false" in html
         assert "/api/funds serves 1 funds" in html
         assert "latest 13F quarter 2026-03-31" in html
-        assert "Open Confluence" in html
-        assert 'href="/confluence"' in html
+        assert "Open Signals" in html
+        assert 'href="/signals"' in html
+        topnav = html.split("</nav>", 1)[0]
+        for label in ("Confluence", "Status", "Coverage", "Security", "Validation", "Methodology", "Pilot", "About"):
+            assert f">{label}<" not in topnav
+        for label in ("Cockpit", "Signals", "Funds", "Stocks", "API", "Pro"):
+            assert f">{label}<" in topnav
         assert "No complete view of shorts" in html
         assert "No exhaustive insider-only" in html
         assert "Open research app" in html
