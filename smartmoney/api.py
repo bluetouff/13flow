@@ -4434,6 +4434,49 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     def product_status_ep():
         return jsonify(product_status_payload())
 
+    def core_v1_boundary_payload() -> dict:
+        return {
+            "status": "controlled_pilot_core_v1",
+            "source": "docs/CORE_V1_BOUNDARY.md",
+            "sales_motion": "controlled_pilot_only",
+            "change_rule": "prefer extending existing contracts over adding new surfaces",
+            "operator_review_required": True,
+            "public_open_build": {
+                "read_only": True,
+                "browser_accounts": False,
+                "self_serve_checkout": False,
+                "public_submission_endpoint": False,
+                "token_collection": False,
+            },
+            "pro_boundary": {
+                "operator_issued_keys": True,
+                "web_worker_creates_tokens": False,
+                "tokens_included_in_payloads": False,
+                "default_customer_scopes": ["funds:read", "quality:read", "workspace:write"],
+                "forbidden_customer_scopes": ["admin:read"],
+            },
+            "routine_publication": {
+                "mode": "automated_fail_closed",
+                "manual_13f_review_required": False,
+                "signal_rule": "only trusted funds are eligible for scores, consensus and watchlist signals",
+            },
+            "keep_out": [
+                "public self-serve checkout",
+                "public prospect PII persistence",
+                "automated billing or CRM workflow",
+                "production x402 settlement",
+                "validated alpha, expected-return or probability claims",
+                "new dashboards when existing admin, buyer, onboarding or workspace surfaces can carry the need",
+            ],
+            "required_gates": [
+                "pytest offline suite",
+                "public smoke",
+                "Pro workspace smoke",
+                "Pro key lifecycle smoke",
+                "encrypted Pro DB backup restore verification",
+            ],
+        }
+
     def commercial_readiness_payload() -> dict:
         live = live_status_payload()
         product = product_status_payload()
@@ -4531,6 +4574,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "sales_motion": "controlled_pilot_only",
             "self_serve_checkout": False,
             "public_quote_ready": False,
+            "core_v1_boundary": core_v1_boundary_payload(),
             "hard_blocks": hard_blocks,
             "soft_blocks": soft_blocks,
             "public_checks": public_checks,
@@ -4586,6 +4630,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "generated_at": _now_iso(),
             "git_sha": _git_sha(),
             "status": status,
+            "core_v1_boundary": core_v1_boundary_payload(),
             "scope": (
                 "Security posture for a controlled technical pilot. This is an operator "
                 "evidence pack, not a third-party penetration test, SOC 2 report, "
@@ -4744,6 +4789,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "self_serve_checkout": False,
             "public_submission_endpoint": None,
             "public_form_submission": False,
+            "core_v1_boundary": core_v1_boundary_payload(),
             "privacy": {
                 "server_side_pii_storage": False,
                 "browser_storage": "none required; the public page renders a copyable template only",
@@ -5006,6 +5052,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "sales_motion": readiness.get("sales_motion"),
             "public_quote_ready": readiness.get("public_quote_ready"),
             "self_serve_checkout": readiness.get("self_serve_checkout"),
+            "core_v1_boundary": core_v1_boundary_payload(),
             "one_liner": (
                 "Source-linked SEC EDGAR-derived 13F research surfaces, scoped Pro API "
                 "access, workspace tooling and explicit validation boundaries for a "
@@ -5989,6 +6036,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "expected_response": "operator review before any token is issued",
                 },
             },
+            "core_v1_boundary": core_v1_boundary_payload(),
             "plans": [
                 {
                     "name": "Technical pilot review",
