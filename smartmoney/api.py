@@ -6888,20 +6888,47 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             '<a href="/signals">Signals</a><a href="/funds">Funds</a><a href="/stocks">Stocks</a>'
             '<a href="/developers">API</a><a href="/pro">Pro</a></div></nav>'
         )
+        def _foot_icon(path: str) -> str:
+            return (
+                '<svg class="foot-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+                'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+                f"{path}</svg>"
+            )
+
+        def _foot_link(href: str, label: str, icon: str) -> str:
+            return f'<a class="foot-link" href="{href}">{icon}<span>{label}</span></a>'
+
+        icon_brand = _foot_icon('<path d="M4 7c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z"/><path d="M4 7v5c0 1.7 3.6 3 8 3s8-1.3 8-3V7"/><path d="M4 12v5c0 1.7 3.6 3 8 3s8-1.3 8-3v-5"/>')
+        icon_app = _foot_icon('<rect x="4" y="4" width="7" height="7" rx="1.4"/><rect x="13" y="4" width="7" height="7" rx="1.4"/><rect x="4" y="13" width="7" height="7" rx="1.4"/><rect x="13" y="13" width="7" height="7" rx="1.4"/>')
+        icon_signal = _foot_icon('<path d="M4 19h16"/><path d="M7 15l3-4 3 2 4-6"/><path d="M15.5 7H18v2.5"/>')
+        icon_fund = _foot_icon('<path d="M4 19h16"/><path d="M7 16V9"/><path d="M12 16V5"/><path d="M17 16v-4"/>')
+        icon_stock = _foot_icon('<path d="M5 4h14v16H5z"/><path d="M8 9h8M8 13h5M8 17h8"/>')
+        icon_api = _foot_icon('<rect x="4" y="5" width="16" height="14" rx="2"/><path d="M8 10l3 2-3 2"/><path d="M13 15h3"/>')
+        icon_pro = _foot_icon('<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12v9M20 7.5L12 12 4 7.5"/>')
+        icon_status = _foot_icon('<circle cx="12" cy="12" r="9"/><path d="M8 12l2.4 2.4L16.5 8"/>')
+        icon_coverage = _foot_icon('<path d="M4 5h16v14H4z"/><path d="M8 9h8M8 13h6M8 17h4"/>')
+        icon_security = _foot_icon('<path d="M12 3l7 3v5c0 4.2-2.8 8-7 10-4.2-2-7-5.8-7-10V6z"/><path d="M9.5 12l1.7 1.7 3.7-4"/>')
+        icon_method = _foot_icon('<path d="M9 3h6"/><path d="M10 3v6l-5.2 9.1A1 1 0 0 0 5.7 20h12.6a1 1 0 0 0 .9-1.9L14 9V3"/>')
+        icon_company = _foot_icon('<circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><circle cx="12" cy="8" r="0.7" fill="currentColor" stroke="none"/>')
+        icon_doc = _foot_icon('<path d="M5 4h10l4 4v12H5z"/><path d="M15 4v4h4"/><path d="M8 12h8M8 16h6"/>')
+        icon_legal = _foot_icon('<path d="M12 3v18"/><path d="M5 7h14"/><path d="M7 7l-3 6h6z"/><path d="M17 7l-3 6h6z"/><path d="M8 21h8"/>')
         footer = (
             '<footer class="site-footer"><div class="foot-grid">'
-            '<div><h4>13FLOW</h4><p>SEC EDGAR-derived 13F and Form 4 research surfaces '
+            f'<div><h4>{icon_brand}<span>13FLOW</span></h4><p>SEC EDGAR-derived 13F and Form 4 research surfaces '
             'for analysts, APIs and agent workflows.</p></div>'
-            '<div><h4>Product</h4><a href="/app">Cockpit</a><a href="/signals">Signals</a>'
-            '<a href="/funds">Funds</a><a href="/stocks">Stocks</a><a href="/pro">Pro API</a>'
-            '<a href="/developers">API docs</a></div>'
-            '<div><h4>Trust</h4><a href="/status">Status</a><a href="/coverage">Coverage</a>'
-            '<a href="/validation">Validation</a><a href="/security">Security</a>'
-            '<a href="/methodology">Methodology</a><a href="/methodology/app">Application method</a>'
-            '<a href="/methodology/mcp">MCP method</a></div>'
-            '<div><h4>Company</h4><a href="/pilot">Pilot intake</a><a href="/buyer-pack">Buyer pack</a>'
-            '<a href="/about">About</a><a href="/faq">FAQ</a><a href="/legal">Legal</a>'
-            '<a href="/legal/pro-api">Pro terms</a></div>'
+            f'<div><h4>{icon_app}<span>Product</span></h4>{_foot_link("/app", "Cockpit", icon_app)}'
+            f'{_foot_link("/signals", "Signals", icon_signal)}{_foot_link("/funds", "Funds", icon_fund)}'
+            f'{_foot_link("/stocks", "Stocks", icon_stock)}{_foot_link("/pro", "Pro API", icon_pro)}'
+            f'{_foot_link("/developers", "API docs", icon_api)}</div>'
+            f'<div><h4>{icon_security}<span>Trust</span></h4>{_foot_link("/status", "Status", icon_status)}'
+            f'{_foot_link("/coverage", "Coverage", icon_coverage)}{_foot_link("/validation", "Validation", icon_signal)}'
+            f'{_foot_link("/security", "Security", icon_security)}{_foot_link("/methodology", "Methodology", icon_method)}'
+            f'{_foot_link("/methodology/app", "Application method", icon_doc)}'
+            f'{_foot_link("/methodology/mcp", "MCP method", icon_api)}</div>'
+            f'<div><h4>{icon_company}<span>Company</span></h4>{_foot_link("/pilot", "Pilot intake", icon_doc)}'
+            f'{_foot_link("/buyer-pack", "Buyer pack", icon_doc)}{_foot_link("/about", "About", icon_company)}'
+            f'{_foot_link("/faq", "FAQ", icon_status)}{_foot_link("/legal", "Legal", icon_legal)}'
+            f'{_foot_link("/legal/pro-api", "Pro terms", icon_legal)}</div>'
             '</div><div class="fine"><span>Public filings research. Not investment advice.</span>'
             '<span>Built by <a href="https://l0g.fr/" rel="noopener">l0g</a> · Source: SEC EDGAR · LIVE state exposed at /api/live-status</span></div></footer>'
         )
@@ -6922,6 +6949,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 .home-copy h1{{display:inline-block;font-size:70px;background:linear-gradient(90deg,var(--text) 0%,var(--accent) 54%,var(--amber) 100%);-webkit-background-clip:text;background-clip:text;color:transparent}}@media(max-width:760px){{.home-copy h1{{font-size:44px}}}}
 .doc-hero{{gap:32px;margin:12px 0 24px;align-items:center}}.doc-copy h1,.topnav+h1{{display:inline-block;font-size:58px;line-height:.98;margin-bottom:14px;background:linear-gradient(90deg,var(--text) 0%,var(--accent) 58%,var(--amber) 100%);-webkit-background-clip:text;background-clip:text;color:transparent}}.topnav+h1{{font-size:54px;margin-top:8px}}.topnav+h1+.lede{{font-size:18px;color:#c8d8d0;max-width:760px}}.doc-lede{{color:#c8d8d0}}.doc-panel,.doc-section,.panel,.card,.doc-card,.doc-metric,pre,table{{box-shadow:0 1px 2px rgba(0,0,0,.30),0 18px 42px -32px rgba(0,0,0,.86)}}.doc-panel,.doc-section,.panel,.card,.doc-card,.doc-metric{{position:relative;overflow:hidden;background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.006)),var(--panel)}}.doc-panel:before,.doc-section:before,.panel:before,.card:before,.doc-card:before,.doc-metric:before{{content:"";position:absolute;inset:0 0 auto;height:3px;background:linear-gradient(90deg,var(--accent),rgba(224,165,52,.42),transparent)}}.doc-panel h3,.doc-section h2,.panel h2,.panel h3,.card h2,.card h3,.doc-card h3{{position:relative}}.doc-metrics{{gap:12px;margin:22px 0 28px}}.doc-metric{{padding:16px}}.doc-metric b{{font-size:22px;color:var(--text)}}.doc-metric span{{color:var(--muted)}}.doc-section,.panel{{padding:22px}}.doc-grid,.grid{{gap:14px}}table{{border-color:#274033;background:rgba(19,36,28,.82)}}th{{background:rgba(22,41,31,.96);color:var(--muted)}}td{{background:rgba(19,36,28,.45)}}tr:hover td{{background:rgba(25,193,135,.06)}}.pill{{border-radius:999px}}a.pill,.pill.cta{{box-shadow:0 12px 32px -24px rgba(25,193,135,.8)}}.runstep,.mini-list div{{border-radius:14px}}@media(max-width:760px){{.doc-copy h1,.topnav+h1{{font-size:40px}}.doc-section,.panel{{padding:18px}}}}
 .request-panel,.workspace-panel,.admin-panel,.workspace-kpi,.admin-kpi{{position:relative;overflow:hidden;border-radius:16px;background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.006)),var(--panel);box-shadow:0 1px 2px rgba(0,0,0,.30),0 18px 42px -32px rgba(0,0,0,.86)}}.request-panel:before,.workspace-panel:before,.admin-panel:before,.workspace-kpi:before,.admin-kpi:before{{content:"";position:absolute;inset:0 0 auto;height:3px;background:linear-gradient(90deg,var(--accent),rgba(224,165,52,.42),transparent)}}.request-button,.workspace-button,.admin-button{{border-radius:999px}}.request-form input,.request-form select,.request-form textarea,.workspace-bar input,.workspace-form input,.workspace-form select,.workspace-form textarea,.admin-bar input,.admin-form input,.admin-form select,.admin-form textarea{{border-radius:12px}}
+.site-footer h4{{display:flex;align-items:center;gap:8px;color:#c8d8d0}}.site-footer h4 .foot-ico{{color:var(--accent);opacity:.92}}.site-footer a.foot-link{{display:flex;align-items:center;gap:8px;margin:8px 0;color:var(--muted)}}.site-footer a.foot-link:hover{{color:var(--text)}}.site-footer a.foot-link:hover .foot-ico{{color:var(--accent);transform:translateX(1px)}}.foot-ico{{width:16px;height:16px;flex:0 0 16px;color:var(--faint);transition:color .16s ease,transform .16s ease}}.site-footer p{{padding-left:24px}}@media(max-width:760px){{.site-footer p{{padding-left:0}}}}
 .fine a{{display:inline;margin:0;font-size:inherit;color:var(--muted)}}
 </style></head><body><div class="wrap">{nav}{body}{footer}</div>{script_tag}</body></html>"""
         resp = Response(html, mimetype="text/html; charset=utf-8")
