@@ -36,8 +36,6 @@ from smartmoney.valuation import value_portfolio
 from smartmoney.alerts import AlertEngine
 from smartmoney.channels import ConsoleChannel, WebhookChannel, EmailChannel
 from smartmoney.tracker import Tier
-from smartmoney.accounts import AccountStore, EmailTaken, PasswordPolicyError
-from smartmoney.hibp import default_breach_checker
 from smartmoney.pro import ProAPIStore
 from smartmoney.preflight import deployed_sha_from_systemd, run_preflight
 from smartmoney.quality import data_quality_report
@@ -493,51 +491,6 @@ def cmd_alerts(client, db_path, dispatch_only) -> None:
     print(f"Dispatched: {sent} sent, {failed} failed, {len(results)} total.")
 
 
-def cmd_create_user(db_path, email, tier) -> None:
-    import getpass
-    pw = getpass.getpass("Password (min 12 chars): ")
-    if pw != getpass.getpass("Confirm password: "):
-        print("Passwords do not match.", file=sys.stderr)
-        sys.exit(1)
-    acc = AccountStore(db_path, breach_checker=default_breach_checker())
-    try:
-        user = acc.register(email, pw, verified=True)   # operator-created -> pre-verified
-        if tier == "paid":
-            acc.set_tier(user.id, "paid")
-        print(f"Created {user.email} (tier={tier}, verified).")
-    except (EmailTaken, PasswordPolicyError, ValueError) as e:
-        print(f"Could not create user: {e}", file=sys.stderr)
-        sys.exit(1)
-    finally:
-        acc.close()
-
-
-def cmd_verify_user(db_path, email) -> None:
-    acc = AccountStore(db_path)
-    try:
-        row = acc.get_by_email(email.strip().lower())
-        if not row:
-            print(f"No such user: {email}", file=sys.stderr)
-            sys.exit(1)
-        acc.mark_verified(row["id"])
-        print(f"{email} -> email verified")
-    finally:
-        acc.close()
-
-
-def cmd_set_tier(db_path, email, tier) -> None:
-    acc = AccountStore(db_path)
-    try:
-        row = acc.get_by_email(email.strip().lower())
-        if not row:
-            print(f"No such user: {email}", file=sys.stderr)
-            sys.exit(1)
-        acc.set_tier(row["id"], tier)
-        print(f"{email} -> tier {tier}")
-    finally:
-        acc.close()
-
-
 def cmd_confluence(db_path: str, ua: str, windows) -> None:
     """Precompute the Confluence screen (13F accumulation x live Form 4 buys) and write one
     cache file per window into SMARTMONEY_CACHE_DIR (or next to the DB). The web tier serves
@@ -938,10 +891,6 @@ def main() -> None:
                     help="rotation reminder in days for --create-api-key (default 90; use -1 for due now)")
     ap.add_argument("--resolve-sweep", action="store_true",
                     help="re-run the resolver chain over the unresolved tail and back-fill")
-    ap.add_argument("--create-user", metavar="EMAIL", help="create an account (password prompted)")
-    ap.add_argument("--verify-user", metavar="EMAIL", help="mark a user's email as verified")
-    ap.add_argument("--set-tier", metavar="EMAIL", help="set a user's tier (with --tier)")
-    ap.add_argument("--tier", choices=["free", "paid"], default="free", help="tier for --create-user/--set-tier")
     ap.add_argument("--provider", choices=["stooq", "massive"], default="stooq",
                     help="price source for --value (default stooq; massive needs MASSIVE_API_KEY)")
     ap.add_argument("--basis", metavar="YYYY-MM-DD", default=None,
@@ -1138,13 +1087,6 @@ def main() -> None:
         return cmd_list_operator_events(args.pro_db, args.operator_events_limit)
     if args.prune_pro_audit_days:
         return cmd_prune_pro_audit(args.pro_db, args.prune_pro_audit_days)
-    if args.create_user:
-        return cmd_create_user(args.db, args.create_user, args.tier)
-    if args.verify_user:
-        return cmd_verify_user(args.db, args.verify_user)
-    if args.set_tier:
-        return cmd_set_tier(args.db, args.set_tier, args.tier)
-
     # Live commands: need EDGAR.
     ua = os.environ.get("SEC_UA")
     if not ua:

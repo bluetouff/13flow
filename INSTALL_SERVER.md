@@ -42,7 +42,7 @@ sudo unzip smartmoney.zip -d /opt/
 sudo chown -R smartmoney:smartmoney /opt/smartmoney
 cd /opt/smartmoney
 sudo -u smartmoney python3 -m venv .venv
-sudo -u smartmoney .venv/bin/pip install -e . gunicorn defusedxml argon2-cffi
+sudo -u smartmoney .venv/bin/pip install -e . gunicorn defusedxml
 ```
 Confirm `dashboard.html` sits at `/opt/smartmoney/dashboard.html` (it ships at the project root).
 
@@ -52,11 +52,6 @@ sudo tee /etc/smartmoney/smartmoney.env >/dev/null <<'EOF'
 SEC_UA=SmartMoney/1.0 you@example.com
 OPENFIGI_APIKEY=
 SMARTMONEY_DB=/var/lib/smartmoney/smartmoney.db
-SMARTMONEY_PW_PEPPER=__REPLACE_WITH_A_LONG_RANDOM_SECRET__
-# Stripe billing (leave unset to run the local mock instead of real payments):
-# STRIPE_SECRET_KEY=sk_live_...
-# STRIPE_PRICE_ID=price_...
-# STRIPE_WEBHOOK_SECRET=whsec_...
 # SMARTMONEY_VALUE=1            # uncomment to enable per-request live valuation
 # Email alerts (optional):
 # SMTP_HOST=smtp.example.com
@@ -68,13 +63,6 @@ EOF
 sudo chown smartmoney:smartmoney /etc/smartmoney/smartmoney.env
 sudo chmod 600 /etc/smartmoney/smartmoney.env
 ```
-Generate a strong pepper and paste it into `SMARTMONEY_PW_PEPPER` above:
-```bash
-python3 -c "import secrets; print(secrets.token_urlsafe(48))"
-```
-> The pepper is mixed into every password hash, so a stolen database alone can't be
-> cracked. Keep it only in this file (never in the DB). **Rotating it invalidates all
-> existing password hashes** — plan a reset/re-hash migration if you ever change it.
 
 ## 5. Load initial data (one-off, may take a while)
 This pulls every tracked fund from EDGAR and resolves tickers; it respects SEC rate limits.
@@ -87,18 +75,10 @@ sudo -u smartmoney -H bash -c '
 '
 ```
 
-## 5b. Create the first account
-Accounts gate the paid alert features; the tier is enforced server-side. Create your first
-user (the password is prompted, never passed on the command line):
-```bash
-sudo -u smartmoney -H bash -c '
-  cd /opt/smartmoney
-  set -a; . /etc/smartmoney/smartmoney.env; set +a
-  .venv/bin/python run.py --create-user you@example.com --tier paid --db "$SMARTMONEY_DB"
-'
-```
-Use `run.py --set-tier EMAIL --tier {free,paid}` later to change a user's tier (this is the
-hook a future Stripe webhook would call on payment).
+## 5b. Pro access
+Core V1 has no browser accounts or self-serve checkout. Paid access is issued
+with scoped Pro API keys from the Pro control-plane DB; see
+`docs/PRO_API_ONBOARDING.md`.
 
 ## 6. Run the API as a systemd service (gunicorn)
 ```bash
@@ -171,24 +151,9 @@ sudo ufw enable
 ```
 Port 8000 stays internal and is never opened.
 
-## 8b. Enable Stripe billing (optional, for real payments)
-Skip this to keep the built-in **mock** checkout. To take real payments:
-1. In the Stripe Dashboard (test mode first), create a recurring **Price** and copy its
-   `price_...` id. Copy your secret key `sk_...`.
-2. Add a **webhook endpoint** pointing at `https://smartmoney.example.com/api/billing/webhook`,
-   subscribed to `checkout.session.completed`, `customer.subscription.updated`,
-   `customer.subscription.deleted`. Copy its signing secret `whsec_...`.
-3. Put `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, `STRIPE_WEBHOOK_SECRET` into the env file
-   (step 4), then `sudo systemctl restart smartmoney-api`.
-
-Setting `STRIPE_SECRET_KEY` automatically switches the app to real Stripe and **disables the
-mock endpoints**. The webhook is reached through nginx like any other path; it is CSRF-exempt
-but signature-verified, so leave it on the same vhost. The "Manage billing" button opens the
-Stripe Customer Portal. Tier flips to `paid` only when Stripe POSTs the verified webhook —
-never from the browser. To rehearse locally before going live:
-```bash
-stripe listen --forward-to localhost:5000/api/billing/webhook   # prints the whsec_ to use
-```
+## 8b. Billing
+Stripe and mock checkout are not part of Core V1. Do not configure public
+checkout on this deployment.
 
 ## 9. Scheduled sync + alert delivery (systemd timer)
 `--alerts-run` syncs the funds that have subscriptions, then delivers any new-filing alerts.
@@ -260,19 +225,8 @@ sudo systemctl restart smartmoney-api
 - [ ] Put outbound **webhook/email** traffic behind an egress allowlist/proxy — this closes
       the residual DNS-rebinding gap the app-level SSRF guard can't fully cover.
 - [ ] `chmod 600` on the env file (step 4); restrict the DB file; rotate API keys.
-- [ ] `SMARTMONEY_PW_PEPPER` set to a long random secret (step 4) and kept out of the DB.
-- [ ] `argon2-cffi` installed (step 3) so passwords use Argon2id, not the scrypt fallback.
-- [ ] TLS is live (step 7): the session cookie is `Secure`, so HTTPS is required — do **not**
-      set `SMARTMONEY_INSECURE_COOKIES` in production.
-- [ ] Auth routes are rate-limited in-process; for multiple workers/hosts add nginx
-      `limit_req` on `/api/auth/` and/or a Redis-backed limiter.
-- [ ] Consider wiring the password deny-list to a breached-password check (HaveIBeenPwned).
-- [ ] Email verification needs working SMTP (`SMTP_*`) so links are actually delivered; never
-      set `SMARTMONEY_DEV_EMAIL_ECHO` in production (it would return verify links in responses).
-- [ ] HIBP breach check needs outbound HTTPS to api.pwnedpasswords.com; it fails **open** by
-      default (`SMARTMONEY_HIBP_FAIL_CLOSED=1` to reject on outage instead).
-- [ ] If using Stripe: keys live only in the env file; the webhook is signature-verified;
-      the **mock** checkout is auto-disabled (it only exists when `STRIPE_SECRET_KEY` is unset).
+- [ ] Browser auth, HIBP, SMTP verification and Stripe checkout are intentionally absent
+      from Core V1.
 
 ## Scaling note
 SQLite is fine for this read-heavy workload: WAL mode allows concurrent readers alongside the

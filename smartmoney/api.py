@@ -15,8 +15,6 @@ Endpoints (all under /api):
   GET /pro/v1/workspace/export        -> Pro workspace export JSON/CSV (API key)
   GET /pro/v1/workspace/report        -> Pro workspace readable report (API key)
   GET /pro/v1/openapi.json            -> Pro API OpenAPI document
-  GET /subscriptions
-  GET /alerts/preview/<cik>
 GET /      -> static public proof home
 GET /app   -> dashboard.html research app
 
@@ -44,15 +42,7 @@ from flask import (
 from werkzeug.exceptions import HTTPException
 
 from .analytics import consensus_moves
-from .alerts import build_alert, AlertEngine
-from .accounts import AccountStore
-from .auth import init_auth, login_required, current_user
-from .billing import init_billing
-from .hibp import default_breach_checker
-from .channels import ConsoleChannel
-from .pwhash import PasswordHasher
 from .registry import Fund, active_ciks
-from .tracker import Tier, EntitlementError
 from .db import Store
 from .diff import Move, diff_portfolios
 from .portfolio import Portfolio
@@ -64,7 +54,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 APP_ROOT = os.path.dirname(HERE)
 DASHBOARD = os.path.join(APP_ROOT, "dashboard.html")
 
-MAX_SUBSCRIPTIONS_PER_USER = 50
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
@@ -407,22 +396,14 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             return default
         return max(lo, min(hi, value))
     demo_mode = _truthy(os.environ.get("SMARTMONEY_DEMO"))
-    open_mode = open_mode or demo_mode or _truthy(os.environ.get("SMARTMONEY_OPEN"))
+    # Core V1 has no browser account or payment build. The argument is kept for
+    # compatibility, but the Flask app always registers the controlled-pilot
+    # public/Pro surface only.
+    open_mode = True
     read_only = demo_mode or _truthy(os.environ.get("SMARTMONEY_DB_READONLY"))
     pro_enabled = _truthy(os.environ.get("SMARTMONEY_PRO_API"))
     pro_db_path = os.environ.get("SMARTMONEY_PRO_DB") or os.path.join(APP_ROOT, "13flow-pro.db")
     pro_workspace_max_watchlists = _env_int("SMARTMONEY_PRO_MAX_WATCHLISTS_PER_KEY", 50, 1, 500)
-
-    # Auth + billing exist only in the full build. The open build skips them entirely:
-    # no accounts, no Stripe, no sessions/CSRF machinery is even registered.
-    if not open_mode:
-        # One shared password hasher (stateless/thread-safe); a fresh AccountStore per request.
-        _hasher = PasswordHasher()
-        _breach_checker = default_breach_checker()   # HIBP k-anonymity (env-tunable)
-        def accounts_factory() -> AccountStore:
-            return AccountStore(db_path, hasher=_hasher, breach_checker=_breach_checker)
-        init_auth(app, accounts_factory, secure_cookies=secure_cookies)
-        init_billing(app, accounts_factory, secure_cookies=secure_cookies)
 
     # Confluence (13F × Form 4) signals endpoint. Resolution order at request time:
     #   1) a precomputed cache file in SMARTMONEY_CACHE_DIR (run.py --confluence) — instant, no network
@@ -1344,90 +1325,6 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             s.close()
 
     # These features are user-scoped/mutating and only exist in the full build.
-    if not open_mode:
-        # ---- subscriptions & alert preview ----------------------------------
-        # ---- subscriptions (authenticated; tier enforced server-side) -------
-        @app.get("/api/subscriptions")
-        @login_required
-        def subscriptions():
-            user = current_user()
-            s = store()
-            try:
-                subs = [dict(r) for r in s.conn.execute(
-                    "SELECT * FROM subscriptions WHERE active=1 AND user_id=?", (user.id,))]
-                for sub in subs:
-                    fr = s.fund_row(sub["cik"])
-                    sub["fund_label"] = fr["label"] if fr else sub["cik"]
-                return jsonify(subs)
-            finally:
-                s.close()
-
-        @app.post("/api/subscriptions")
-        @login_required
-        def create_subscription():
-            user = current_user()
-            if not getattr(user, "verified", True):           # defense in depth (login already gates)
-                return jsonify({"error": "verify your email first"}), 403
-            d = request.get_json(silent=True) or {}
-            try:
-                cik = clean_cik(d.get("cik", ""))
-            except Exception:
-                from werkzeug.exceptions import BadRequest
-                raise BadRequest("invalid CIK")
-            channel = d.get("channel", "console")
-            target = d.get("target", "")
-            if channel not in ("console", "webhook", "email"):
-                return jsonify({"error": "invalid channel"}), 400
-            s = store()
-            try:
-                count = s.conn.execute(
-                    "SELECT COUNT(*) c FROM subscriptions WHERE active=1 AND user_id=?",
-                    (user.id,)).fetchone()["c"]
-                if count >= MAX_SUBSCRIPTIONS_PER_USER:
-                    return jsonify({"error": "subscription limit reached"}), 409
-                fr = s.fund_row(cik)
-                fund = Fund(label=(fr["label"] if fr else cik),
-                            manager=(fr["manager"] if fr else None), cik=cik, search_name="")
-                # Tier comes from the authenticated user record — never from the client.
-                tier = Tier(user.tier, [])
-                engine = AlertEngine(s, channels={"console": ConsoleChannel()})
-                try:
-                    sub_id = engine.subscribe(tier, user.id, fund, channel, target=target, prime=True)
-                except EntitlementError as e:
-                    return jsonify({"error": str(e)}), 402         # payment required
-                except (ValueError,) as e:
-                    return jsonify({"error": str(e)}), 400         # bad target (SSRF/email guard)
-                return jsonify({"id": sub_id, "cik": cik, "channel": channel}), 201
-            finally:
-                s.close()
-
-        @app.delete("/api/subscriptions/<int:sub_id>")
-        @login_required
-        def delete_subscription(sub_id):
-            user = current_user()
-            s = store()
-            try:
-                row = s.conn.execute("SELECT user_id FROM subscriptions WHERE id=?", (sub_id,)).fetchone()
-                if row is None or row["user_id"] != user.id:
-                    return jsonify({"error": "not found"}), 404   # don't leak others' ids
-                s.deactivate_subscription(sub_id)
-                return jsonify({"ok": True})
-            finally:
-                s.close()
-
-        @app.get("/api/alerts/preview/<cik>")
-        def alert_preview(cik):
-            cik = clean_cik(cik)
-            s = store()
-            try:
-                latest = s.latest_filing_row(cik)
-                if not latest:
-                    return jsonify({"error": "no filings"}), 404
-                alert = build_alert(s, cik, latest["accession"])
-                return jsonify(alert.to_dict() if alert else {"error": "could not build"})
-            finally:
-                s.close()
-
     @app.get("/api/coverage")
     def coverage_ep():
         date = request.args.get("date") or None

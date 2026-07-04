@@ -1,10 +1,10 @@
 """
 Open-build gating: with open_mode=True the app must register only public, read-only
 endpoints — no auth, no billing, no subscriptions — and still serve the public screens.
-The full build (open_mode=False) must keep auth present. No network.
+Core V1 no longer ships a browser account/payment build, so open_mode=False must
+not re-enable auth, billing or subscriptions. No network.
 """
 import os
-os.environ.setdefault("SMARTMONEY_DISABLE_HIBP", "1")
 
 import tempfile
 from pathlib import Path
@@ -71,16 +71,18 @@ def test_open_mode_hides_private_surface_and_keeps_public():
         assert c.get("/api/alerts/preview/1067983").status_code == 404
 
 
-def test_full_build_keeps_auth():
+def test_core_v1_does_not_reenable_legacy_full_build():
     with tempfile.TemporaryDirectory() as d:
         db = str(Path(d) / "full.db")
         _seed(db)
         c = create_app(db, secure_cookies=False, open_mode=False).test_client()
         cfg = c.get("/api/config").get_json()
-        assert cfg["open"] is False and cfg["features"]["auth"] is True
-        # auth route exists -> 401 (unauthenticated), not 404
-        assert c.get("/api/auth/me").status_code == 401
-        assert c.get("/api/subscriptions").status_code == 401
+        assert cfg["open"] is True
+        assert cfg["features"] == {"auth": False, "alerts": False, "billing": False,
+                                   "pro_api": False}
+        assert c.get("/api/auth/me").status_code == 404
+        assert c.get("/api/billing/config").status_code == 404
+        assert c.get("/api/subscriptions").status_code == 404
 
 
 def test_env_var_enables_open_mode(monkeypatch):

@@ -37,10 +37,13 @@ def test_commercial_docs_link_to_core_v1_gate():
         assert "docs/CORE_V1_BOUNDARY.md" in text, path
 
 
-def test_readme_marks_legacy_full_build_surfaces_as_outside_current_pilot():
+def test_readme_marks_browser_auth_and_checkout_as_removed_from_core_v1():
     readme = _read("README.md")
 
-    assert "Accounts & auth (legacy/full build, not current public pilot)" in readme
-    assert "Billing (Stripe) - legacy/full build, not current public pilot" in readme
-    assert "does not expose browser account management" in readme
-    assert "does not use public Stripe checkout" in readme
+    assert "No browser accounts or checkout" in readme
+    assert "no public signup" in readme
+    assert "no Stripe billing flow" in readme
+    assert "operator-reviewed Pro API access" in readme
+    assert "create-user" not in readme
+    assert "POST /api/billing" not in readme
+    assert "Stripe Checkout" not in readme

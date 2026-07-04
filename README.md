@@ -20,7 +20,7 @@ python run.py --fund "Berkshire Hathaway" --top 15 --enrich   # --enrich adds ti
 Offline tests (no network):
 ```bash
 pip install pytest
-python -m pytest tests/ -q     # all suites: parsing, figi, db, valuation, alerts, resolver, security, accounts
+python -m pytest tests/ -q     # offline suites: parsing, figi, db, valuation, alerts, resolver, security, Pro API
 ```
 
 ## CUSIP resolution & the long tail
@@ -58,11 +58,11 @@ the diff feed), and **Confluence** (13F accumulation × insider buying). A serve
 explicitly requested (`?demo=1` in the browser or `SMARTMONEY_CONFLUENCE_DEMO=1` for the
 Confluence API); production errors are shown instead of silently substituting samples. API endpoints:
 `/api/live-status`, `/api/funds`, `/api/fund/<cik>`,
-`/api/consensus/{buys,holdings}`, `/api/compare`, `/api/alerts/preview/<cik>`,
+`/api/consensus/{buys,holdings}`, `/api/compare`,
 `/api/signals/confluence`, `/api/signals/confluence/history`,
 `/api/methodology/confluence-v1`, `/api/data-quality`, `/api/openapi.json`, and the
-read-only MCP JSON-RPC endpoint `/api/mcp` (all public, read-only), plus authenticated
-`/api/auth/*` and user-scoped `/api/subscriptions`. Static, crawler-friendly pages are
+read-only MCP JSON-RPC endpoint `/api/mcp` (all public, read-only). Static,
+crawler-friendly pages are
 served at `/funds`, `/funds/<cik>`, `/stocks`, `/stocks/<ticker>`, `/signals`, and
 `/signals/<ticker>`, with SEC links where an accession or issuer search can be resolved.
 `/api/live-status` is the public,
@@ -76,64 +76,12 @@ go-to-market truth surface: it states what is sellable now, what is deliberately
 The public Pro packaging page lives at `/pro`; its machine-readable contract is
 `/api/pro-offer`.
 
-## Accounts & auth (legacy/full build, not current public pilot)
-Current production is a public read-only open build plus operator-issued Pro API
-keys. It does not expose browser account management, public signup or
-self-serve checkout. Keep this section as implementation reference for the full
-build, not as a Core V1 commercial surface.
-
-Read-only market data is public (it's public-domain). The **paid** feature — filing-alert
-subscriptions — sits behind a full accounts system, with the tier enforced **server-side**
-from the user's database row (the client can never assert its own tier).
-```bash
-python run.py --create-user you@example.com --tier paid   # password prompted (never in argv)
-python run.py --set-tier you@example.com --tier free       # change a tier later
-python run.py --verify-user you@example.com                # mark an email verified (operator)
-```
-Security design (full rationale in [`SECURITY.md`](SECURITY.md)): Argon2id password hashing
-(stdlib scrypt fallback) with an optional server-side pepper; opaque 256-bit sessions stored
-only as hashes, with absolute + idle expiry and full revocation; HttpOnly + Secure +
-SameSite=Strict session cookie plus a double-submit CSRF token on every mutation; per-account
-lockout and per-IP rate limiting; enumeration-resistant login and password reset.
-
-**Email verification**: registration creates an *unverified* account and emails a single-use
-24h link; login is refused until the address is verified — but only *after* a correct password,
-so it never leaks which emails exist. Invariant: holding a session implies a verified email.
-
-**Breached-password check (HaveIBeenPwned)**: new/changed passwords are checked against the
-HIBP Pwned Passwords corpus via the **k-anonymity range API** — only the first 5 chars of the
-password's SHA-1 ever leave the process (never the password, never the full hash), with
-`Add-Padding` against traffic analysis. Fail-open by default so an HIBP outage can't block
-signups; the local deny-list remains the fast first pass.
-
-Relevant env vars: `SMARTMONEY_PW_PEPPER` (long random secret, set in production),
-`SMARTMONEY_INSECURE_COOKIES=1` (local http testing only — Secure cookies otherwise need HTTPS),
-`SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS`/`SMTP_FROM` (to actually send verification mail;
-without them the link is logged), `SMARTMONEY_DEV_EMAIL_ECHO=1` (dev only: return the verify
-link in the API response for local testing), `SMARTMONEY_HIBP_FAIL_CLOSED=1` /
-`SMARTMONEY_DISABLE_HIBP=1` (tune the breach check).
-Sign-in / register / sign-out and subscription management are built into the dashboard.
-
-## Billing (Stripe) - legacy/full build, not current public pilot
-Current controlled-pilot production does not use public Stripe checkout. Pilot
-access is operator-reviewed, with scoped Pro keys issued manually and tested via
-the Pro onboarding runbook.
-
-Upgrading from Free to **Pro** runs through Stripe Checkout; the tier flips to `paid` **only**
-on a signature-verified webhook (never from the browser or the success redirect), handled
-idempotently. The whole flow is in `billing.py`.
-
-Two modes, chosen automatically:
-- **Stripe mode** (when `STRIPE_SECRET_KEY` is set): real Stripe Checkout + Customer Portal +
-  webhook. Needs `STRIPE_PRICE_ID` and `STRIPE_WEBHOOK_SECRET` too. See `INSTALL_SERVER.md`.
-- **Mock mode** (no Stripe key): a local, styled fake-checkout page lets you click "Pay" and
-  watch your account flip to Pro — no Stripe account, no network. This is the graphical flow
-  to test locally; the mock endpoints are **absent in production** (disabled once a Stripe key
-  is present). See `TEST_LOCAL.md`.
-
-Endpoints: `POST /api/billing/checkout`, `POST /api/billing/portal`,
-`POST /api/billing/webhook` (signature-verified, CSRF-exempt), and — mock only —
-`GET /billing/mock-checkout` + `POST /api/billing/mock-complete`.
+## No browser accounts or checkout
+Core V1 deliberately has no browser account system, no public signup, no
+self-serve checkout and no Stripe billing flow. The commercial path is
+operator-reviewed Pro API access: create a scoped key, deliver the plaintext
+token once through an approved secure channel, verify `/api/pro/v1/status`, and
+keep audit/rotation in the Pro control plane.
 
 ## Pro API
 The Pro API is an explicit, versioned API-key surface for institutional and automated use.
@@ -456,20 +404,20 @@ EXPECTED_SHA=<deployed-git-sha> /opt/13flow/deploy/smoke-public.sh
 SITE=https://staging.13flow.eu EXPECTED_SHA=<sha> /opt/13flow/deploy/smoke-public.sh
 ```
 
-## Open build (public, read-only — no auth, no Stripe, no alerts)
+## Open build (public, read-only — no auth, no Stripe, no browser alerts)
 There is a first-class **open mode** for a public deployment that exposes only the read-only
-screens (Consensus / Funds / Compare / Confluence) with no accounts, no payment, and no
-alerts. Turn it on with a single env var (or `--open`):
+screens (Consensus / Funds / Compare / Confluence) with no accounts and no payment.
+`--open` is kept for compatibility; Core V1 always registers only the public/Pro controlled
+pilot surface:
 ```bash
 SMARTMONEY_OPEN=1 SMARTMONEY_DB_READONLY=1 python -m smartmoney.api --db demo.db
 # or: python -m smartmoney.api --db demo.db --open --readonly
 ```
-In open mode the app **does not even register** the auth, billing, subscription, or alert
-routes (`/api/auth/*`, `/api/billing/*`, `/api/subscriptions`, `/api/alerts/*` all return
-404, not 401), `SMARTMONEY_DB_READONLY=1` opens SQLite read-only so the web process can't
-write the database, and the dashboard auto-detects the build via `/api/config` — hiding the
-Sign in button and the Alerts tab. The same codebase runs the full build when the flag is
-absent. The Pro API is separate: run it in the dedicated `13flow-pro.service` with
+Core V1 does not register browser auth, billing or subscription routes
+(`/api/auth/*`, `/api/billing/*`, `/api/subscriptions`, `/api/alerts/*` return
+404, not 401). `SMARTMONEY_DB_READONLY=1` opens SQLite read-only so the public web process
+cannot write the market database, and the dashboard auto-detects the build via `/api/config`.
+The Pro API is separate: run it in the dedicated `13flow-pro.service` with
 `SMARTMONEY_PRO_API=1`; `/api/pro/v1/*` writes only to `SMARTMONEY_PRO_DB`, not to the
 read-only 13F data DB, and the public `13flow.service` should keep no Pro DB write path. A complete
 **Debian + Apache** deployment kit (gunicorn systemd unit with a sandbox,
@@ -497,15 +445,9 @@ separated from the web user, and a scheduled refresh) lives in [`deploy/`](deplo
 - `tracker.py` — wires it together: `sync_fund` ingestion + freemium gating (free = 3 funds).
 - `channels.py` — delivery channels: console / webhook / email (+ callable for tests).
 - `alerts.py` — `AlertEngine`: diff-carrying alerts, persistent dedup, priming, paid-tier gate.
-- `api.py` — read-only Flask JSON API over the store; serves the dashboard; wires in auth.
+- `api.py` — controlled-pilot Flask JSON API over the store; serves public pages and Pro API routes.
 - `netsec.py` — egress safety: SSRF guard for webhook URLs + email-recipient validation.
-- `pwhash.py` — password hashing (Argon2id, scrypt fallback, optional pepper, rehash).
-- `accounts.py` — users, opaque revocable sessions, lockout, reset tokens, email verification, server-side tier.
-- `auth.py` — Flask glue: secure cookies, double-submit CSRF, rate limiting, `/api/auth/*`.
 - `pro.py` — Pro API keys, scopes, persistent rate limits, and request audit.
-- `hibp.py` — HaveIBeenPwned k-anonymity breached-password check (privacy-preserving).
-- `notify.py` — transactional email (verification links) over hardened SMTP, with a dev fallback.
-- `billing.py` — Stripe subscriptions (signature-verified, idempotent webhook) + local mock.
 - `forms4.py` — Form 4 discovery by issuer CIK + ownership-XML parser (open-market P/S), XXE-hardened.
 - `crosssignal.py` — Confluence engine: 13F accumulation × insider buying → scored, classified signal.
 - `backtest.py` — rank-IC / quantile-spread harness + coordinate-ascent research optimiser.

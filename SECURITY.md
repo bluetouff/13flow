@@ -38,38 +38,14 @@ code, and the fixed ones have regression tests in `tests/test_security_offline.p
   outbound calls; EDGAR rate-limited.
 - `send_file` serves a constant path (no traversal).
 
-## Authentication & accounts (finding #7 — implemented)
-`accounts.py` + `auth.py` + `pwhash.py` provide the accounts layer. Design choices, all
-chosen for security:
-- **Password hashing** — Argon2id (`argon2-cffi`) when available, else stdlib `scrypt`
-  (~64 MiB, memory-hard); per-password salt; optional server-side **pepper**
-  (`SMARTMONEY_PW_PEPPER`) HMAC-mixed before hashing so a DB leak alone is not crackable;
-  constant-time verify; transparent rehash-on-login for upgrades.
-- **Sessions** — opaque 256-bit random tokens; only their SHA-256 is stored (DB read yields
-  no usable token); absolute (30d) + idle (7d) expiry; revocable (logout, logout-all, and
-  automatically on password change). Chosen over JWT for revocability and to avoid
-  alg-confusion / key-management pitfalls.
-- **Cookies** — `sm_session` is HttpOnly + Secure + SameSite=Strict; `sm_csrf` is the
-  readable half of a **double-submit CSRF** check enforced (constant-time) on all mutating
-  `/api` requests that carry a session.
-- **Brute force** — per-account failed-attempt counter with temporary lockout, plus per-IP
-  rate limiting on `/api/auth/*`.
-- **Enumeration resistance** — login returns one generic error and runs a dummy KDF verify
-  for unknown accounts (timing parity); password reset always responds 200.
-- **Password reset** — single-use, 1-hour, hashed tokens; delivered out of band.
-- **Email verification** — registration creates an *unverified* account and emails a
-  single-use 24h hashed token; login is refused until verified, but the check runs only
-  *after* a correct password, so it never reveals which emails are registered. The
-  resend/verify endpoints always respond 200. Invariant: a valid session ⇒ a verified email
-  (enforced at the login chokepoint, plus defense-in-depth checks on checkout/subscribe).
-- **Breached-password check** — new/changed/reset passwords are checked against HaveIBeenPwned
-  via the **k-anonymity range API**: only the SHA-1's first 5 hex chars are sent (never the
-  password, never the full hash), with `Add-Padding: true` to blunt traffic analysis.
-  Fail-open by default (an HIBP outage can't block all signups); the local deny-list is the
-  fast first pass. SHA-1 here is only the corpus index — password *storage* is Argon2id/scrypt.
-- **Server-side tier** — `Tier` is built from the authenticated user's DB row on every
-  request; paid features (alert subscriptions) return **402** for free users. The client
-  cannot assert its own tier. Public read-only market data stays open (it is public-domain).
+## Browser accounts and checkout
+Core V1 deliberately does not ship browser accounts, public signup, password
+storage, email verification, Stripe checkout or browser subscription management.
+Those legacy modules were removed to keep the controlled pilot smaller and
+easier to operate.
+
+Paid access is handled through the Pro API control plane: operator-issued API
+keys, scopes, persistent quotas, request audit, expiry and rotation.
 
 ## Pro API control plane
 The Pro API is intentionally separate from browser sessions. It is disabled unless
@@ -114,16 +90,8 @@ Operational requirements:
 Operational requirements (also in INSTALL_SERVER.md):
 - Secure cookies require **HTTPS** (the nginx/TLS step). For local http testing only, set
   `SMARTMONEY_INSECURE_COOKIES=1`.
-- Set `SMARTMONEY_PW_PEPPER` to a long random secret in production; store it outside the DB.
-  (Rotating it invalidates existing hashes — plan a re-hash-on-login migration if you do.)
-- Configure SMTP (`SMTP_HOST`/`PORT`/`USER`/`PASS`/`FROM`) so verification mail is actually
-  sent; without it the link is only logged. Never set `SMARTMONEY_DEV_EMAIL_ECHO=1` in
-  production (it returns the verification link in the API response — dev/local only).
-- The auth rate limiter is in-process; behind multiple workers/hosts, back it with Redis.
-- HIBP runs fail-open; set `SMARTMONEY_HIBP_FAIL_CLOSED=1` to reject on outage, or
-  `SMARTMONEY_DISABLE_HIBP=1` to turn it off. It needs outbound HTTPS to api.pwnedpasswords.com.
-- Bootstrap accounts with `run.py --create-user` / `--set-tier` (password via `getpass`,
-  never on the command line).
+- Browser account, password pepper, SMTP verification, HIBP and Stripe settings
+  are not part of Core V1.
 
 ## Deployment hardening checklist
 - [ ] `pip install defusedxml` (activates the strongest XML parse path).
@@ -184,20 +152,20 @@ are about output encoding and a strict CSP.
     `style="…"` attributes (which nonces can't cover). Style injection cannot execute JS;
     the practical risk is cosmetic. Removing it would require lifting all inline styles into
     classes — a future refinement, not a hole.
-- **Safe redirects.** The (full-build) billing flow only follows a returned URL via
-  `safeGo()`, which requires an `http(s)://` scheme — no `javascript:`/`data:` open-redirect.
 - **Clickjacking / framing.** `X-Frame-Options: DENY` (app) plus `frame-ancestors 'none'`
   (CSP) plus `base-uri 'none'`.
 - **Third-party surface.** Public UI fonts are self-hosted from `/assets/fonts/`; the CSP no
   longer allows Google Fonts origins. No third-party JS, analytics, or trackers are loaded by
-  the public dashboard, FAQ, legal notice, or mock checkout.
+  the public dashboard, FAQ, legal notice, buyer pack or Pro cockpit pages.
 
 ## Open (public, read-only) build
-Toggled by `SMARTMONEY_OPEN=1`; intended for an unauthenticated public deployment.
+Core V1 always registers the public read-only surface plus the separate Pro API
+surface. `SMARTMONEY_OPEN=1` is retained for compatibility.
 
-- **Whole classes of risk removed by construction.** Auth, billing, subscriptions, and alert
-  routes are **not registered** — `/api/auth/*`, `/api/billing/*`, `/api/subscriptions`,
-  `/api/alerts/*` return **404**. No sessions, cookies, CSRF, password, or payment code runs.
+- **Whole classes of risk removed by construction.** Auth, billing, subscriptions, and browser
+  alert routes are not implemented — `/api/auth/*`, `/api/billing/*`,
+  `/api/subscriptions`, `/api/alerts/*` return **404**. No sessions, cookies, CSRF,
+  password, or payment code runs.
 - **Pro API is explicit.** `/api/pro/v1/*` is registered only when `SMARTMONEY_PRO_API=1`
   and is protected by API keys, scopes, rate limits, and audit in the separate Pro DB.
 - **GET-only, enforced twice.** Only read endpoints exist; Apache also denies anything but

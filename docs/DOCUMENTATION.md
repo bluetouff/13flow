@@ -131,7 +131,7 @@ holdings(accession→filings ON DELETE CASCADE, cusip, put_call,
          ticker_source, ticker_confidence,
          value_usd, shares, weight,
          PK(accession, cusip, put_call))                  -- index cusip, ticker
-subscriptions(...)  deliveries(...)                       -- alertes (build complet only)
+subscriptions(...)  deliveries(...)                       -- alertes CLI diff, hors navigateur public
 VIEW latest_filings(cik, report_date, accession)          -- dernier accession par trimestre
 ```
 
@@ -159,7 +159,7 @@ Le mode **WAL** accélère l'ingestion ; mais le tier web ouvre la base en `mode
 | `api_signals.py` | Blueprint `/api/signals/confluence`, `confluence_payload`, cache + providers |
 | `sample_confluence.py` | Données de démo « live-shaped » (zéro réseau) |
 | `backtest.py` | Harnais de calibration des poids (IC de rang, spread quintiles, hit-rate) |
-| `accounts.py` `auth.py` `pwhash.py` `hibp.py` `billing.py` `notify.py` `alerts.py` `channels.py` `netsec.py` | Briques du **build complet** (comptes, sessions/CSRF, hash Argon2id, k-anonymity HIBP, Stripe, e-mail, alertes, garde SSRF). **Non chargées en mode ouvert.** |
+| `alerts.py` `channels.py` `netsec.py` | Alertes diff CLI et garde-fous egress (webhook/e-mail), conservés hors navigateur public. |
 
 ### API HTTP (lecture seule en mode ouvert)
 
@@ -173,7 +173,7 @@ Le mode **WAL** accélère l'ingestion ; mais le tier web ouvre la base en `mode
 | `GET /api/coverage` | couverture de résolution ticker |
 | `GET /api/signals/confluence?window=30\|90\|180` | signaux de confluence (sert le **cache** si présent) |
 | `GET /` · `/faq` · `/legal` | pages HTML (CSP à **nonce** par requête) |
-| *(build complet)* `…/auth/*`, `…/billing/*`, `…/subscriptions`, `…/alerts/*` | **404 en mode ouvert** |
+| `…/auth/*`, `…/billing/*`, `…/subscriptions`, `…/alerts/*` | **404** : pas de comptes navigateur ni checkout dans Core V1 |
 
 ### Interface en ligne de commande (`run.py`)
 
@@ -189,8 +189,8 @@ run.py --consensus YYYY-MM-DD --min-funds 3        # consensus (hors-ligne)
 
 ### Modes de déploiement
 
-- **Ouvert** (`SMARTMONEY_OPEN=1`, `SMARTMONEY_DB_READONLY=1`) : public, lecture seule, sans comptes/Stripe/alertes. C'est le mode de 13flow.eu.
-- **Complet** : ajoute comptes, vérification e-mail, Stripe, alertes Form 4. Nécessite secrets (`STRIPE_*`, `SMARTMONEY_PW_PEPPER`, SMTP) + `ProxyFix` derrière le proxy.
+- **Core V1** (`SMARTMONEY_DB_READONLY=1`) : public, lecture seule, sans comptes navigateur ni Stripe. C'est le mode de 13flow.eu.
+- **Pro** : service séparé avec clés API opérateur, quotas, audit et workspace.
 
 Le provider Confluence se résout dans cet ordre : **cache JSON** (`SMARTMONEY_CACHE_DIR/confluence-{window}.json`) → **live** (`SMARTMONEY_CONFLUENCE_LIVE=1` + EDGAR) → **démo**.
 
@@ -332,7 +332,7 @@ holdings(accession→filings ON DELETE CASCADE, cusip, put_call,
          ticker_source, ticker_confidence,
          value_usd, shares, weight,
          PK(accession, cusip, put_call))                  -- index cusip, ticker
-subscriptions(...)  deliveries(...)                       -- alerts (full build only)
+subscriptions(...)  deliveries(...)                       -- CLI diff alerts, outside public browser surface
 VIEW latest_filings(cik, report_date, accession)
 ```
 
@@ -354,11 +354,11 @@ VIEW latest_filings(cik, report_date, accession)
 | `api.py` · `api_signals.py` | Flask app, routes, live provider, nonce CSP; confluence blueprint + cache |
 | `sample_confluence.py` | Live-shaped demo data (no network) |
 | `backtest.py` | Weight-calibration harness (rank IC, quintile spread, hit-rate) |
-| `accounts/auth/pwhash/hibp/billing/notify/alerts/channels/netsec` | **Full-build** bricks (accounts, sessions/CSRF, Argon2id, HIBP, Stripe, email, alerts, SSRF guard). **Not loaded in open mode.** |
+| `alerts/channels/netsec` | CLI diff alerts and egress guards, kept outside the public browser surface. |
 
 ### HTTP API (read-only in open mode)
 
-`GET /api/config` · `…/funds` · `…/fund/<cik>` · `…/consensus/holdings|buys` (`?min_funds=`, bounded) · `…/compare?ciks=` (≤12) · `…/coverage` · `…/signals/confluence?window=30|90|180` (serves the **cache** if present). HTML pages `/`, `/app`, `/faq`, `/legal` carry a **per-request nonce CSP**. Legacy aliases `/dashboard.html`, `/faq.html`, `/mentions-legales` and `/mentions-legales.html` redirect to canonical URLs. Full-build routes (`auth/billing/subscriptions/alerts`) return **404 in open mode**.
+`GET /api/config` · `…/funds` · `…/fund/<cik>` · `…/consensus/holdings|buys` (`?min_funds=`, bounded) · `…/compare?ciks=` (≤12) · `…/coverage` · `…/signals/confluence?window=30|90|180` (serves the **cache** if present). HTML pages `/`, `/app`, `/faq`, `/legal` carry a **per-request nonce CSP**. Legacy aliases `/dashboard.html`, `/faq.html`, `/mentions-legales` and `/mentions-legales.html` redirect to canonical URLs. Browser auth/billing/subscriptions/alerts routes return **404**.
 
 ### CLI (`run.py`)
 
@@ -374,8 +374,8 @@ run.py --consensus YYYY-MM-DD --min-funds 3       # consensus (offline)
 
 ### Deployment modes
 
-- **Open** (`SMARTMONEY_OPEN=1`, `SMARTMONEY_DB_READONLY=1`): public, read-only, no accounts/Stripe/alerts. This is 13flow.eu.
-- **Full**: adds accounts, email verification, Stripe, Form 4 alerts. Needs secrets (`STRIPE_*`, `SMARTMONEY_PW_PEPPER`, SMTP) + `ProxyFix` behind the proxy.
+- **Core V1** (`SMARTMONEY_DB_READONLY=1`): public, read-only, no browser accounts and no Stripe. This is 13flow.eu.
+- **Pro**: separate API-key service with scopes, quotas, audit and workspace.
 
 Confluence provider resolution order: **cache JSON** → **live** (`SMARTMONEY_CONFLUENCE_LIVE=1` + EDGAR) → **demo**.
 

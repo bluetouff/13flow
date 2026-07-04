@@ -57,38 +57,10 @@ the API reading the SQLite DB. Press `Ctrl-C` to stop the server.
 >   the email-verification link in its response; the dashboard then shows a **"Dev: verify
 >   now →"** link so you can verify in one click. **Never set either in production.**
 
-## 5b. Try the accounts / email-verification flow (graphical)
-1. In the dashboard click **Sign in → Create one**, enter an email + a strong password
-   (≥ 12 chars; common/breached passwords are rejected) and submit.
-2. You'll see **"Check your email"**. Because dev-echo is on, a **"Dev: verify now →"** link
-   appears — click it. The page bounces back with a *"Email verified"* toast.
-3. Now **Sign in** with the same credentials. (Try signing in *before* verifying to see the
-   "Email not verified — resend" path.)
-4. Open the **Alerts** screen. A *free* account is refused with a `402` upgrade prompt
-   (the paid gate is enforced server-side).
-
-Prefer to skip email for an operator account? Create one pre-verified from the CLI:
-```bash
-python run.py --db demo.db --create-user me@example.com --tier paid   # password prompted, pre-verified
-python run.py --db demo.db --verify-user someone@example.com           # verify an existing user
-```
-
-## 5c. Test the upgrade flow graphically (mock Stripe checkout)
-With no `STRIPE_SECRET_KEY` set, billing runs in **mock mode** — a local fake checkout so you
-can click through the whole upgrade end-to-end, no Stripe account or network needed:
-1. Sign in as the **free** user above.
-2. Click **★ Upgrade to Pro** in the sidebar (or the upgrade link on the Alerts screen).
-3. The pricing card opens → **Continue to checkout** → you land on a styled checkout page
-   (test card `4242 4242 4242 4242` is pre-filled) → click **Pay €12.00**.
-4. You're redirected back; a toast says *"Welcome to Pro — alerts unlocked"*, the sidebar
-   pill flips to **PAID**, and you can now add subscriptions on the Alerts screen.
-
-Under the hood the "Pay" button calls the same code path a real Stripe webhook would: the
-tier flips server-side, not from the browser. The mock endpoints exist only in mock mode.
-
-> To rehearse the **real** Stripe flow locally instead, set `STRIPE_SECRET_KEY`,
-> `STRIPE_PRICE_ID`, and `STRIPE_WEBHOOK_SECRET` (test-mode keys) and run `stripe listen
-> --forward-to localhost:5000/api/billing/webhook` — see INSTALL_SERVER.md.
+## 5b. Browser accounts and checkout
+Core V1 has no browser account, e-mail verification, mock checkout or Stripe
+flow. Test Pro access through the Pro API onboarding and workspace smoke scripts
+instead.
 
 ## 6. Try the command line against the demo DB (offline)
 In a second terminal (with the venv activated):

@@ -1,5 +1,4 @@
 import os
-os.environ.setdefault("SMARTMONEY_DISABLE_HIBP", "1")
 
 import tempfile
 from pathlib import Path
