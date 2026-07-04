@@ -24,6 +24,23 @@ routes=(
   "/api/commercial-readiness"
   "/api/funds"
   "/api/watchlist/discover"
+  "/"
+  "/app"
+  "/signals"
+  "/funds"
+  "/stocks"
+  "/developers"
+  "/pro"
+  "/status"
+  "/coverage"
+  "/validation"
+  "/security"
+  "/methodology"
+  "/pilot"
+  "/buyer-pack"
+  "/about"
+  "/legal"
+  "/legal/pro-api"
 )
 
 fail=0

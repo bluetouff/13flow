@@ -419,6 +419,19 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     if admin_session_secret:
         app.secret_key = admin_session_secret
     admin_login_failures: dict[str, list[int]] = {}
+    public_payload_cache: dict[str, tuple[float, dict]] = {}
+
+    def _cached_public_payload(name: str, factory):
+        ttl = _env_int("SMARTMONEY_PUBLIC_PAYLOAD_CACHE_SECONDS", 30, 0, 300)
+        now = time.time()
+        if ttl > 0:
+            cached = public_payload_cache.get(name)
+            if cached and now - cached[0] <= ttl:
+                return cached[1]
+        payload = factory()
+        if ttl > 0:
+            public_payload_cache[name] = (now, payload)
+        return payload
 
     # Confluence (13F × Form 4) signals endpoint. Resolution order at request time:
     #   1) a precomputed cache file in SMARTMONEY_CACHE_DIR (run.py --confluence) — instant, no network
@@ -4559,6 +4572,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         })
 
     def live_status_payload() -> dict:
+        return _cached_public_payload("live_status", _live_status_payload)
+
+    def _live_status_payload() -> dict:
         generated_at = _now_iso()
         s = store()
         try:
@@ -4661,6 +4677,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         return jsonify(live_status_payload())
 
     def product_status_payload() -> dict:
+        return _cached_public_payload("product_status", _product_status_payload)
+
+    def _product_status_payload() -> dict:
         live = live_status_payload()
         return {
             "app": "13flow",
@@ -4839,6 +4858,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         }
 
     def commercial_readiness_payload() -> dict:
+        return _cached_public_payload("commercial_readiness", _commercial_readiness_payload)
+
+    def _commercial_readiness_payload() -> dict:
         live = live_status_payload()
         product = product_status_payload()
         quality = live.get("quality_summary") or {}
@@ -4980,6 +5002,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         return jsonify(commercial_readiness_payload())
 
     def security_posture_payload() -> dict:
+        return _cached_public_payload("security_posture", _security_posture_payload)
+
+    def _security_posture_payload() -> dict:
         live = live_status_payload()
         readiness = commercial_readiness_payload()
         quality = (readiness.get("snapshot") or {}).get("quality_gate") or {}
@@ -5086,6 +5111,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         return jsonify(security_posture_payload())
 
     def pilot_intake_payload() -> dict:
+        return _cached_public_payload("pilot_intake", _pilot_intake_payload)
+
+    def _pilot_intake_payload() -> dict:
         readiness = commercial_readiness_payload()
         security = security_posture_payload()
         offer = pro_offer_payload()
@@ -5393,6 +5421,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         )
 
     def buyer_pack_payload() -> dict:
+        return _cached_public_payload("buyer_pack", _buyer_pack_payload)
+
+    def _buyer_pack_payload() -> dict:
         product = product_status_payload()
         readiness = commercial_readiness_payload()
         security = security_posture_payload()
@@ -6364,6 +6395,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         return _html_response("Validation", body)
 
     def pro_offer_payload() -> dict:
+        return _cached_public_payload("pro_offer", _pro_offer_payload)
+
+    def _pro_offer_payload() -> dict:
         status = product_status_payload()
         return {
             "app": "13flow",
