@@ -27,15 +27,29 @@ def test_core_v1_boundary_documents_maintainable_scope():
     assert "routine 13F publication must not require manual filing validation" in text
 
 
-def test_commercial_docs_link_to_core_v1_gate():
+def test_operator_docs_link_to_core_v1_gate():
     for path in (
         "README.md",
         "docs/GTM_PRODUCT_STATUS.md",
-        "docs/COMMERCIAL_MODEL.md",
         "docs/PRO_API_ONBOARDING.md",
     ):
         text = _read(path)
         assert "docs/CORE_V1_BOUNDARY.md" in text, path
+
+
+def test_commercial_and_marketing_docs_are_not_tracked_in_repo():
+    assert not (ROOT / "docs/COMMERCIAL_MODEL.md").exists()
+    assert not (ROOT / "docs/FIRST_COMMERCIAL_OUTREACH.md").exists()
+
+    for path in (
+        "README.md",
+        "docs/GTM_PRODUCT_STATUS.md",
+        "docs/PRO_API_ONBOARDING.md",
+    ):
+        text = _read(path)
+        assert "docs/COMMERCIAL_MODEL.md" not in text, path
+        assert "docs/FIRST_COMMERCIAL_OUTREACH.md" not in text, path
+        assert "cold email" not in text.lower(), path
 
 
 def test_readme_marks_browser_auth_and_checkout_as_removed_from_core_v1():

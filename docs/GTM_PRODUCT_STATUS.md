@@ -21,10 +21,9 @@ product with:
   contract;
 - offline preflight and public smoke gates.
 
-Commercial packaging and competitor positioning are maintained in
-`docs/COMMERCIAL_MODEL.md`. The pricing rule is deliberately not "cheaper raw
-SEC access": sell the audited workflow, support, evidence pack and validation
-boundary.
+Pricing notes, prospect emails and marketing correspondence are intentionally
+kept out of this repository. GitHub should only carry product boundaries,
+operator runbooks, public truth surfaces and verification gates.
 
 The maintainability boundary for what belongs in the controlled pilot is
 `docs/CORE_V1_BOUNDARY.md`. Use it before adding any new public, Pro or admin

@@ -98,14 +98,9 @@ Use one of the public packages exposed by `/api/pro-offer`:
 - **MCP integration review** — agent workflow evaluation where Pro tools must
   fail closed without a key.
 
-No package has public pricing. Do not expose public self-serve checkout or
-enterprise-style offers until pricing, terms, payment details, capacity and
-support boundaries are ready.
-
-Commercial positioning, competitor context, capacity limits and objection
-handling live in `docs/COMMERCIAL_MODEL.md`. Use that document before quoting:
-13FLOW should be handled as a limited-capacity technical evaluation, not as
-cheap raw SEC access or a mature managed SaaS product.
+No package has public pricing in this repository. Do not expose public
+self-serve checkout, enterprise-style offers, pricing notes, prospect emails or
+marketing correspondence in GitHub.
 
 The maintainability gate for what belongs in the first paid pilot is
 `docs/CORE_V1_BOUNDARY.md`.
