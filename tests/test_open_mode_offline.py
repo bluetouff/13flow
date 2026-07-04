@@ -349,10 +349,24 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             ("/about", "13FLOW is operated by l0g"),
             ("/legal", "Legal, privacy and data terms"),
             ("/legal/pro-api", "Pro API, MCP and x402 terms"),
+            ("/fr", "Construit pour les builders"),
+            ("/fr/pro", "Aucun prix public"),
+            ("/fr/sandbox", "Sandbox en 60 secondes"),
+            ("/fr/developers", "Developpeurs"),
+            ("/fr/alternatives", "Pourquoi pas sec-api"),
+            ("/fr/trust-artifact", "Trust layer, pas alpha"),
+            ("/fr/buyer-pack", "Pack de revue acheteur"),
+            ("/fr/legal/pro-api", "Conditions Pro API"),
         ):
             r = c.get(path)
             assert r.status_code == 200, path
             assert needle in r.get_data(as_text=True), path
+
+        for path in ("/", "/pro", "/fr", "/fr/pro"):
+            page = c.get(path).get_data(as_text=True)
+            assert 'hreflang="en"' in page, path
+            assert 'hreflang="fr"' in page, path
+            assert 'aria-label="Language switcher"' in page, path
 
         for path, target in (
             ("/dashboard.html", "/app"),
@@ -376,6 +390,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/api/buyer-pack" in doc["paths"]
         assert "/api/buyer-pack.md" in doc["paths"]
         assert "/api/pro-offer" in doc["paths"]
+        assert "/api/i18n" in doc["paths"]
         assert "/api/sandbox/key" in doc["paths"]
         assert "/api/sandbox/v1/status" in doc["paths"]
         assert "/api/trust-artifact" in doc["paths"]
@@ -384,6 +399,21 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/api/methodology/mcp" in doc["paths"]
         assert "/api/stocks/{ticker}" in doc["paths"]
         assert "/api/watchlist/discover" in doc["paths"]
+
+        i18n = c.get("/api/i18n").get_json()
+        assert i18n["languages"] == ["en", "fr"]
+        assert i18n["copy_complete"] is True
+        assert i18n["missing_copy_keys"] == []
+        assert i18n["strategy"] == "paired_public_routes_shared_product_contracts"
+        for route in i18n["routes"]:
+            assert route["en"].startswith("/")
+            assert route["fr"].startswith("/fr")
+            en = c.get(route["en"])
+            fr = c.get(route["fr"])
+            assert en.status_code == 200, route
+            assert fr.status_code == 200, route
+            assert "$19" not in en.get_data(as_text=True)
+            assert "$19" not in fr.get_data(as_text=True)
 
         offer = c.get("/api/pro-offer").get_json()
         assert offer["offer"]["name"] == "13FLOW Builder Sandbox"
@@ -449,6 +479,13 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         mcp_method = c.get("/api/methodology/mcp").get_json()
         assert "Pro tools must fail closed" in mcp_method["contract"][1]
         assert mcp_method["security"]["credential_headers"][0].startswith("Authorization")
+
+        pro_page_fr = c.get("/fr/pro").get_data(as_text=True)
+        assert "Demarrer le sandbox" in pro_page_fr
+        assert "Acces payant bientot" in pro_page_fr
+        assert "Aucun prix public" in pro_page_fr
+        assert "/api/pro-offer" in pro_page_fr
+        assert "$19" not in pro_page_fr
 
         pro_page = c.get("/pro").get_data(as_text=True)
         assert "Start sandbox" in pro_page

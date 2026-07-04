@@ -364,6 +364,32 @@ else
   bad "/pro offer page" "curl failed"
 fi
 
+fr_pages=(
+  "/fr|Construit pour les builders|Accueil FR"
+  "/fr/pro|Aucun prix public|Pro FR"
+  "/fr/sandbox|Sandbox en 60 secondes|Sandbox FR"
+  "/fr/developers|Developpeurs|Developers FR"
+  "/fr/alternatives|Pourquoi pas sec-api|Alternatives FR"
+  "/fr/trust-artifact|Trust layer, pas alpha|Trust artifact FR"
+  "/fr/buyer-pack|Pack de revue acheteur|Buyer pack FR"
+  "/fr/legal/pro-api|Conditions Pro API|Pro terms FR"
+)
+for item in "${fr_pages[@]}"; do
+  IFS='|' read -r path needle label <<<"$item"
+  out="$tmpdir/${path//\//_}.html"
+  if fetch "$path" "$out"; then
+    grep -q "$needle" "$out" \
+      && grep -q 'hreflang="en"' "$out" \
+      && grep -q 'hreflang="fr"' "$out" \
+      && ! grep -q '\$19' "$out" \
+      && ok "$label" \
+      || bad "$label" "missing FR/i18n contract copy"
+    contains_none "$label has no legacy/auth/checkout copy" "$out" "490 EUR / month" "Continue to checkout"
+  else
+    bad "$label" "curl failed"
+  fi
+done
+
 pro_onboarding_page="$tmpdir/pro-onboarding.html"
 if fetch "/pro/onboarding" "$pro_onboarding_page"; then
   grep -q "Integration Diagnostic" "$pro_onboarding_page" \
@@ -795,7 +821,7 @@ else
   bad "/api/watchlist/discover filtered fetch" "curl failed"
 fi
 
-for path in /api/data-quality /api/methodology/confluence-v1 /api/openapi.json; do
+for path in /api/data-quality /api/methodology/confluence-v1 /api/i18n /api/openapi.json; do
   out="$tmpdir/${path//\//_}.json"
   if fetch "$path" "$out"; then
     ok "$path fetch"
@@ -808,7 +834,7 @@ openapi="$tmpdir/_api_openapi.json"
 if [[ -s "$openapi" ]]; then
   json_check "/api/openapi.json public paths" "$openapi" "
 paths = data.get('paths') or {}
-required = ['/api/live-status', '/api/product-status', '/api/commercial-readiness', '/api/security-posture', '/api/pilot-intake', '/api/pilot-intake.md', '/api/pilot-request-assist', '/api/buyer-pack', '/api/buyer-pack.md', '/api/pro-offer', '/api/funds', '/api/watchlist/discover', '/api/mcp', '/api/methodology/confluence-v1']
+required = ['/api/live-status', '/api/product-status', '/api/commercial-readiness', '/api/security-posture', '/api/pilot-intake', '/api/pilot-intake.md', '/api/pilot-request-assist', '/api/buyer-pack', '/api/buyer-pack.md', '/api/pro-offer', '/api/i18n', '/api/funds', '/api/watchlist/discover', '/api/mcp', '/api/methodology/confluence-v1']
 missing = [p for p in required if p not in paths]
 ok = not missing
 msg = 'missing paths: ' + ', '.join(missing)

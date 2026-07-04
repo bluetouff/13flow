@@ -643,6 +643,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                                 "responses": {"200": {"description": "Markdown buyer review pack"}}}},
                 "/api/pro-offer": {"get": {"summary": "Pro offer packaging and onboarding runbook",
                                            "responses": {"200": {"description": "Pro offer"}}}},
+                "/api/i18n": {"get": {"summary": "Public bilingual route manifest and copy completeness",
+                                         "responses": {"200": {"description": "i18n manifest"}}}},
                 "/api/sandbox/key": {"get": {"summary": "Instant sandbox-only public demo key",
                                                 "responses": {"200": {"description": "Sandbox key"}}}},
                 "/api/sandbox/v1/status": {"get": {"summary": "Sandbox status demo endpoint",
@@ -7094,8 +7096,82 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         )
         return resp
 
-    def _html_response(title: str, body: str, script: str = "") -> Response:
+    I18N_LANGUAGES = ("en", "fr")
+    I18N_ROUTE_PAIRS = [
+        {"id": "home", "en": "/", "fr": "/fr", "en_label": "Home", "fr_label": "Accueil"},
+        {"id": "builder_sandbox", "en": "/pro", "fr": "/fr/pro", "en_label": "Builder Sandbox", "fr_label": "Sandbox builders"},
+        {"id": "sandbox", "en": "/sandbox", "fr": "/fr/sandbox", "en_label": "Sandbox", "fr_label": "Sandbox"},
+        {"id": "developers", "en": "/developers", "fr": "/fr/developers", "en_label": "Developers", "fr_label": "Developpeurs"},
+        {"id": "alternatives", "en": "/alternatives", "fr": "/fr/alternatives", "en_label": "Alternatives", "fr_label": "Alternatives"},
+        {"id": "trust_artifact", "en": "/trust-artifact", "fr": "/fr/trust-artifact", "en_label": "Trust artifact", "fr_label": "Preuve de confiance"},
+        {"id": "buyer_pack", "en": "/buyer-pack", "fr": "/fr/buyer-pack", "en_label": "Buyer pack", "fr_label": "Pack acheteur"},
+        {"id": "pro_terms", "en": "/legal/pro-api", "fr": "/fr/legal/pro-api", "en_label": "Pro terms", "fr_label": "Conditions Pro"},
+    ]
+    I18N_EN_TO_FR = {item["en"]: item["fr"] for item in I18N_ROUTE_PAIRS}
+    I18N_FR_TO_EN = {item["fr"]: item["en"] for item in I18N_ROUTE_PAIRS}
+
+    I18N_COPY = {
+        "public_sandbox": {"en": "Public sandbox", "fr": "Sandbox public"},
+        "paid_soon": {"en": "Paid access coming soon", "fr": "Acces payant bientot"},
+        "no_public_price": {"en": "No public price yet", "fr": "Aucun prix public pour le moment"},
+        "mcp_minimum": {"en": "MCP minimum included", "fr": "MCP minimum inclus"},
+        "sandbox_only_key": {"en": "Sandbox-only key", "fr": "Cle limitee au sandbox"},
+        "not_investment_advice": {"en": "Not investment advice", "fr": "Pas un conseil en investissement"},
+    }
+
+    def _i18n_payload() -> dict:
+        missing_copy = sorted(
+            key for key, values in I18N_COPY.items()
+            if any(not values.get(lang) for lang in I18N_LANGUAGES)
+        )
+        return {
+            "languages": list(I18N_LANGUAGES),
+            "default_language": "en",
+            "strategy": "paired_public_routes_shared_product_contracts",
+            "contract": "Any public commercial or documentation update must update both EN and FR routes, plus this manifest and tests.",
+            "routes": [dict(item) for item in I18N_ROUTE_PAIRS],
+            "copy_keys": sorted(I18N_COPY),
+            "copy_complete": not missing_copy,
+            "missing_copy_keys": missing_copy,
+        }
+
+    def _i18n_paths(path: str | None) -> dict:
+        clean = path or "/"
+        if clean in I18N_FR_TO_EN:
+            en_path = I18N_FR_TO_EN[clean]
+            return {"en": en_path, "fr": clean}
+        if clean in I18N_EN_TO_FR:
+            return {"en": clean, "fr": I18N_EN_TO_FR[clean]}
+        if clean.startswith("/fr/"):
+            return {"en": clean[3:] or "/", "fr": clean}
+        if clean == "/fr":
+            return {"en": "/", "fr": "/fr"}
+        return {"en": clean, "fr": I18N_EN_TO_FR.get(clean, clean)}
+
+    def _language_switcher(path: str | None, lang: str) -> str:
+        paths = _i18n_paths(path)
+        current = lang if lang in I18N_LANGUAGES else "en"
+        return (
+            '<div class="langlinks" aria-label="Language switcher">'
+            f'<a class="{("active" if current == "en" else "")}" href="{html_escape(paths["en"], quote=True)}" hreflang="en">EN</a>'
+            f'<a class="{("active" if current == "fr" else "")}" href="{html_escape(paths["fr"], quote=True)}" hreflang="fr">FR</a>'
+            '</div>'
+        )
+
+    def _alternate_link_tags(path: str | None) -> str:
+        paths = _i18n_paths(path)
+        return (
+            f'<link rel="alternate" hreflang="en" href="{html_escape(paths["en"], quote=True)}">'
+            f'<link rel="alternate" hreflang="fr" href="{html_escape(paths["fr"], quote=True)}">'
+            f'<link rel="alternate" hreflang="x-default" href="{html_escape(paths["en"], quote=True)}">'
+        )
+
+    def _html_response(title: str, body: str, script: str = "", *, lang: str = "en", canonical_path: str | None = None) -> Response:
         nonce = secrets.token_urlsafe(16)
+        page_path = canonical_path or request.path
+        lang = lang if lang in I18N_LANGUAGES else "en"
+        language_switcher = _language_switcher(page_path, lang)
+        alternates = _alternate_link_tags(page_path)
         nav = (
             '<nav class="topnav"><a class="brand" href="/"><svg width="34" height="34" viewBox="0 0 64 64" fill="none" aria-hidden="true">'
             '<path d="M7 15 C 22 15, 22 32, 37 32" stroke="#19c187" stroke-width="7.5" stroke-linecap="round"/>'
@@ -7105,7 +7181,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             '<span class="wm">13<span>FL</span><b>OW</b></span></a>'
             '<div class="navlinks"><a class="primary" href="/app">Cockpit</a>'
             '<a href="/signals">Signals</a><a href="/funds">Funds</a><a href="/stocks">Stocks</a>'
-            '<a href="/developers">API</a><a href="/pro">Pro</a></div></nav>'
+            f'<a href="/developers">API</a><a href="/pro">Pro</a></div>{language_switcher}</nav>'
         )
         def _foot_icon(path: str) -> str:
             return (
@@ -7157,12 +7233,12 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             else f'<script nonce="{nonce}"></script>'
         )
         html = f"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{html_escape(title)} · 13FLOW</title><link href="/assets/fonts/13flow-fonts.css" rel="stylesheet">
+<html lang="{html_escape(lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{html_escape(title)} · 13FLOW</title>{alternates}<link href="/assets/fonts/13flow-fonts.css" rel="stylesheet">
 <style>
 :root{{--bg:#0c1611;--panel:#13241c;--panel-2:#16291f;--panel-3:#101f18;--line:#1f3329;--line-soft:#182a20;--text:#eaf5ef;--muted:#a9c4b7;--faint:#6f897d;--accent:#19c187;--amber:#e0a534;--danger:#ef6a52;--sans:'Hanken Grotesk',system-ui,sans-serif;--display:'Bricolage Grotesque',system-ui,sans-serif;--mono:'Geist Mono',ui-monospace,monospace}}
 *{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.55;letter-spacing:0;background-image:linear-gradient(180deg,rgba(255,255,255,.025),transparent 420px)}}a{{color:var(--accent);text-decoration:none}}
-.wrap{{max-width:1180px;margin:0 auto;padding:22px 24px 0}}.topnav{{position:sticky;top:0;z-index:10;display:flex;gap:18px;align-items:center;margin:0 -24px 34px;padding:14px 24px;border-bottom:1px solid var(--line);background:rgba(12,22,17,.92);backdrop-filter:blur(14px)}}.navlinks{{display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-left:auto}}.navlinks a{{color:var(--muted);font-weight:650;font-size:13px;padding:7px 10px;border-radius:8px}}.navlinks a:hover{{color:var(--text);background:var(--panel-2)}}.navlinks a.primary{{color:#06140f;background:var(--accent)}}.brand{{font-family:var(--display);font-size:24px;font-weight:800;color:var(--text);margin-right:auto;letter-spacing:0}}.brand span{{color:var(--accent)}}.brand b{{color:var(--amber)}}h1{{font-family:var(--display);font-size:44px;line-height:1.02;margin:0 0 10px;letter-spacing:0}}h2,h3{{font-family:var(--display);letter-spacing:0}}.lede{{color:var(--muted);max-width:780px;margin:0 0 24px;font-size:16px}}.hero{{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr);gap:18px;align-items:stretch;margin-bottom:18px}}.hero .panel{{min-height:100%}}.kicker{{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}}.actions{{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}}.grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}}.card,.panel{{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px}}.card{{display:block;color:var(--text)}}.card:hover{{border-color:var(--accent);background:var(--panel-2)}}.card h2,.card h3{{margin:0 0 6px}}.card p,.panel p,.panel li{{color:var(--muted)}}.card a,.panel a,code{{overflow-wrap:anywhere}}.panel,.meta{{overflow-wrap:anywhere;word-break:break-word}}.meta,.num{{font-family:var(--mono)}}.meta{{font-size:12px;color:var(--faint)}}.num{{font-size:13px}}pre{{white-space:pre-wrap;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:14px;overflow:auto}}code{{font-family:var(--mono)}}table{{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}}th,td{{padding:11px 13px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}}th:first-child,td:first-child{{text-align:left}}th{{font-family:var(--mono);font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em}}td{{font-size:14px}}.pill{{display:inline-block;max-width:100%;border:1px solid var(--line);border-radius:8px;padding:5px 9px;font-family:var(--mono);font-size:11px;color:var(--muted);margin:2px 5px 2px 0;overflow-wrap:anywhere;word-break:break-word;white-space:normal}}a.pill,.pill.cta{{color:#06140f;background:var(--accent);border-color:var(--accent);font-weight:700}}.sec{{font-family:var(--mono);font-size:11px}}.status-strip{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:18px}}.status-strip div{{border:1px solid var(--line);border-radius:8px;background:var(--panel-2);padding:12px}}.home-hero{{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);gap:26px;align-items:center;margin:8px 0 20px;min-height:520px}}.home-copy{{padding:20px 0 28px}}.home-eyebrow{{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}}.home-eyebrow span{{font-family:var(--mono);font-size:11px;color:var(--muted);border:1px solid var(--line);background:var(--panel-2);border-radius:8px;padding:6px 9px}}.home-copy h1,.home-title{{font-family:var(--display);font-size:72px;line-height:.92;margin:0 0 18px;letter-spacing:0;max-width:760px;overflow-wrap:anywhere}}.home-title .mark{{color:var(--accent)}}.home-lede{{font-size:20px;line-height:1.48;color:var(--muted);max-width:660px;margin:0}}.home-proof{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:26px;max-width:720px}}.proof-item{{border-top:1px solid var(--line);padding-top:11px}}.proof-item b{{display:block;font-family:var(--mono);font-size:22px;line-height:1.1;color:var(--text)}}.proof-item span{{display:block;font-size:12px;color:var(--faint);margin-top:4px}}.home-actions{{display:flex;flex-wrap:wrap;gap:10px;margin-top:28px}}.home-actions .button{{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:8px;padding:10px 14px;font-weight:800;color:#06140f;background:var(--accent);border:1px solid var(--accent)}}.home-actions .button.secondary{{background:transparent;color:var(--text);border-color:var(--line)}}.home-actions .button.secondary:hover{{border-color:var(--accent);color:var(--accent)}}.cockpit-shot{{border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,var(--panel),var(--panel-3));box-shadow:0 28px 70px -34px rgba(0,0,0,.85);overflow:hidden}}.shot-top{{display:flex;justify-content:space-between;gap:12px;align-items:center;border-bottom:1px solid var(--line);padding:14px 16px}}.shot-title{{font-family:var(--display);font-weight:800;font-size:17px}}.shot-live{{font-family:var(--mono);font-size:10px;color:var(--accent);border:1px solid rgba(25,193,135,.32);border-radius:8px;padding:5px 8px;background:rgba(25,193,135,.08)}}.shot-grid{{display:grid;grid-template-columns:1.1fr .9fr;gap:1px;background:var(--line)}}.quadrant{{background:var(--panel);padding:18px;min-height:284px;position:relative}}.axis{{position:absolute;font-family:var(--mono);font-size:10px;color:var(--faint)}}.axis.x{{bottom:12px;left:18px;right:18px;display:flex;justify-content:space-between}}.axis.y{{top:18px;right:16px}}.bubble{{position:absolute;width:54px;height:54px;border-radius:50%;display:grid;place-items:center;font-family:var(--mono);font-size:11px;font-weight:800;color:#06140f;background:var(--accent);box-shadow:0 0 0 8px rgba(25,193,135,.08)}}.bubble.b2{{width:42px;height:42px;left:54%;top:24%;background:var(--amber)}}.bubble.b1{{left:66%;top:44%}}.bubble.b3{{width:36px;height:36px;left:31%;top:54%;background:#7fb89d;color:#081310}}.watchlist{{background:var(--panel);padding:16px}}.watch-row{{display:grid;grid-template-columns:52px 1fr auto;gap:10px;align-items:center;border-bottom:1px solid var(--line-soft);padding:10px 0}}.watch-row:last-child{{border-bottom:0}}.watch-row b{{font-family:var(--mono);font-size:12px;color:var(--accent)}}.watch-row span{{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.watch-row i{{font-family:var(--mono);font-style:normal;font-size:11px;color:var(--faint)}}.trust-band{{display:grid;grid-template-columns:1.1fr repeat(3,.8fr);gap:10px;margin:18px 0 26px}}.trust-band div{{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px}}.trust-band b{{display:block;font-family:var(--mono);font-size:13px;color:var(--text)}}.trust-band span{{display:block;color:var(--muted);font-size:12px;margin-top:5px}}.section-head{{display:flex;justify-content:space-between;gap:18px;align-items:end;margin:34px 0 14px}}.section-head h2{{font-size:28px;line-height:1.05;margin:0}}.section-head p{{margin:0;color:var(--muted);max-width:520px}}.journey{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}}.journey .step{{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:18px;display:block;color:var(--text)}}.journey .step:hover{{border-color:var(--accent);background:var(--panel-2)}}.step .n{{font-family:var(--mono);font-size:11px;color:var(--accent);margin-bottom:10px}}.step h3{{font-size:19px;margin:0 0 8px}}.step p{{margin:0;color:var(--muted)}}.boundary{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}}.boundary .panel h3{{margin-top:0}}.boundary ul{{padding-left:18px;margin:0}}.doc-hero{{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(300px,.9fr);gap:18px;align-items:stretch;margin:8px 0 18px}}.doc-hero>*,.doc-copy,.doc-panel,.doc-section,.doc-card,.runstep{{min-width:0}}.doc-copy{{padding:18px 0}}.doc-copy h1{{font-size:58px;line-height:.96;margin-bottom:14px;overflow-wrap:anywhere}}.doc-lede{{font-size:19px;line-height:1.5;color:var(--muted);max-width:720px;margin:0}}.doc-panel{{border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,var(--panel),var(--panel-3));padding:18px;box-shadow:0 24px 58px -36px rgba(0,0,0,.75);overflow-wrap:anywhere}}.doc-panel h3{{margin:0 0 12px;font-size:18px}}.doc-metrics{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:18px 0 24px}}.doc-metric{{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px;min-width:0}}.doc-metric b{{display:block;font-family:var(--mono);font-size:21px;color:var(--text);line-height:1.1;overflow-wrap:anywhere}}.doc-metric span{{display:block;color:var(--faint);font-size:12px;margin-top:6px}}.doc-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}}.doc-card{{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:18px;display:block;color:var(--text)}}.doc-card:hover{{border-color:var(--accent);background:var(--panel-2)}}.doc-card h3{{margin:0 0 8px;font-size:19px}}.doc-card p{{margin:0;color:var(--muted)}}.doc-section{{margin-top:18px;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:20px;overflow-wrap:anywhere}}.doc-section h2{{font-size:24px;margin:0 0 10px}}.doc-section p{{color:var(--muted)}}.doc-section ul{{margin:10px 0 0;padding-left:19px}}.doc-section li{{margin:7px 0}}.runbook{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}}.runstep{{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);padding:14px}}.runstep b{{display:block;font-family:var(--mono);font-size:11px;color:var(--accent);margin-bottom:8px}}.runstep span{{display:block;color:var(--muted);font-size:13px}}.callout{{border-left:3px solid var(--accent);background:var(--panel-2);border-radius:8px;padding:14px 16px;color:var(--muted)}}.callout strong{{color:var(--text)}}.split{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}}.mini-list{{display:grid;gap:8px;margin-top:12px}}.mini-list div{{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);padding:11px 12px;color:var(--muted)}}.mini-list b{{color:var(--text)}}.site-footer{{margin-top:46px;border-top:1px solid var(--line);padding:28px 0 34px;color:var(--muted)}}.foot-grid{{display:grid;grid-template-columns:1.4fr repeat(3,1fr);gap:26px}}.site-footer h4{{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin:0 0 10px}}.site-footer p{{margin:0;color:var(--muted);font-size:13px;line-height:1.55;max-width:38ch}}.site-footer a{{display:block;color:var(--text);font-weight:600;font-size:13px;margin:7px 0}}.site-footer a:hover{{color:var(--accent)}}.fine{{border-top:1px solid var(--line-soft);margin-top:24px;padding-top:16px;display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--faint)}}@media(max-width:980px){{.home-hero,.doc-hero{{grid-template-columns:minmax(0,1fr);min-height:0}}.trust-band,.doc-metrics{{grid-template-columns:1fr 1fr}}.journey,.doc-grid{{grid-template-columns:1fr}}.boundary,.split{{grid-template-columns:1fr}}.runbook{{grid-template-columns:1fr 1fr}}}}@media(max-width:860px){{.hero{{grid-template-columns:1fr}}.status-strip{{grid-template-columns:1fr}}.home-proof{{grid-template-columns:1fr 1fr}}.shot-grid{{grid-template-columns:1fr}}.quadrant{{min-height:240px}}}}@media(max-width:760px){{.wrap{{padding:0 16px}}.topnav{{position:relative;display:block;margin:0 -16px 22px;padding:12px 16px}}.brand{{display:block;margin:0 0 10px}}.navlinks{{margin-left:0;display:flex;flex-wrap:nowrap;overflow-x:auto;gap:6px;padding-bottom:4px}}.navlinks a{{white-space:nowrap;flex:0 0 auto}}.foot-grid{{grid-template-columns:1fr}}h1{{font-size:34px}}.home-copy{{padding:4px 0 20px}}.home-copy h1,.home-title,.doc-copy h1{{font-size:48px}}.home-lede,.doc-lede{{font-size:17px;line-height:1.42}}.home-proof{{grid-template-columns:1fr 1fr;margin-top:20px}}.trust-band,.doc-metrics{{grid-template-columns:1fr}}.home-actions{{margin-top:20px}}.home-actions .button{{flex:1 1 155px}}.cockpit-shot{{margin-top:4px}}.runbook{{grid-template-columns:1fr}}table{{display:block;overflow-x:auto}}}}
+.wrap{{max-width:1180px;margin:0 auto;padding:22px 24px 0}}.topnav{{position:sticky;top:0;z-index:10;display:flex;gap:18px;align-items:center;margin:0 -24px 34px;padding:14px 24px;border-bottom:1px solid var(--line);background:rgba(12,22,17,.92);backdrop-filter:blur(14px)}}.navlinks{{display:flex;gap:5px;align-items:center;flex-wrap:wrap;margin-left:auto}}.navlinks a{{color:var(--muted);font-weight:650;font-size:13px;padding:7px 10px;border-radius:8px}}.navlinks a:hover{{color:var(--text);background:var(--panel-2)}}.navlinks a.primary{{color:#06140f;background:var(--accent)}}.langlinks{{display:flex;gap:4px;align-items:center;border:1px solid var(--line);border-radius:999px;padding:3px;background:rgba(255,255,255,.025)}}.langlinks a{{font-family:var(--mono);font-size:10px;color:var(--muted);border-radius:999px;padding:5px 7px;line-height:1}}.langlinks a.active{{background:var(--text);color:#07130e;font-weight:800}}.brand{{font-family:var(--display);font-size:24px;font-weight:800;color:var(--text);margin-right:auto;letter-spacing:0}}.brand span{{color:var(--accent)}}.brand b{{color:var(--amber)}}h1{{font-family:var(--display);font-size:44px;line-height:1.02;margin:0 0 10px;letter-spacing:0}}h2,h3{{font-family:var(--display);letter-spacing:0}}.lede{{color:var(--muted);max-width:780px;margin:0 0 24px;font-size:16px}}.hero{{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(300px,.65fr);gap:18px;align-items:stretch;margin-bottom:18px}}.hero .panel{{min-height:100%}}.kicker{{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin-bottom:12px}}.actions{{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}}.grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}}.card,.panel{{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px}}.card{{display:block;color:var(--text)}}.card:hover{{border-color:var(--accent);background:var(--panel-2)}}.card h2,.card h3{{margin:0 0 6px}}.card p,.panel p,.panel li{{color:var(--muted)}}.card a,.panel a,code{{overflow-wrap:anywhere}}.panel,.meta{{overflow-wrap:anywhere;word-break:break-word}}.meta,.num{{font-family:var(--mono)}}.meta{{font-size:12px;color:var(--faint)}}.num{{font-size:13px}}pre{{white-space:pre-wrap;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:14px;overflow:auto}}code{{font-family:var(--mono)}}table{{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}}th,td{{padding:11px 13px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}}th:first-child,td:first-child{{text-align:left}}th{{font-family:var(--mono);font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em}}td{{font-size:14px}}.pill{{display:inline-block;max-width:100%;border:1px solid var(--line);border-radius:8px;padding:5px 9px;font-family:var(--mono);font-size:11px;color:var(--muted);margin:2px 5px 2px 0;overflow-wrap:anywhere;word-break:break-word;white-space:normal}}a.pill,.pill.cta{{color:#06140f;background:var(--accent);border-color:var(--accent);font-weight:700}}.sec{{font-family:var(--mono);font-size:11px}}.status-strip{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:18px}}.status-strip div{{border:1px solid var(--line);border-radius:8px;background:var(--panel-2);padding:12px}}.home-hero{{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(360px,.95fr);gap:26px;align-items:center;margin:8px 0 20px;min-height:520px}}.home-copy{{padding:20px 0 28px}}.home-eyebrow{{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}}.home-eyebrow span{{font-family:var(--mono);font-size:11px;color:var(--muted);border:1px solid var(--line);background:var(--panel-2);border-radius:8px;padding:6px 9px}}.home-copy h1,.home-title{{font-family:var(--display);font-size:72px;line-height:.92;margin:0 0 18px;letter-spacing:0;max-width:760px;overflow-wrap:anywhere}}.home-title .mark{{color:var(--accent)}}.home-lede{{font-size:20px;line-height:1.48;color:var(--muted);max-width:660px;margin:0}}.home-proof{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:26px;max-width:720px}}.proof-item{{border-top:1px solid var(--line);padding-top:11px}}.proof-item b{{display:block;font-family:var(--mono);font-size:22px;line-height:1.1;color:var(--text)}}.proof-item span{{display:block;font-size:12px;color:var(--faint);margin-top:4px}}.home-actions{{display:flex;flex-wrap:wrap;gap:10px;margin-top:28px}}.home-actions .button{{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:8px;padding:10px 14px;font-weight:800;color:#06140f;background:var(--accent);border:1px solid var(--accent)}}.home-actions .button.secondary{{background:transparent;color:var(--text);border-color:var(--line)}}.home-actions .button.secondary:hover{{border-color:var(--accent);color:var(--accent)}}.cockpit-shot{{border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,var(--panel),var(--panel-3));box-shadow:0 28px 70px -34px rgba(0,0,0,.85);overflow:hidden}}.shot-top{{display:flex;justify-content:space-between;gap:12px;align-items:center;border-bottom:1px solid var(--line);padding:14px 16px}}.shot-title{{font-family:var(--display);font-weight:800;font-size:17px}}.shot-live{{font-family:var(--mono);font-size:10px;color:var(--accent);border:1px solid rgba(25,193,135,.32);border-radius:8px;padding:5px 8px;background:rgba(25,193,135,.08)}}.shot-grid{{display:grid;grid-template-columns:1.1fr .9fr;gap:1px;background:var(--line)}}.quadrant{{background:var(--panel);padding:18px;min-height:284px;position:relative}}.axis{{position:absolute;font-family:var(--mono);font-size:10px;color:var(--faint)}}.axis.x{{bottom:12px;left:18px;right:18px;display:flex;justify-content:space-between}}.axis.y{{top:18px;right:16px}}.bubble{{position:absolute;width:54px;height:54px;border-radius:50%;display:grid;place-items:center;font-family:var(--mono);font-size:11px;font-weight:800;color:#06140f;background:var(--accent);box-shadow:0 0 0 8px rgba(25,193,135,.08)}}.bubble.b2{{width:42px;height:42px;left:54%;top:24%;background:var(--amber)}}.bubble.b1{{left:66%;top:44%}}.bubble.b3{{width:36px;height:36px;left:31%;top:54%;background:#7fb89d;color:#081310}}.watchlist{{background:var(--panel);padding:16px}}.watch-row{{display:grid;grid-template-columns:52px 1fr auto;gap:10px;align-items:center;border-bottom:1px solid var(--line-soft);padding:10px 0}}.watch-row:last-child{{border-bottom:0}}.watch-row b{{font-family:var(--mono);font-size:12px;color:var(--accent)}}.watch-row span{{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}.watch-row i{{font-family:var(--mono);font-style:normal;font-size:11px;color:var(--faint)}}.trust-band{{display:grid;grid-template-columns:1.1fr repeat(3,.8fr);gap:10px;margin:18px 0 26px}}.trust-band div{{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px}}.trust-band b{{display:block;font-family:var(--mono);font-size:13px;color:var(--text)}}.trust-band span{{display:block;color:var(--muted);font-size:12px;margin-top:5px}}.section-head{{display:flex;justify-content:space-between;gap:18px;align-items:end;margin:34px 0 14px}}.section-head h2{{font-size:28px;line-height:1.05;margin:0}}.section-head p{{margin:0;color:var(--muted);max-width:520px}}.journey{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}}.journey .step{{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:18px;display:block;color:var(--text)}}.journey .step:hover{{border-color:var(--accent);background:var(--panel-2)}}.step .n{{font-family:var(--mono);font-size:11px;color:var(--accent);margin-bottom:10px}}.step h3{{font-size:19px;margin:0 0 8px}}.step p{{margin:0;color:var(--muted)}}.boundary{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}}.boundary .panel h3{{margin-top:0}}.boundary ul{{padding-left:18px;margin:0}}.doc-hero{{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(300px,.9fr);gap:18px;align-items:stretch;margin:8px 0 18px}}.doc-hero>*,.doc-copy,.doc-panel,.doc-section,.doc-card,.runstep{{min-width:0}}.doc-copy{{padding:18px 0}}.doc-copy h1{{font-size:58px;line-height:.96;margin-bottom:14px;overflow-wrap:anywhere}}.doc-lede{{font-size:19px;line-height:1.5;color:var(--muted);max-width:720px;margin:0}}.doc-panel{{border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,var(--panel),var(--panel-3));padding:18px;box-shadow:0 24px 58px -36px rgba(0,0,0,.75);overflow-wrap:anywhere}}.doc-panel h3{{margin:0 0 12px;font-size:18px}}.doc-metrics{{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:18px 0 24px}}.doc-metric{{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px;min-width:0}}.doc-metric b{{display:block;font-family:var(--mono);font-size:21px;color:var(--text);line-height:1.1;overflow-wrap:anywhere}}.doc-metric span{{display:block;color:var(--faint);font-size:12px;margin-top:6px}}.doc-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px}}.doc-card{{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:18px;display:block;color:var(--text)}}.doc-card:hover{{border-color:var(--accent);background:var(--panel-2)}}.doc-card h3{{margin:0 0 8px;font-size:19px}}.doc-card p{{margin:0;color:var(--muted)}}.doc-section{{margin-top:18px;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:20px;overflow-wrap:anywhere}}.doc-section h2{{font-size:24px;margin:0 0 10px}}.doc-section p{{color:var(--muted)}}.doc-section ul{{margin:10px 0 0;padding-left:19px}}.doc-section li{{margin:7px 0}}.runbook{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}}.runstep{{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);padding:14px}}.runstep b{{display:block;font-family:var(--mono);font-size:11px;color:var(--accent);margin-bottom:8px}}.runstep span{{display:block;color:var(--muted);font-size:13px}}.callout{{border-left:3px solid var(--accent);background:var(--panel-2);border-radius:8px;padding:14px 16px;color:var(--muted)}}.callout strong{{color:var(--text)}}.split{{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}}.mini-list{{display:grid;gap:8px;margin-top:12px}}.mini-list div{{border:1px solid var(--line-soft);border-radius:8px;background:var(--panel-2);padding:11px 12px;color:var(--muted)}}.mini-list b{{color:var(--text)}}.site-footer{{margin-top:46px;border-top:1px solid var(--line);padding:28px 0 34px;color:var(--muted)}}.foot-grid{{display:grid;grid-template-columns:1.4fr repeat(3,1fr);gap:26px}}.site-footer h4{{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin:0 0 10px}}.site-footer p{{margin:0;color:var(--muted);font-size:13px;line-height:1.55;max-width:38ch}}.site-footer a{{display:block;color:var(--text);font-weight:600;font-size:13px;margin:7px 0}}.site-footer a:hover{{color:var(--accent)}}.fine{{border-top:1px solid var(--line-soft);margin-top:24px;padding-top:16px;display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--faint)}}@media(max-width:980px){{.home-hero,.doc-hero{{grid-template-columns:minmax(0,1fr);min-height:0}}.trust-band,.doc-metrics{{grid-template-columns:1fr 1fr}}.journey,.doc-grid{{grid-template-columns:1fr}}.boundary,.split{{grid-template-columns:1fr}}.runbook{{grid-template-columns:1fr 1fr}}}}@media(max-width:860px){{.hero{{grid-template-columns:1fr}}.status-strip{{grid-template-columns:1fr}}.home-proof{{grid-template-columns:1fr 1fr}}.shot-grid{{grid-template-columns:1fr}}.quadrant{{min-height:240px}}}}@media(max-width:760px){{.wrap{{padding:0 16px}}.topnav{{position:relative;display:block;margin:0 -16px 22px;padding:12px 16px}}.brand{{display:block;margin:0 0 10px}}.navlinks{{margin-left:0;display:flex;flex-wrap:nowrap;overflow-x:auto;gap:6px;padding-bottom:4px}}.langlinks{{display:inline-flex;margin-top:8px}}.navlinks a{{white-space:nowrap;flex:0 0 auto}}.foot-grid{{grid-template-columns:1fr}}h1{{font-size:34px}}.home-copy{{padding:4px 0 20px}}.home-copy h1,.home-title,.doc-copy h1{{font-size:48px}}.home-lede,.doc-lede{{font-size:17px;line-height:1.42}}.home-proof{{grid-template-columns:1fr 1fr;margin-top:20px}}.trust-band,.doc-metrics{{grid-template-columns:1fr}}.home-actions{{margin-top:20px}}.home-actions .button{{flex:1 1 155px}}.cockpit-shot{{margin-top:4px}}.runbook{{grid-template-columns:1fr}}table{{display:block;overflow-x:auto}}}}
 .navlinks a[href="/pro"]{{color:#06140f;background:var(--amber);border:1px solid rgba(224,165,52,.35);font-weight:800}}.topnav{{box-shadow:0 16px 44px -34px rgba(0,0,0,.9)}}.brand{{font-size:26px}}.home-hero{{grid-template-columns:minmax(0,1fr) minmax(390px,.92fr);gap:30px;align-items:stretch;min-height:560px;margin-top:4px}}.home-copy{{display:flex;flex-direction:column;justify-content:center;border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.008));padding:34px}}.home-copy h1{{font-size:78px;line-height:.9}}.home-lede{{max-width:710px;color:#c3d4cc}}.proof-item b{{font-size:20px;white-space:nowrap}}.home-actions .button{{box-shadow:0 14px 34px -24px rgba(25,193,135,.75)}}.home-actions .button.secondary{{box-shadow:none;background:rgba(255,255,255,.025)}}.cockpit-shot{{height:100%;display:flex;flex-direction:column}}.shot-grid{{flex:1}}.quadrant{{min-height:330px}}.watch-row{{grid-template-columns:74px minmax(0,1fr) auto;align-items:start}}.watch-row span{{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.25}}.trust-band div:first-child{{background:linear-gradient(180deg,rgba(25,193,135,.11),var(--panel));border-color:rgba(25,193,135,.28)}}.purchase-hero{{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,.76fr);gap:18px;margin:4px 0 18px;align-items:stretch}}.purchase-copy{{border:1px solid var(--line);border-radius:8px;background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.01));padding:30px;min-width:0}}.purchase-copy h1{{font-size:62px;line-height:.96;max-width:720px}}.purchase-copy .lede{{font-size:18px;max-width:760px;color:#c3d4cc}}.purchase-actions{{display:flex;gap:10px;flex-wrap:wrap;margin-top:22px}}.purchase-actions a{{display:inline-flex;min-height:40px;align-items:center;justify-content:center;border-radius:8px;padding:10px 14px;font-weight:800;border:1px solid var(--line);color:var(--text)}}.purchase-actions a:first-child{{background:var(--accent);border-color:var(--accent);color:#06140f}}.purchase-panel{{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:20px;display:grid;gap:12px;align-content:start}}.purchase-panel h3{{margin:0;font-size:20px}}.proof-line{{display:grid;grid-template-columns:108px 1fr;gap:12px;align-items:start;border-top:1px solid var(--line-soft);padding-top:12px}}.proof-line:first-of-type{{border-top:0;padding-top:0}}.proof-line b{{font-family:var(--mono);font-size:12px;color:var(--accent)}}.proof-line span{{color:var(--muted);font-size:13px}}.buyer-strip{{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:18px 0}}.buyer-strip div{{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:14px}}.buyer-strip b{{display:block;font-family:var(--mono);font-size:12px;color:var(--text)}}.buyer-strip span{{display:block;color:var(--muted);font-size:12px;margin-top:5px}}.decision-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px}}.decision-grid .card{{min-height:100%}}.section-band{{border:1px solid var(--line);border-radius:8px;background:rgba(255,255,255,.02);padding:20px;margin-top:18px}}.section-band h2{{margin-top:0}}@media(max-width:980px){{.home-hero,.purchase-hero{{grid-template-columns:1fr;min-height:0}}.buyer-strip,.decision-grid{{grid-template-columns:1fr 1fr}}.home-copy{{padding:24px}}}}@media(max-width:760px){{.home-copy h1,.purchase-copy h1{{font-size:46px}}.home-copy,.purchase-copy{{padding:20px}}.buyer-strip,.decision-grid{{grid-template-columns:1fr}}}}
 .wrap{{max-width:1120px}}body{{background-image:radial-gradient(50rem 34rem at 82% -6%,rgba(25,193,135,.11),transparent 60%),radial-gradient(46rem 32rem at 4% 4%,rgba(224,165,52,.075),transparent 58%),linear-gradient(180deg,rgba(255,255,255,.025),transparent 420px);background-attachment:fixed}}.topnav{{top:12px;margin:0 0 42px;padding:12px 14px;border:1px solid rgba(45,70,58,.74);border-radius:999px;background:linear-gradient(180deg,rgba(18,36,27,.96),rgba(10,22,16,.91));box-shadow:0 16px 46px -30px rgba(0,0,0,.92),inset 0 1px 0 rgba(255,255,255,.045);backdrop-filter:blur(18px) saturate(1.08);isolation:isolate}}.brand{{display:flex;align-items:center;gap:11px;letter-spacing:0;font-size:25px}}.brand .wm{{display:inline;font-family:var(--display);font-weight:800;letter-spacing:0}}.brand svg{{filter:drop-shadow(0 2px 9px rgba(25,193,135,.28));flex:0 0 auto}}.navlinks a{{border-radius:999px;padding:8px 14px;font-size:13.5px}}.navlinks a.primary{{border-radius:999px}}.navlinks a[href="/pro"]{{border-radius:999px}}.home-hero{{grid-template-columns:minmax(0,1fr) minmax(430px,.9fr);gap:36px;min-height:520px;align-items:center}}.home-copy{{border:0;background:transparent;padding:18px 0;display:block}}.home-copy h1{{font-size:82px;line-height:.88;letter-spacing:0;margin-bottom:20px}}.home-lede{{font-size:21px;line-height:1.5;max-width:670px;color:#c8d8d0}}.home-eyebrow span{{border-radius:999px;background:rgba(19,36,28,.82);border-color:var(--line)}}.home-proof{{max-width:640px;margin-top:30px}}.proof-item{{border-top-color:#274033}}.home-actions .button{{border-radius:999px;min-height:48px;padding:12px 20px;font-size:15px}}.home-actions .button.secondary{{border-radius:999px}}.cockpit-shot{{border-radius:18px;box-shadow:0 1px 2px rgba(0,0,0,.35),0 22px 54px -28px rgba(0,0,0,.85)}}.shot-top{{padding:18px 20px}}.shot-title{{font-size:20px}}.shot-grid{{grid-template-columns:1fr 1fr}}.quadrant{{min-height:314px}}.watch-row{{grid-template-columns:70px minmax(0,1fr)}}.watch-row i{{display:none}}.trust-band{{margin-top:30px}}.trust-band div,.buyer-strip div,.journey .step,.purchase-panel,.purchase-copy,.section-band,.card,.panel,.doc-section,.doc-panel,.doc-card{{border-radius:16px}}.buyer-strip div,.journey .step,.trust-band div{{position:relative;overflow:hidden}}.buyer-strip div:before,.journey .step:before{{content:"";position:absolute;inset:0 0 auto;height:3px;background:linear-gradient(90deg,var(--accent),transparent)}}.buyer-strip div:nth-child(2):before,.journey .step:nth-child(2):before{{background:linear-gradient(90deg,var(--amber),transparent)}}.buyer-strip div:nth-child(3):before,.journey .step:nth-child(3):before{{background:linear-gradient(90deg,var(--accent),var(--amber))}}.section-head{{margin-top:42px}}.section-head h2{{font-size:34px;line-height:1}}.purchase-copy{{background:transparent;border:0;padding:18px 0}}.purchase-copy h1{{font-size:68px;line-height:.95}}.purchase-panel{{padding:24px}}.purchase-actions a{{border-radius:999px;min-height:46px;padding:11px 18px}}@media(max-width:980px){{.home-hero{{grid-template-columns:1fr;min-height:0}}.topnav{{margin-bottom:24px}}}}@media(max-width:760px){{.home-copy h1,.purchase-copy h1{{font-size:52px}}.home-lede{{font-size:18px}}.topnav{{background:linear-gradient(180deg,rgba(18,36,27,.97),rgba(10,22,16,.93));border-radius:22px;border:1px solid rgba(45,70,58,.7)}}.brand{{font-size:23px}}.brand svg{{width:30px;height:30px}}.navlinks{{flex-wrap:wrap;overflow-x:visible}}.navlinks a{{white-space:normal}}.watch-row{{grid-template-columns:1fr;gap:4px}}}}
 .home-copy h1{{display:inline-block;font-size:70px;background:linear-gradient(90deg,var(--text) 0%,var(--accent) 54%,var(--amber) 100%);-webkit-background-clip:text;background-clip:text;color:transparent}}@media(max-width:760px){{.home-copy h1{{font-size:44px}}}}
@@ -7180,6 +7256,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
         )
         return resp
+
+    @app.get("/api/i18n")
+    def i18n_manifest():
+        return jsonify(_i18n_payload())
 
     def _fmt_usd_html(x) -> str:
         try:
@@ -9066,6 +9146,249 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             f"<table><thead><tr><th>Symbol</th><th>Funds</th><th>Value</th><th>Positions</th></tr></thead><tbody>{rows}</tbody></table></section>"
         )
         return _html_response("Trust Artifact", body)
+
+    @app.get("/fr")
+    def index_fr():
+        live = live_status_payload()
+        product = product_status_payload()
+        validation = product["validation"]
+        artifact = validation["current_artifact"]
+        counts = live["counts"]
+        status_label = "LIVE EDGAR" if live["public_state"] == "LIVE" and not live["uses_synthetic_data"] else live["public_state"]
+        coverage = live.get("coverage") or {}
+        coverage_value = coverage.get("overall_value_share")
+        coverage_label = "-" if coverage_value is None else f"{float(coverage_value) * 100:.1f}%"
+        quality = live.get("quality_summary") or {}
+        latest_q = live.get("latest_13f_quarter") or "unknown"
+        sha_short = live["git_sha"][:12]
+        body = (
+            "<section class=\"home-hero\"><div class=\"home-copy\">"
+            "<div class=\"home-eyebrow\">"
+            f"<span class=\"pill\">{html_escape(status_label.replace('LIVE EDGAR', 'LIVE · EDGAR'))}</span>"
+            "<span>13F x Form 4</span><span>Sandbox public</span><span>Acces payant bientot</span></div>"
+            "<h1>13FLOW</h1>"
+            "<p class=\"home-lede\">Une couche de confiance issue des filings SEC pour les agent builders et les equipes research ops: ownership 13F, contexte Form 4 borne, alertes qualite et contrats API/MCP avant qu'un workflow cite la donnee.</p>"
+            "<div class=\"home-proof\">"
+            f"<div class=\"proof-item\"><b>{html_escape(str(counts.get('funds') or 0))}</b><span>fonds suivis</span></div>"
+            f"<div class=\"proof-item\"><b>{html_escape(str(counts.get('filings') or 0))}</b><span>filings SEC</span></div>"
+            f"<div class=\"proof-item\"><b>{html_escape(coverage_label)}</b><span>couverture valeur</span></div>"
+            f"<div class=\"proof-item\"><b>{html_escape(latest_q)}</b><span>dernier trimestre 13F</span></div>"
+            "</div><div class=\"home-actions\">"
+            "<a class=\"button\" href=\"/app\">Ouvrir l'app research</a>"
+            "<a class=\"button secondary\" href=\"/signals\">Voir Signals</a>"
+            "<a class=\"button secondary\" href=\"/fr/sandbox\">Tester le sandbox</a>"
+            "<a class=\"button secondary\" href=\"/fr/buyer-pack\">Pack acheteur</a></div></div>"
+            "<aside class=\"cockpit-shot\" aria-label=\"apercu cockpit 13FLOW\">"
+            "<div class=\"shot-top\"><div><div class=\"shot-title\">File de recherche</div>"
+            "<div class=\"meta\">Evidence first, claims bounded, API-ready</div></div>"
+            f"<span class=\"shot-live\">{html_escape(status_label.replace('LIVE EDGAR', 'LIVE · EDGAR'))}</span></div>"
+            "<div class=\"shot-grid\"><div class=\"quadrant\">"
+            "<span class=\"axis y\">Recoupement Form 4</span><div class=\"axis x\"><span>Pression faible</span><span>Pression forte</span></div>"
+            "<span class=\"bubble b1\">SIG</span><span class=\"bubble b2\">13F</span><span class=\"bubble b3\">F4</span>"
+            "</div><div class=\"watchlist\">"
+            "<div class=\"watch-row\"><b>QUEUE</b><span>Accumulation institutionnelle recente</span><i>ranked</i></div>"
+            "<div class=\"watch-row\"><b>SOURCE</b><span>Accession, date de filing, contexte issuer</span><i>linked</i></div>"
+            "<div class=\"watch-row\"><b>FORM 4</b><span>Recoupement insiders borne</span><i>bounded</i></div>"
+            "<div class=\"watch-row\"><b>DQ</b><span>Warnings AUM et unit-scale visibles</span><i>visible</i></div>"
+            "</div></div></aside></section>"
+            "<section class=\"trust-band\">"
+            f"<div><b>Etat live: {html_escape(status_label)}.</b><span>uses_synthetic_data={str(live['uses_synthetic_data']).lower()} · SHA {html_escape(sha_short)}</span></div>"
+            f"<div><b>/api/funds sert {html_escape(str(counts.get('funds') or 0))} fonds</b><span>filings={html_escape(str(counts.get('filings') or 0))}</span></div>"
+            f"<div><b>Dernier trimestre 13F {html_escape(latest_q)}</b><span>contrats publics et OpenAPI disponibles</span></div>"
+            f"<div><b>{html_escape(str(quality.get('aum_jump_warnings') or 0))} warnings qualite</b><span>{html_escape(str(quality.get('unit_scale_candidates') or 0))} candidats unit-scale</span></div>"
+            "</section>"
+            "<section class=\"section-head\"><div><div class=\"kicker\">Workflow professionnel</div><h2>Construit pour les builders qui veulent l'evidence d'abord</h2></div>"
+            "<p>13FLOW doit rester une couche compacte: sandbox instantane, limites visibles et evidence sourcee avant toute cle production payante.</p></section>"
+            "<div class=\"journey\">"
+            "<a class=\"step\" href=\"/app#confluence\"><div class=\"n\">01 · Triage</div><h3>Cockpit signal</h3><p>Prioriser les noms ou pression 13F et activite Form 4 se recoupent, puis verifier les sources.</p></a>"
+            "<a class=\"step\" href=\"/funds\"><div class=\"n\">02 · Valider</div><h3>Fonds et issuers</h3><p>Verifier qui a bouge, ce qui a change, les accessions et les flags qualite.</p></a>"
+            "<a class=\"step\" href=\"/fr/developers\"><div class=\"n\">03 · Integrer</div><h3>API et agents</h3><p>Utiliser les endpoints read-only, OpenAPI, le sandbox et la frontiere MCP minimale.</p></a>"
+            "</div>"
+            "<section class=\"boundary\"><div class=\"panel\"><h3>Ce qui est live</h3><ul>"
+            "<li>Donnees 13F publiques read-only derivees de SEC EDGAR.</li>"
+            "<li>Artifact trust-layer plus large que l'ancien echantillon 25 tickers quand les holdings live le permettent.</li>"
+            "<li>API publique, MCP minimal, methodologie et pages de statut.</li></ul>"
+            "<p><a class=\"pill\" href=\"/fr/sandbox\">Sandbox</a> <a class=\"pill\" href=\"/api/openapi.json\">OpenAPI</a></p></div>"
+            "<div class=\"panel\"><h3>Ce qui n'est pas affirme</h3><ul>"
+            "<li>Pas de claim d'alpha valide.</li><li>Pas de modele de rendement attendu.</li>"
+            "<li>Pas d'acces payant public pour le moment.</li><li>Pas d'offre MCP separee.</li><li>Pas de droit de redistribution sans accord ecrit.</li></ul>"
+            f"<p><span class=\"pill\">{html_escape(validation['status'])}</span> <span class=\"pill\">rows={html_escape(str(artifact['row_count']))}; tickers={html_escape(str(artifact['ticker_count']))}</span></p>"
+            "<p><a class=\"pill\" href=\"/validation\">Evidence validation</a> <a class=\"pill\" href=\"/methodology\">Methodologie</a></p></div></section>"
+        )
+        return _html_response("Accueil", body, lang="fr", canonical_path="/")
+
+    @app.get("/fr/pro")
+    def static_pro_offer_fr():
+        offer = pro_offer_payload()
+        contact = offer["offer"]["contact"]
+        contact_link = html_escape(contact["mailto"], quote=True)
+        limits = offer["default_limits"]
+        commercial = offer["commercial_model"]
+        evidence_pack = "".join(
+            f"<li><a href=\"{html_escape(item, quote=True)}\">{html_escape(item)}</a></li>"
+            for item in commercial["evidence_pack"]
+        )
+        body = (
+            "<section class=\"purchase-hero\"><div class=\"purchase-copy\">"
+            "<div class=\"home-eyebrow\"><span>Sandbox public</span><span>Acces payant bientot</span><span>Aucun prix public</span><span>MCP minimum inclus</span></div>"
+            "<h1>13FLOW Builder Sandbox</h1>"
+            "<p class=\"lede\">Une couche de confiance sourcee SEC filings pour agent builders et research ops. L'offre payante reste prete en prive mais n'est pas affichee: le produit public est le sandbox, l'artifact de preuve et une demo API/MCP copiable.</p>"
+            "<div class=\"purchase-actions\"><a href=\"/fr/sandbox\">Demarrer le sandbox</a>"
+            "<a href=\"/fr/developers\">Copier la demo API</a><a href=\"/fr/alternatives\">Pourquoi pas les alternatives ?</a>"
+            "<a href=\"/fr/trust-artifact\">Artifact de confiance</a><a href=\"" + contact_link + "\">Contacter l'operateur</a></div>"
+            f"<p class=\"meta\">{html_escape(contact['expected_response'])}</p></div>"
+            "<aside class=\"purchase-panel\"><h3>Acces public actuel</h3>"
+            "<div class=\"proof-line\"><b>Payant</b><span>Bientot disponible. Aucun prix public ni checkout n'est affiche.</span></div>"
+            "<div class=\"proof-line\"><b>Sandbox</b><span>Cle instantanee limitee pour status, funds et probes MCP-minimum.</span></div>"
+            "<div class=\"proof-line\"><b>MCP</b><span>Inclus seulement comme tools/list public et demo read-only. Pas encore un produit separe.</span></div>"
+            f"<div class=\"proof-line\"><b>Limites</b><span>Sandbox {limits['sandbox_rate_per_min']} / min · {limits['sandbox_rate_per_day']} / jour. Les cles production restent revues et auditees.</span></div>"
+            "</aside></section>"
+            "<section class=\"section-band\"><h2>Sandbox d'abord, payant ensuite</h2>"
+            f"<p class=\"lede\">{html_escape(offer['offer']['positioning'])}</p>"
+            "<p class=\"meta\">Pas d'offre MCP separee. Pas de positionnement retail stock-picking. Pas de prix public tant que le wedge trust-layer n'est pas plus solide.</p>"
+            "</section>"
+            "<div class=\"grid\"><div class=\"card\"><h3>Pour qui</h3><ul><li>Agent builders qui ont besoin d'une evidence sourcee.</li><li>Research ops qui veulent des contrats read-only et auditables.</li><li>Workflows qui preferent une frontiere claire a une promesse d'alpha.</li></ul></div>"
+            "<div class=\"card\"><h3>Non inclus maintenant</h3><ul><li>Pas d'acces payant public.</li><li>Pas de checkout self-serve.</li><li>Pas d'offre MCP standalone.</li><li>Pas de claim d'alpha valide.</li></ul></div>"
+            f"<div class=\"card\"><h3>Evidence pack</h3><ul>{evidence_pack}</ul></div></div>"
+            "<p class=\"lede action-row\"><a class=\"pill\" href=\"/api/pro-offer\">Contrat machine-readable</a> <a class=\"pill\" href=\"/fr/sandbox\">Sandbox</a> <a class=\"pill\" href=\"/fr/buyer-pack\">Pack acheteur</a></p>"
+        )
+        return _html_response("Builder Sandbox", body, lang="fr", canonical_path="/pro")
+
+    @app.get("/fr/sandbox")
+    def sandbox_page_fr():
+        payload = _sandbox_key_payload()
+        token = payload["token"]
+        curl = (
+            "TOKEN=$(curl -fsS https://13flow.eu/api/sandbox/key | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"token\"])')\n"
+            "curl -fsS -H \"Authorization: Bearer $TOKEN\" https://13flow.eu/api/sandbox/v1/status\n"
+            "curl -fsS -H \"Authorization: Bearer $TOKEN\" https://13flow.eu/api/sandbox/v1/funds\n"
+            "curl -fsS -H \"Authorization: Bearer $TOKEN\" https://13flow.eu/api/sandbox/v1/mcp-minimum"
+        )
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Cle instantanee limitee</div>"
+            "<h1>Sandbox en 60 secondes</h1>"
+            "<p class=\"doc-lede\">Generez une cle publique sandbox-only, lancez des probes API et inspectez la frontiere MCP minimale. Cette cle ne peut pas deverrouiller /api/pro/*.</p>"
+            "<div class=\"actions\"><a class=\"pill cta\" href=\"/api/sandbox/key\">Obtenir la cle JSON</a> <a class=\"pill\" href=\"/fr/developers\">Docs developpeurs</a></div></div>"
+            "<aside class=\"doc-panel\"><h3>Frontiere</h3><div class=\"mini-list\">"
+            f"<div><b>Token:</b> <code>{html_escape(token)}</code></div>"
+            f"<div><b>Limites:</b> {payload['limits']['per_min']} / min · {payload['limits']['per_day']} / jour.</div>"
+            "<div><b>Securite:</b> les tokens sandbox ne sont pas des cles Pro et ne creent pas de credentials production.</div>"
+            "</div></aside></section>"
+            "<section class=\"doc-section\"><h2>Demo API copiable</h2>"
+            f"<pre><code>{html_escape(curl)}</code></pre></section>"
+            "<section class=\"split\"><div class=\"doc-section\"><h2>Ce que ca prouve</h2><ul><li>Votre workflow peut recuperer une cle et appeler des endpoints bornes.</li><li>Votre agent garde la source, la methode et les limites visibles.</li></ul></div>"
+            "<div class=\"doc-section\"><h2>Ce que ca ne prouve pas</h2><ul><li>Pas d'acces Pro production.</li><li>Pas de SLA ni droit de redistribution.</li><li>Pas d'offre MCP payante separee.</li></ul></div></section>"
+        )
+        return _html_response("Sandbox", body, lang="fr", canonical_path="/sandbox")
+
+    @app.get("/fr/developers")
+    def developers_page_fr():
+        offer = pro_offer_payload()
+        limits = offer["default_limits"]
+        curl_status = (
+            "TOKEN=$(curl -fsS https://13flow.eu/api/sandbox/key | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"token\"])')\n"
+            "curl -fsS -H \"Authorization: Bearer $TOKEN\" https://13flow.eu/api/sandbox/v1/status\n"
+            "curl -fsS -H \"Authorization: Bearer $TOKEN\" https://13flow.eu/api/sandbox/v1/funds\n"
+            "curl -fsS https://13flow.eu/api/product-status\n"
+            "curl -fsS https://13flow.eu/api/i18n"
+        )
+        body = (
+            "<h1>Developpeurs</h1>"
+            "<p class=\"lede\">API publique read-only et entree MCP minimale pour du contexte SEC 13F source. Le sandbox public inclut les demos; l'acces Pro production reste emis par l'operateur et l'acces payant n'est pas encore public.</p>"
+            "<div class=\"grid\">"
+            "<div class=\"card\"><h3>Status</h3><p><a href=\"/status\">/status</a></p><p class=\"meta\">SHA deploye, etat live et frontiere de validation.</p></div>"
+            "<div class=\"card\"><h3>API publique</h3><p><a href=\"/api/openapi.json\">/api/openapi.json</a></p><p class=\"meta\">Pas de compte navigateur, pas de cookie, pas de checkout.</p></div>"
+            f"<div class=\"card\"><h3>Sandbox</h3><p><a href=\"/fr/sandbox\">/fr/sandbox</a></p><p class=\"meta\">Cle instantanee limitee: {limits['sandbox_rate_per_min']} / min, {limits['sandbox_rate_per_day']} / jour.</p></div>"
+            "<div class=\"card\"><h3>i18n contract</h3><p><a href=\"/api/i18n\">/api/i18n</a></p><p class=\"meta\">Manifeste EN/FR utilise par les tests et le smoke public.</p></div>"
+            "</div><div class=\"panel\" style=\"margin-top:18px\"><h2>Quick checks</h2>"
+            f"<pre><code>{html_escape(curl_status)}</code></pre></div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Politique d'usage</h2><ul><li>13FLOW est un outil de recherche, pas un conseil en investissement.</li><li>Les filings 13F sont retardes et incomplets par nature.</li><li>Ne pas presenter les outputs comme alpha valide ou recommandation de trading.</li></ul></div>"
+        )
+        return _html_response("Developpeurs", body, lang="fr", canonical_path="/developers")
+
+    @app.get("/fr/alternatives")
+    def alternatives_page_fr():
+        commercial = pro_offer_payload()["commercial_model"]
+        cards = "".join(
+            "<div class=\"doc-card\">"
+            f"<h3>{html_escape(item['provider'])}</h3>"
+            f"<p>{html_escape(item['observed_offer'])}</p>"
+            f"<p class=\"meta\">Pourquoi pas seulement ca: {html_escape(item['risk_if_competing_directly'])}</p>"
+            f"<p>{html_escape(item['thirteenflow_response'])}</p>"
+            + (f"<p><a class=\"pill\" href=\"{html_escape(item['source_url'], quote=True)}\" rel=\"noopener\">Source</a></p>" if item.get("source_url") else "")
+            + "</div>"
+            for item in commercial["market_context"]
+        )
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Positionnement</div>"
+            "<h1>Pourquoi pas sec-api, Financial Datasets ou Dataroma ?</h1>"
+            "<p class=\"doc-lede\">13FLOW ne doit pas se vendre comme un clone moins cher de broad data APIs ou de pages portfolio retail. Le wedge est plus etroit: une trust layer pour agent builders et research ops.</p>"
+            "<div class=\"actions\"><a class=\"pill cta\" href=\"/fr/sandbox\">Tester le sandbox</a><a class=\"pill\" href=\"/fr/trust-artifact\">Artifact</a></div></div>"
+            "<aside class=\"doc-panel\"><h3>Reponse courte</h3><p class=\"callout\"><strong>SEC EDGAR reste la verite brute.</strong> 13FLOW sert quand le workflow a besoin d'evidence sourcee, de frontieres qualite et de contrats API/MCP copiables.</p></aside></section>"
+            "<section class=\"doc-grid\">" + cards + "</section>"
+            "<section class=\"doc-section\"><h2>Discipline ICP</h2><ul><li>ICP primaire: agent builders et research operations.</li><li>Pas retail. Pas discretionary analyst generique.</li><li>Valeur: trust layer et evidence workflow, pas signal alpha.</li></ul></section>"
+        )
+        return _html_response("Alternatives", body, lang="fr", canonical_path="/alternatives")
+
+    @app.get("/fr/trust-artifact")
+    def trust_artifact_page_fr():
+        artifact = trust_artifact_payload()
+        rows = "".join(
+            f"<tr><td>{html_escape(str(r.get('symbol') or '-'))}</td><td>{html_escape(str(r.get('fund_count') or 0))}</td>"
+            f"<td>{_fmt_usd_html(r.get('value_usd'))}</td><td>{html_escape(str(r.get('position_count') or 0))}</td></tr>"
+            for r in artifact["rows"][:80]
+        )
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Artifact de preuve</div>"
+            "<h1>Trust layer, pas alpha</h1>"
+            "<p class=\"doc-lede\">Artifact machine-readable plus large sur les holdings 13F publics les plus recents. Son role est de prouver couverture, structure source et utilite workflow, meme quand la bonne conclusion est: pas de claim alpha.</p>"
+            "<div class=\"actions\"><a class=\"pill cta\" href=\"/api/trust-artifact\">JSON machine-readable</a><a class=\"pill\" href=\"/fr/sandbox\">Sandbox</a></div></div>"
+            "<aside class=\"doc-panel\"><h3>Etat de l'artifact</h3><div class=\"mini-list\">"
+            f"<div><b>Symbols:</b> {artifact['ticker_count']} symbols latest-public, cap a {artifact['sample_limit']}.</div>"
+            f"<div><b>Plus large que 25 tickers:</b> {str(artifact['larger_than_legacy_25_ticker_validation_sample']).lower()}.</div>"
+            "<div><b>Claim:</b> evidence trust layer seulement; pas d'alpha valide.</div></div></aside></section>"
+            f"<section class=\"doc-section\"><h2>Top rows</h2><table><thead><tr><th>Symbol</th><th>Fonds</th><th>Valeur</th><th>Positions</th></tr></thead><tbody>{rows}</tbody></table></section>"
+        )
+        return _html_response("Artifact de confiance", body, lang="fr", canonical_path="/trust-artifact")
+
+    @app.get("/fr/buyer-pack")
+    def buyer_pack_page_fr():
+        payload = buyer_pack_payload()
+        snapshot = payload["snapshot"]
+        evidence = "".join(
+            f"<li><a href=\"{html_escape(item['href'], quote=True)}\">{html_escape(item['label'])}</a></li>"
+            for item in payload["evidence_links"]
+        )
+        body = (
+            "<section class=\"doc-hero\"><div class=\"doc-copy\"><div class=\"kicker\">Pack acheteur</div>"
+            "<h1>13FLOW Pack de revue acheteur</h1>"
+            "<p class=\"doc-lede\">Version partageable pour evaluer 13FLOW sans promesse commerciale excessive: statut, preuves, limites, questions de qualification et frontiere juridique.</p></div>"
+            f"<aside class=\"doc-panel\"><h3>Status</h3><p><span class=\"pill\">{html_escape(payload['status'])}</span></p><p class=\"meta\">sales_motion={html_escape(payload['sales_motion'])} · public_quote_ready={str(payload['public_quote_ready']).lower()}</p></aside></section>"
+            "<section class=\"doc-metrics\">"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('funds') or 0))}</b><span>fonds suivis</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('trusted_funds') or 0))}</b><span>fonds trusted</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('latest_13f_quarter') or '-'))}</b><span>dernier 13F</span></div>"
+            f"<div class=\"doc-metric\"><b>{html_escape(str(snapshot.get('artifact_tickers') or 0))}</b><span>tickers artifact</span></div></section>"
+            "<div class=\"split\"><section class=\"panel\"><h2>Ce que le pack prouve</h2><ul><li>Etat live et donnees publiques verifiables.</li><li>Frontiere claire: pas de claim performance, pas de conseil en investissement.</li><li>Sandbox public utilisable avant toute discussion payante.</li></ul></section>"
+            "<section class=\"panel\"><h2>A ne pas vendre maintenant</h2><ul><li>Pas d'acces payant public.</li><li>Pas de prix public.</li><li>Pas de SLA ni redistribution sans accord.</li><li>Pas d'alpha valide.</li></ul></section></div>"
+            f"<div class=\"panel\" style=\"margin-top:18px\"><h2>Evidence links</h2><ul>{evidence}</ul></div>"
+            "<p class=\"lede action-row\"><a class=\"pill\" href=\"/api/buyer-pack\">JSON buyer pack</a> <a class=\"pill\" href=\"/api/buyer-pack.md\">Markdown export</a> <a class=\"pill\" href=\"/fr/pro\">Sandbox builders</a></p>"
+        )
+        return _html_response("Pack acheteur", body, lang="fr", canonical_path="/buyer-pack")
+
+    @app.get("/fr/legal/pro-api")
+    def pro_api_terms_page_fr():
+        body = (
+            "<h1>Conditions Pro API, MCP et x402</h1>"
+            "<p class=\"lede\">Conditions operationnelles pour un acces Pro evalue. Elles restent strictes tant que validation, billing, support et redistribution ne sont pas formalises dans un accord signe.</p>"
+            "<div class=\"grid\"><div class=\"card\"><h3>Modele d'acces</h3><p>L'acces Pro est revu par l'operateur et emis via des cles API scopees. Le checkout self-serve est desactive sur le build public.</p></div>"
+            "<div class=\"card\"><h3>Modele paiement</h3><p>x402 existe comme chemin gate mais reste desactive tant que les details paiement production ne sont pas verifies.</p></div>"
+            "<div class=\"card\"><h3>Modele audit</h3><p>Les requetes Pro acceptees, refusees ou rate-limited peuvent etre journalisees avec key id, scope, endpoint, status et metadata securite.</p></div></div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Frontiere capacite et support</h2><ul><li>13FLOW Pro est une surface technique a capacite limitee et revue par l'operateur.</li><li>L'acces payant arrive bientot, mais aucun prix public, checkout, SLA ou support SLA n'est offert sur le site ouvert.</li><li>L'acces peut etre refuse, rate-limited, mis en pause, rotate ou revoke pour raison operationnelle, securite ou legale.</li></ul></div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Usage autorise</h2><ul><li>Recherche interne, dashboards, notebooks et workflows agents.</li><li>Revue sourcee de holdings 13F et warnings qualite.</li><li>MCP ou les outils Pro fail closed sans cle production valide.</li></ul></div>"
+            "<div class=\"panel\" style=\"margin-top:18px\"><h2>Usage restreint</h2><ul><li>Pas de revente, redistribution, republishing bulk ou embedding public de donnees Pro sans accord ecrit.</li><li>Pas de representation comme conseil en investissement ou recommandation de trading.</li><li>13FLOW ne vend pas l'acces SEC brut comme donnee proprietaire.</li></ul></div>"
+        )
+        return _html_response("Conditions Pro API", body, lang="fr", canonical_path="/legal/pro-api")
 
     _FONT_DIR = os.path.join(os.path.dirname(dash), "assets", "fonts")
 
