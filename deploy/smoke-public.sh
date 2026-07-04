@@ -184,7 +184,7 @@ fi
 
 security_page="$tmpdir/security.html"
 if fetch "/security" "$security_page"; then
-  grep -q "Controlled Pilot Security" "$security_page" \
+  grep -q "Research Surface Security" "$security_page" \
     && grep -q "Machine-readable security posture" "$security_page" \
     && grep -q "Operator Checks" "$security_page" \
     && grep -q "Non-Claims" "$security_page" \
@@ -200,7 +200,7 @@ fi
 
 pilot_page="$tmpdir/pilot.html"
 if fetch "/pilot" "$pilot_page"; then
-  grep -q "Controlled Pilot Intake" "$pilot_page" \
+  grep -q "Operator Review Intake" "$pilot_page" \
     && grep -q "Operator Note Template" "$pilot_page" \
     && grep -q "Required Fields" "$pilot_page" \
     && grep -q "public_form_submission=false" "$pilot_page" \
@@ -216,7 +216,7 @@ fi
 
 pilot_request_page="$tmpdir/pilot-request.html"
 if fetch "/pilot/request" "$pilot_request_page"; then
-  grep -q "Assisted Pilot Request" "$pilot_request_page" \
+  grep -q "Assisted Operator Request" "$pilot_request_page" \
     && grep -q "data-pilot-request-app" "$pilot_request_page" \
     && grep -q "/api/pilot-request-assist" "$pilot_request_page" \
     && grep -q "server_side_pii_storage:false" "$pilot_request_page" \
@@ -350,9 +350,19 @@ fi
 fr_pages=(
   "/fr|Construit pour les builders|Accueil FR"
   "/fr/sandbox|Sandbox en 60 secondes|Sandbox FR"
-  "/fr/developers|Developpeurs|Developers FR"
+  "/fr/developers|Développeurs|Developers FR"
   "/fr/alternatives|Pourquoi pas sec-api|Alternatives FR"
   "/fr/trust-artifact|Trust layer, pas alpha|Trust artifact FR"
+  "/fr/status|Statut|Status FR"
+  "/fr/coverage|Couverture|Coverage FR"
+  "/fr/validation|Validation|Validation FR"
+  "/fr/security|Sécurité de la surface research|Security FR"
+  "/fr/methodology|Méthodologie|Methodology FR"
+  "/fr/methodology/app|Contrat d'interprétation|App methodology FR"
+  "/fr/methodology/mcp|Contrat MCP|MCP methodology FR"
+  "/fr/faq|Deux filings. Une piste de recherche.|FAQ FR"
+  "/fr/about|Intelligence filing, construite dans le labo l0g|About FR"
+  "/fr/legal|Conditions claires pour un outil public de recherche filing|Legal FR"
 )
 for item in "${fr_pages[@]}"; do
   IFS='|' read -r path needle label <<<"$item"
@@ -568,7 +578,9 @@ ok = (
     and privacy.get('secrets_in_payloads') is False
     and quality.get('manual_13f_review_required_for_routine_publication') is False
     and '/api/security-posture' in links
-    and '/legal/pro-api' in links
+    and '/api/openapi.json' in links
+    and '/coverage' in links
+    and '/validation' in links
     and 'third-party penetration test' in (data.get('non_claims') or [])
 )
 msg = str(data)[:1000]
