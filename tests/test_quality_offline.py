@@ -7,7 +7,7 @@ from pathlib import Path
 
 from smartmoney.api import create_app
 from smartmoney.db import Store
-from smartmoney.quality import data_quality_report, quality_gate_report
+from smartmoney.quality import data_quality_report, quality_gate_report, signal_quarter
 from tests.test_db_offline import AAPL, KO, MSFT, _save
 
 
@@ -77,6 +77,36 @@ def test_data_quality_report_flags_stale_funds_and_duplicate_labels():
     duplicate = report["duplicate_label_warnings"][0]
     assert duplicate["label"] == "Duplicate Fund"
     assert {f["cik"] for f in duplicate["funds"]} == {"0000000001", "0000000002"}
+
+
+def test_partial_new_quarter_does_not_empty_public_signal_surfaces():
+    with tempfile.TemporaryDirectory() as d:
+        db = str(Path(d) / "partial-quarter.db")
+        store = Store(db)
+        try:
+            for i in range(10):
+                cik = f"00000001{i:02d}"
+                _save(store, cik, f"Current Fund {i}", f"PM{i}", f"Q1-{i}", "13F-HR",
+                      "2026-05-15", "2026-03-31",
+                      [("APPLE INC", AAPL, 1_000 + i, 100, "")])
+            _save(store, "0000000999", "Early New Quarter Fund", "Early PM", "Q2-early", "13F-HR",
+                  "2026-07-06", "2026-06-30",
+                  [("MICROSOFT", MSFT, 1_000, 50, "")])
+            store.conn.execute("UPDATE holdings SET ticker='AAPL' WHERE cusip=?", (AAPL,))
+            store.conn.execute("UPDATE holdings SET ticker='MSFT' WHERE cusip=?", (MSFT,))
+            store.conn.commit()
+
+            assert signal_quarter(store) == "2026-03-31"
+            gate = quality_gate_report(store)
+            assert gate["summary"]["stale_funds"] == 0
+            assert gate["summary"]["trusted_funds"] == 11
+        finally:
+            store.close()
+
+        client = create_app(db, secure_cookies=False, open_mode=True).test_client()
+        stocks = client.get("/stocks").get_data(as_text=True)
+        assert "AAPL" in stocks
+        assert "<tbody></tbody>" not in stocks
 
 
 def test_data_quality_endpoint_is_public_read_only_and_validates_params():

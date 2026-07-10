@@ -54,7 +54,7 @@ from .db import Store
 from .diff import Move, diff_portfolios
 from .portfolio import Portfolio
 from .pro import APIKeyError, APIRateLimited, ProAPIStore, WorkspaceQuotaExceeded
-from .quality import data_quality_report, quality_gate_report
+from .quality import data_quality_report, quality_gate_report, signal_quarter
 from .valuation import value_portfolio
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1458,9 +1458,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         s = store()
         try:
             if not date:
-                # default to the most recent quarter present anywhere
-                r = s.conn.execute("SELECT MAX(report_date) m FROM filings").fetchone()
-                date = r["m"]
+                active = _public_active_ciks(s)
+                date = signal_quarter(s, active)
             trusted, _gate = _trusted_active_ciks(s)
             return jsonify({
                 "date": date,
@@ -1476,8 +1475,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         s = store()
         try:
             if not date:
-                r = s.conn.execute("SELECT MAX(report_date) m FROM filings").fetchone()
-                date = r["m"]
+                active = _public_active_ciks(s)
+                date = signal_quarter(s, active)
             trusted, _gate = _trusted_active_ciks(s)
             ciks = list(trusted)
             rows = consensus_moves(s, ciks, date, min_funds=min_funds)
@@ -1749,7 +1748,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         try:
             active = _public_active_ciks(s)
             trusted, gate = _trusted_active_ciks(s)
-            latest = _latest_filings_date(s, "MAX", active)
+            latest = signal_quarter(s, active)
             trusted_values = tuple(sorted(trusted))
             active_sql = ""
             active_args: tuple[str, ...] = ()
@@ -7174,7 +7173,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         s = store()
         try:
             trusted, _gate = _trusted_active_ciks(s)
-            latest = _latest_filings_date(s, "MAX", _public_active_ciks(s))
+            active = _public_active_ciks(s)
+            latest = signal_quarter(s, active)
             active_values = tuple(sorted(trusted))
             active_sql = ""
             active_args: tuple[str, ...] = ()

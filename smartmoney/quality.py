@@ -11,6 +11,8 @@ import math
 from typing import Any
 
 PARTIAL_AMENDMENT_MAX_POSITIONS = 3
+PARTIAL_SIGNAL_QUARTER_MIN_FUNDS = 5
+PARTIAL_SIGNAL_QUARTER_MIN_SHARE = 0.10
 STATUS_RANK = {
     "trusted": 0,
     "degraded": 1,
@@ -74,6 +76,28 @@ def _current_rows_by_fund(store, active_ciks: set[str] | None = None) -> dict[st
         if seq:
             current[cik] = seq[-1]
     return current
+
+
+def signal_quarter(store, active_ciks: set[str] | None = None) -> str | None:
+    """Latest report date with enough current filings to be usable for public signals."""
+    current = _current_rows_by_fund(store, active_ciks)
+    if not current:
+        return None
+    counts: dict[str, int] = {}
+    for row in current.values():
+        date = row.get("report_date")
+        if date:
+            counts[date] = counts.get(date, 0) + 1
+    if not counts:
+        return None
+    min_count = min(
+        PARTIAL_SIGNAL_QUARTER_MIN_FUNDS,
+        max(1, math.ceil(len(current) * PARTIAL_SIGNAL_QUARTER_MIN_SHARE)),
+    )
+    for date in sorted(counts, reverse=True):
+        if counts[date] >= min_count:
+            return date
+    return sorted(counts)[-1]
 
 
 def _severity(ratio: float) -> str:
@@ -142,7 +166,7 @@ def stale_fund_warnings(store, active_ciks: set[str] | None = None) -> list[dict
     ]
     if not dates:
         return []
-    latest_date = dates[-1]
+    latest_date = signal_quarter(store, active_ciks) or dates[-1]
     date_rank = {d: i for i, d in enumerate(dates)}
     current = _current_rows_by_fund(store, active_ciks)
     warnings: list[dict[str, Any]] = []
@@ -164,7 +188,7 @@ def stale_fund_warnings(store, active_ciks: set[str] | None = None) -> list[dict
                 "status": "review_required",
             })
             continue
-        if row["report_date"] == latest_date:
+        if date_rank.get(row["report_date"], -1) >= date_rank.get(latest_date, -1):
             continue
         warnings.append({
             "type": "stale_fund",
