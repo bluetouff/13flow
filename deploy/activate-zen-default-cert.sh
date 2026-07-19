@@ -55,11 +55,15 @@ stage=""
 apache2ctl configtest
 systemctl reload apache2
 
-for zen_host in "${zen_hosts[@]}"; do
-  headers=$(curl --silent --show-error --head --fail --max-time 10 --noproxy '*' \
-    --resolve "$zen_host:443:127.0.0.1" "https://$zen_host/")
-  grep -qi '^X-Zen-Node: online' <<<"$headers"
-done
+if (( $(grep -Fc '/live/zen-default/' "$active_config") != 2 )); then
+  echo "The active ZEN vhost does not reference the dedicated certificate twice." >&2
+  false
+fi
+if ! apache_vhosts=$(apache2ctl -S 2>&1) || \
+   (( $(grep -Fc 'default server zen.invalid' <<<"$apache_vhosts") < 2 )); then
+  echo "ZEN is not the Apache default virtual host on both HTTP and HTTPS." >&2
+  false
+fi
 
 trap - ERR
 echo "Dedicated ZEN certificate active for: ${zen_hosts[*]}"

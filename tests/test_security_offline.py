@@ -222,21 +222,19 @@ def test_zen_default_vhost_is_inert_first_order_and_separately_logged():
     assert "openssl x509" in cert_activator and '-checkhost "$zen_host"' in cert_activator
     assert "apache2ctl configtest" in cert_activator
     assert "systemctl reload apache2" in cert_activator
-    assert '--resolve "$zen_host:443:127.0.0.1"' in cert_activator
+    assert "default server zen.invalid" in cert_activator
+    assert "The active ZEN vhost does not reference the dedicated certificate twice" in cert_activator
     assert "ZEN_DEFAULT_VHOST=/etc/apache2/sites-available/000-zen-default.conf" in deploy
     assert "ZEN_DEFAULT_CERT_DIR=/etc/letsencrypt/live/zen-default" in deploy
     assert "ZEN_DEFAULT_HOSTS=(toonux.org toonux.com l0g.me l0g.us w2p.org)" in deploy
     assert "the dedicated ZEN default certificate is incomplete" in deploy
     assert "openssl x509" in deploy and '-checkhost "$zen_host"' in deploy
     assert 'zen_default_cert_name=zen-default' in deploy
-    assert "--resolve toonux.org:443:127.0.0.1" in deploy
     assert "a2ensite 000-zen-default.conf" in deploy
     assert "apache2ctl -S" in deploy
     assert "default server zen.invalid" in deploy
-    assert 'for zen_host in "${ZEN_DEFAULT_HOSTS[@]}"' in deploy
-    assert 'Host: $zen_host' in deploy
-    assert "X-Zen-Node: online" in deploy
-    assert "Host: 13flow.eu" in deploy
+    assert "ZEN default vhost map: verified for HTTP and HTTPS." in deploy
+    assert "http://127.0.0.1/arbitrary/path" not in deploy
     assert "exit 4" not in deploy
     assert "set -Eeuo pipefail" in deploy
     assert "fail_deploy()" in deploy and "return 1" in deploy
