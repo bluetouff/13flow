@@ -117,12 +117,15 @@ def test_private_stats_apache_boundary_and_csp_are_isolated():
     assert "combined env=!13flow_stats_request" in public_conf
     assert 'LogFormat "%h %l - %t \\"%m %U\\" %>s %b" 13flow_stats_security' in public_conf
     assert "13flow_stats_access.log 13flow_stats_security env=13flow_stats_request" in public_conf
+    assert '^/(?!stats(?:/|$)|api/mcp$|api/pro/' in public_conf
     assert 'ProxyPassMatch "^/stats(?:/|$)" !' in stats_conf
     assert 'RedirectMatch 302 "^/stats$" "/stats/"' in stats_conf
-    assert "AuthType Basic" in stats_conf
-    assert "AuthBasicProvider file" in stats_conf
-    assert "AuthUserFile /etc/apache2/13flow-stats.htpasswd" in stats_conf
-    assert "Require valid-user" in stats_conf
+    stats_directory, stats_location = stats_conf.split('<LocationMatch "^/stats(?:/|$)">', 1)
+    assert "AuthType Basic" not in stats_directory
+    assert "AuthType Basic" in stats_location
+    assert "AuthBasicProvider file" in stats_location
+    assert "AuthUserFile /etc/apache2/13flow-stats.htpasswd" in stats_location
+    assert "<Limit GET HEAD>\n        Require valid-user\n    </Limit>" in stats_location
     assert "<LimitExcept GET HEAD>" in stats_conf
     assert "private, no-store, max-age=0" in stats_conf
     assert "noindex, nofollow, noarchive" in stats_conf
