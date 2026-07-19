@@ -15,6 +15,8 @@ SHA=${SHA:-}
 WEB_GROUP=${WEB_GROUP:-flowapp}
 MCP_GROUP=${MCP_GROUP:-flowmcp}
 BACKUP_DIR=${BACKUP_DIR:-/home/bluetouff}
+MCP_UNIT=/etc/systemd/system/13flow-mcp.service
+APACHE_VHOST=/etc/apache2/sites-available/13flow.conf
 
 if [[ $EUID -ne 0 ]]; then
   echo "Run me with sudo." >&2
@@ -61,6 +63,30 @@ wait_url() {
   return 1
 }
 
+rollback() {
+  local rc=$?
+  trap - ERR
+  set +e
+  echo "Deploy failed (rc=$rc); restoring previous code and service configs." >&2
+  if [[ -d "${backup:-}" ]]; then
+    rsync -a --delete "$backup"/ "$APP_DIR"/
+  fi
+  if [[ -f "${config_backup:-}/13flow-mcp.service" ]]; then
+    cp -a "$config_backup/13flow-mcp.service" "$MCP_UNIT"
+  fi
+  if [[ -f "${config_backup:-}/13flow.conf" ]]; then
+    cp -a "$config_backup/13flow.conf" "$APACHE_VHOST"
+  fi
+  systemctl daemon-reload
+  systemctl restart 13flow
+  if service_exists 13flow-pro.service; then
+    systemctl restart 13flow-pro
+  fi
+  systemctl restart 13flow-mcp
+  apache2ctl configtest && systemctl reload apache2
+  exit "$rc"
+}
+
 service_exists() {
   systemctl cat "$1" >/dev/null 2>&1
 }
@@ -73,24 +99,39 @@ stamp_sha() {
 }
 
 backup="$BACKUP_DIR/13flow-backup-before-safe-deploy-$SHA-$(date -u +%Y%m%dT%H%M%SZ)"
-echo "==> [1/6] Backup current tree to $backup"
+config_backup="${backup}-etc"
+trap rollback ERR
+echo "==> [1/8] Backup current tree and active service configs"
 cp -a "$APP_DIR" "$backup"
+install -d -m 700 "$config_backup"
+cp -a "$MCP_UNIT" "$config_backup/13flow-mcp.service"
+cp -a "$APACHE_VHOST" "$config_backup/13flow.conf"
 
-echo "==> [2/6] Stop services"
+echo "==> [2/8] Stop services"
 systemctl stop 13flow-mcp || true
 if service_exists 13flow-pro.service; then
   systemctl stop 13flow-pro || true
 fi
 systemctl stop 13flow || true
 
-echo "==> [3/6] Sync code while preserving runtime dependencies"
+echo "==> [3/8] Sync code while preserving runtime dependencies"
 rsync -a --delete \
   --exclude .git \
   --exclude .venv \
   --exclude mcp-server/node_modules \
   "$SRC"/ "$APP_DIR"/
 
-echo "==> [4/6] Normalize code permissions without touching preserved runtimes"
+echo "==> [4/8] Install locked MCP production dependencies"
+cd "$APP_DIR/mcp-server"
+npm ci --omit=dev --ignore-scripts
+node -e '
+const fs = require("node:fs");
+const packageVersion = require("./package.json").version;
+const manifestVersion = JSON.parse(fs.readFileSync("../server.json", "utf8")).version;
+if (packageVersion !== manifestVersion) throw new Error("MCP package/manifest version mismatch");
+'
+
+echo "==> [5/8] Normalize code permissions without touching preserved runtimes"
 find "$APP_DIR" \
   -path "$APP_DIR/.venv" -prune -o \
   -path "$APP_DIR/mcp-server/node_modules" -prune -o \
@@ -114,7 +155,14 @@ find "$APP_DIR/mcp-server" \
   -path "$APP_DIR/mcp-server/node_modules" -prune -o \
   -type f -exec chmod 640 {} +
 
-echo "==> [5/6] Stamp deployed SHA through systemd"
+echo "==> [6/8] Install and validate systemd/Apache configuration"
+install -o root -g root -m 644 \
+  "$APP_DIR/mcp-server/deploy/13flow-mcp.service" "$MCP_UNIT"
+install -o root -g root -m 644 \
+  "$APP_DIR/deploy/apache-13flow.conf" "$APACHE_VHOST"
+apache2ctl configtest
+
+echo "==> [7/8] Stamp deployed SHA through systemd"
 stamp_sha 13flow.service
 if service_exists 13flow-pro.service; then
   stamp_sha 13flow-pro.service
@@ -130,7 +178,7 @@ if [[ -f /etc/13flow/13flow-mcp.env ]]; then
 fi
 systemctl daemon-reload
 
-echo "==> [6/6] Restart and verify local services"
+echo "==> [8/8] Restart and verify local services"
 systemctl reset-failed 13flow 13flow-pro 13flow-mcp || true
 systemctl restart 13flow
 if service_exists 13flow-pro.service; then
@@ -143,5 +191,8 @@ if service_exists 13flow-pro.service; then
   wait_url "13flow Pro API" "http://127.0.0.1:8001/api/pro/v1/openapi.json" 20 1
 fi
 wait_url "13flow MCP" "http://127.0.0.1:8849/healthz" 20 1
+wait_url "13flow agent statistics" "http://127.0.0.1:8849/stats" 20 1
+systemctl reload apache2
+trap - ERR
 echo "Safe deploy complete. Run:"
 echo "  sudo EXPECTED_SHA=$SHA $APP_DIR/deploy/smoke-public.sh"
