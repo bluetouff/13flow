@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 SITE=${SITE:-https://13flow.eu}
+SITE=${SITE%/}
 headers=$(curl --silent --show-error --head --max-time 15 "$SITE/stats/")
 status=$(printf '%s\n' "$headers" | awk 'NR==1 {print $2}')
 
@@ -25,7 +26,8 @@ fi
 redirect_headers=$(curl --silent --show-error --head --max-time 15 "$SITE/stats")
 redirect_status=$(printf '%s\n' "$redirect_headers" | awk 'NR==1 {print $2}')
 redirect_location=$(printf '%s\n' "$redirect_headers" | awk 'tolower($1) == "location:" {print $2; exit}' | tr -d '\r')
-if [[ ! "$redirect_status" =~ ^30 || "$redirect_location" != "/stats/" ]]; then
+if [[ ! "$redirect_status" =~ ^30 ]] || \
+   [[ "$redirect_location" != "/stats/" && "$redirect_location" != "$SITE/stats/" ]]; then
   echo "Private stats: /stats must redirect to /stats/, got $redirect_status ${redirect_location:-none}." >&2
   exit 1
 fi

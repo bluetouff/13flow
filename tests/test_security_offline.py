@@ -169,6 +169,7 @@ def test_private_stats_generation_minimizes_data_and_is_sandboxed():
     assert 'status" != "401"' in smoke
     assert "expected exactly one CSP header" in smoke
     assert 'redirect_location" != "/stats/"' in smoke
+    assert 'redirect_location" != "$SITE/stats/"' in smoke
     assert "User=flowstats" in service
     assert "SupplementaryGroups=adm" in service
     assert "UMask=0077" in service
