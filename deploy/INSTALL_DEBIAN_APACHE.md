@@ -265,7 +265,8 @@ Le déploiement valide que le certificat `zen-default` couvre les cinq noms avan
 S'il est absent, le vhost TLS réutilise temporairement le certificat de 13FLOW uniquement pour
 isoler les requêtes qui terminent leur handshake ; le navigateur conservera alors un
 avertissement de nom. Un certificat dédié partiel ou ne couvrant pas les cinq noms bloque le
-déploiement.
+déploiement. Le vhost neutralise le HSTS global sur HTTP et utilise sur HTTPS un HSTS limité aux
+apex, sans `includeSubDomains` ni `preload`, car le certificat ne garantit pas les sous-domaines.
 
 Les vhosts référencent désormais `/etc/letsencrypt/live/13flow.eu/…`. Test et reload :
 

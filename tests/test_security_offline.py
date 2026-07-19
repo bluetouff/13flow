@@ -210,7 +210,10 @@ def test_zen_default_vhost_is_inert_first_order_and_separately_logged():
     assert "connect-src 'none'" in vhost
     assert "frame-ancestors 'none'" in vhost
     assert "X-Robots-Tag \"noindex, nofollow, noarchive\"" in vhost
-    assert "Strict-Transport-Security" not in vhost
+    assert vhost.count('Header always unset Strict-Transport-Security') == 1
+    assert vhost.count('Header always set Strict-Transport-Security "max-age=31536000"') == 1
+    assert "includeSubDomains" not in vhost
+    assert "preload" not in vhost
     assert "powered by Debian GNU Linux" in page
     assert "runned by bluetouff" in page
     assert "no service mapped to this hostname" in page
