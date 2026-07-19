@@ -7,7 +7,7 @@
 #
 # Usage:
 #   sudo SHA=<git-sha> SRC=/tmp/13flow-$SHA /opt/13flow/deploy/deploy-code-safe.sh
-set -euo pipefail
+set -Eeuo pipefail
 
 APP_DIR=${APP_DIR:-/opt/13flow}
 SRC=${SRC:-}
@@ -167,6 +167,11 @@ wait_url() {
     fi
   done
   echo "Service did not become ready: $label ($url)" >&2
+  return 1
+}
+
+fail_deploy() {
+  echo "$1" >&2
   return 1
 }
 
@@ -335,6 +340,12 @@ if (( stats_runtime_enabled )); then
     "$APP_DIR/deploy/13flow-stats.timer" "$STATS_TIMER"
 fi
 apache2ctl configtest
+if ! apache_vhosts=$(apache2ctl -S 2>&1); then
+  fail_deploy "Unable to inspect the Apache virtual-host map."
+fi
+if (( $(grep -Fc 'default server zen.invalid' <<<"$apache_vhosts") < 2 )); then
+  fail_deploy "ZEN is not the Apache default virtual host on both HTTP and HTTPS."
+fi
 
 echo "==> [7/8] Stamp deployed SHA through systemd"
 stamp_sha 13flow.service
@@ -371,35 +382,29 @@ fi
 wait_url "13flow MCP" "http://127.0.0.1:8849/healthz" 20 1
 wait_url "13flow agent statistics" "http://127.0.0.1:8849/stats" 20 1
 systemctl reload apache2
-if ! zen_default_headers=$(curl --silent --show-error --head --max-time 5 \
-  --noproxy '*' --header 'Host: unconfigured.zen.invalid' http://127.0.0.1/); then
-  echo "ZEN default Host-boundary probe failed." >&2
-  exit 4
-fi
-if ! grep -qi '^X-Zen-Node: online' <<<"$zen_default_headers"; then
-  echo "Unknown Host did not reach the isolated ZEN default vhost." >&2
-  exit 4
-fi
-# A strict ModSecurity policy may reject the deliberately invalid Host above.
-# Fetch the body with an explicitly allowed hostname instead.
+for zen_host in "${ZEN_DEFAULT_HOSTS[@]}"; do
+  if ! zen_default_headers=$(curl --silent --show-error --head --max-time 5 \
+    --noproxy '*' --header "Host: $zen_host" http://127.0.0.1/); then
+    fail_deploy "ZEN default probe failed for $zen_host."
+  fi
+  if ! grep -qi '^X-Zen-Node: online' <<<"$zen_default_headers"; then
+    fail_deploy "$zen_host did not reach the isolated ZEN default vhost."
+  fi
+done
 if ! zen_default_html=$(curl --silent --show-error --fail --max-time 5 \
   --noproxy '*' --header 'Host: toonux.org' http://127.0.0.1/arbitrary/path); then
-  echo "ZEN default page probe failed for an allowed hostname." >&2
-  exit 4
+  fail_deploy "ZEN default page probe failed for an allowed hostname."
 fi
 if ! grep -Fq 'powered by Debian GNU Linux' <<<"$zen_default_html" || \
    ! grep -Fq 'runned by bluetouff' <<<"$zen_default_html"; then
-  echo "ZEN default page content is incomplete." >&2
-  exit 4
+  fail_deploy "ZEN default page content is incomplete."
 fi
 if ! known_host_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
   --max-time 5 --noproxy '*' --header 'Host: 13flow.eu' http://127.0.0.1/); then
-  echo "Named 13flow.eu vhost probe failed." >&2
-  exit 4
+  fail_deploy "Named 13flow.eu vhost probe failed."
 fi
 if [[ "$known_host_status" != "301" ]]; then
-  echo "Expected the named 13flow.eu HTTP vhost to remain a 301, got $known_host_status." >&2
-  exit 4
+  fail_deploy "Expected the named 13flow.eu HTTP vhost to remain a 301, got $known_host_status."
 fi
 if [[ "$zen_default_cert_name" == "zen-default" ]]; then
   zen_tls_html=$(curl --silent --show-error --fail --max-time 8 \

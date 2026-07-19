@@ -231,10 +231,16 @@ def test_zen_default_vhost_is_inert_first_order_and_separately_logged():
     assert 'zen_default_cert_name=zen-default' in deploy
     assert "--resolve toonux.org:443:127.0.0.1" in deploy
     assert "a2ensite 000-zen-default.conf" in deploy
-    assert "Host: unconfigured.zen.invalid" in deploy
-    assert "Host: toonux.org" in deploy
+    assert "apache2ctl -S" in deploy
+    assert "default server zen.invalid" in deploy
+    assert 'for zen_host in "${ZEN_DEFAULT_HOSTS[@]}"' in deploy
+    assert 'Host: $zen_host' in deploy
     assert "X-Zen-Node: online" in deploy
     assert "Host: 13flow.eu" in deploy
+    assert "exit 4" not in deploy
+    assert "set -Eeuo pipefail" in deploy
+    assert "fail_deploy()" in deploy and "return 1" in deploy
+    assert "trap rollback ERR" in deploy
 
 
 def test_safe_deploy_restarts_and_stamps_pro_service():
