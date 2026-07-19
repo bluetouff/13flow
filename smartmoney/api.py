@@ -29,6 +29,7 @@ import base64
 import binascii
 import hashlib
 import hmac
+import http.client
 import io
 import json
 import os
@@ -631,6 +632,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                                    "responses": {"200": {"description": "Research readiness"}}}},
                 "/api/security-posture": {"get": {"summary": "Controlled-pilot security posture and evidence links",
                                                    "responses": {"200": {"description": "Security posture"}}}},
+                "/api/agent-stats": {"get": {"summary": "Privacy-safe aggregate MCP usage statistics",
+                                               "responses": {"200": {"description": "UTC daily agent statistics"},
+                                                             "503": {"description": "MCP statistics unavailable"}}}},
                 "/api/pilot-intake": {"get": {"summary": "Controlled-pilot intake checklist and operator note template",
                                                "responses": {"200": {"description": "Pilot intake pack"}}}},
                 "/api/pilot-intake.md": {"get": {"summary": "Controlled-pilot intake checklist in Markdown",
@@ -1563,6 +1567,51 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
     @app.get("/api/openapi.json")
     def public_openapi_ep():
         return jsonify(public_openapi_doc())
+
+    @app.get("/api/agent-stats")
+    def agent_stats_ep():
+        """Bounded loopback proxy for local/dev runs; Apache bypasses it in production."""
+        connection = http.client.HTTPConnection("127.0.0.1", 8849, timeout=2)
+        try:
+            connection.request("GET", "/stats", headers={"Host": "localhost", "Accept": "application/json"})
+            upstream = connection.getresponse()
+            content_type = str(upstream.getheader("Content-Type") or "").lower()
+            declared = upstream.getheader("Content-Length")
+            if declared and (not declared.isdigit() or int(declared) > 1024 * 1024):
+                raise ValueError("invalid MCP statistics length")
+            raw = upstream.read(1024 * 1024 + 1)
+            if upstream.status != 200 or len(raw) > 1024 * 1024 or "application/json" not in content_type:
+                raise ValueError("invalid MCP statistics response")
+            payload = json.loads(raw)
+            privacy = payload.get("privacy") if isinstance(payload, dict) else None
+            if (
+                not isinstance(payload, dict)
+                or payload.get("schema_version") != "agent_stats_v1"
+                or not isinstance(payload.get("daily"), list)
+                or not isinstance(payload.get("windows"), dict)
+                or not isinstance(payload.get("server"), dict)
+                or not isinstance(payload.get("retention_days"), int)
+                or isinstance(payload.get("retention_days"), bool)
+                or not 7 <= payload.get("retention_days") <= 90
+                or not isinstance(privacy, dict)
+                or privacy.get("aggregate_only") is not True
+                or privacy.get("stores_ip_addresses") is not False
+                or privacy.get("stores_user_agents") is not False
+                or privacy.get("stores_client_versions") is not False
+                or privacy.get("stores_arguments_prompts_or_responses") is not False
+                or privacy.get("initializations_are_not_unique_users") is not True
+            ):
+                raise ValueError("invalid MCP statistics privacy contract")
+            response = jsonify(payload)
+            response.headers["Cache-Control"] = "public, max-age=60, stale-while-revalidate=300"
+            return response
+        except (OSError, TimeoutError, ValueError, json.JSONDecodeError, http.client.HTTPException):
+            return jsonify({
+                "error": "agent statistics unavailable",
+                "source": "13flow-mcp-loopback",
+            }), 503
+        finally:
+            connection.close()
 
     def _mcp_tools() -> list[dict]:
         return [
@@ -4802,7 +4851,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "verifiable SEC EDGAR-derived 13F data",
                     "read-only public API",
                     "scoped Pro API keys with audit and rate limits",
-                    "MCP read-only integration with Pro tools failing closed",
+                    "MCP public read-only integration; private tools disabled on the public Registry server",
                     "data-quality warnings and methodology contracts",
                     "25-ticker mature Form 4 joined mechanical evidence pack ready for human review",
                 ],
@@ -5078,7 +5127,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "public_path": "/api/mcp",
                 "host_origin_policy": "MCP server enforces Host/Origin validation and a bounded request body",
                 "rate_limit": "per-client rate limit in MCP process",
-                "pro_tool_boundary": "Private tools fail closed without a valid operator-issued key",
+                "pro_tool_boundary": "Private tools are absent from the default public MCP profile",
                 "evidence": ["/methodology/mcp", "/developers"],
             },
             "data_quality": {
@@ -5809,6 +5858,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         endpoints = [
             ("/api/version", "deployed SHA and open/demo flags"),
             ("/api/live-status", "current SEC EDGAR data state and counts"),
+            ("/api/agent-stats", "privacy-safe aggregate MCP usage"),
             ("/api/product-status", "research readiness and validation boundary"),
             ("/api/data-quality", "operator-visible data-quality warnings"),
             ("/api/openapi.json", "public API contract"),
@@ -6870,6 +6920,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         {"id": "home", "en": "/", "fr": "/fr", "en_label": "Home", "fr_label": "Accueil"},
         {"id": "sandbox", "en": "/sandbox", "fr": "/fr/sandbox", "en_label": "Sandbox", "fr_label": "Sandbox"},
         {"id": "developers", "en": "/developers", "fr": "/fr/developers", "en_label": "Developers", "fr_label": "Développeurs"},
+        {"id": "agents", "en": "/agents", "fr": "/fr/agents", "en_label": "Agent statistics", "fr_label": "Statistiques agents"},
         {"id": "alternatives", "en": "/alternatives", "fr": "/fr/alternatives", "en_label": "Alternatives", "fr_label": "Alternatives"},
         {"id": "trust_artifact", "en": "/trust-artifact", "fr": "/fr/trust-artifact", "en_label": "Trust artifact", "fr_label": "Preuve de confiance"},
         {"id": "status", "en": "/status", "fr": "/fr/status", "en_label": "Status", "fr_label": "Statut"},
@@ -6968,6 +7019,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             f'<a href="/signals">{html_escape(nav_label("Signals", "Signaux"))}</a>'
             f'<a href="/funds">{html_escape(nav_label("Funds", "Fonds"))}</a>'
             f'<a href="/stocks">{html_escape(nav_label("Stocks", "Titres"))}</a>'
+            f'<a href="{html_escape(local_path("/agents"), quote=True)}">Agents</a>'
             f'<a href="{html_escape(local_path("/developers"), quote=True)}">API</a></div>{language_switcher}</nav>'
         )
         def _foot_icon(path: str) -> str:
@@ -7006,6 +7058,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "funds": "Fonds",
                 "stocks": "Titres",
                 "api_docs": "Docs API",
+                "agents": "Statistiques agents",
                 "status": "Statut",
                 "coverage": "Couverture",
                 "security": "Sécurité",
@@ -7029,6 +7082,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "funds": "Funds",
                 "stocks": "Stocks",
                 "api_docs": "API docs",
+                "agents": "Agent statistics",
                 "status": "Status",
                 "coverage": "Coverage",
                 "security": "Security",
@@ -7047,6 +7101,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             f'<div><h4>{icon_app}<span>{html_escape(product_title)}</span></h4>{_foot_link("/app", "Cockpit", icon_app)}'
             f'{_foot_link("/signals", footer_labels["signals"], icon_signal)}{_foot_link("/funds", footer_labels["funds"], icon_fund)}'
             f'{_foot_link("/stocks", footer_labels["stocks"], icon_stock)}{_foot_link("/sandbox", "Sandbox", icon_api)}'
+            f'{_foot_link("/agents", footer_labels["agents"], icon_signal)}'
             f'{_foot_link("/developers", footer_labels["api_docs"], icon_api)}</div>'
             f'<div><h4>{icon_security}<span>{html_escape(trust_title)}</span></h4>{_foot_link("/status", footer_labels["status"], icon_status)}'
             f'{_foot_link("/coverage", footer_labels["coverage"], icon_coverage)}{_foot_link("/validation", "Validation", icon_signal)}'
@@ -7377,39 +7432,45 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         }
 
     def mcp_methodology_payload() -> dict:
-        offer = pro_offer_payload()
         return {
             "app": "13flow",
             "generated_at": _now_iso(),
             "git_sha": _git_sha(),
             "title": "13FLOW MCP methodology",
             "scope": (
-                "Read-only Model Context Protocol access to public 13FLOW resources, plus gated "
-                "Pro tools that require an existing Pro API key or configured paid settlement path."
+                "Read-only Model Context Protocol access to public 13FLOW resources. Private "
+                "and payment tools are absent from the default public Registry profile."
             ),
             "surfaces": [
                 {
                     "name": "public MCP",
                     "url": "/api/mcp",
-                    "tools": ["product.status", "funds.list", "funds.get", "stocks.get"],
+                    "tools": [
+                        "get_live_status", "get_product_status", "get_research_readiness",
+                        "list_funds", "get_fund", "get_stock", "preview_watchlist",
+                        "discover_watchlist", "get_confluence_signals", "get_signal_history",
+                        "get_confluence_methodology", "get_data_quality", "get_agent_stats",
+                    ],
                     "auth": "none for public read-only tools",
                 },
                 {
-                    "name": "Private MCP tools",
+                    "name": "Optional private MCP profile",
                     "url": "/api/mcp",
-                    "tools": ["pro.list_funds", "pro.get_fund", "pro.data_quality"],
-                    "auth": "operator-issued private API key; x402 path remains disabled",
+                    "tools": ["pro.list_funds", "pro.get_fund", "pro.get_data_quality"],
+                    "auth": "disabled by default; when isolated and enabled, X-13FLOW-Key only",
                 },
             ],
             "contract": [
                 "Public tools must not require browser auth, cookies or checkout.",
-                "Private tools must fail closed without a valid operator-issued credential.",
+                "Private tools must be absent from the default public MCP profile.",
                 "MCP responses must expose product status, validation boundary and data-quality warnings.",
                 "Tool output must not claim validated alpha, probabilities or expected returns.",
+                "Agent statistics must remain aggregate-only and must never retain IP addresses, User-Agents, client versions, arguments, prompts, responses or keys.",
                 "Private MCP tools call the isolated private API service rather than reading the private DB directly.",
             ],
             "security": {
-                "credential_headers": ["Authorization: Bearer <token>", "X-13FLOW-Key: <token>"],
+                "credential_headers": ["X-13FLOW-Key: <token>"],
+                "authorization_passthrough": False,
                 "cache_policy": "Private API responses are private/no-store and vary by credential header",
                 "audit": "accepted, denied and rate-limited private API requests create audit rows",
                 "x402": "implemented but disabled until production payment details are configured",
@@ -7417,12 +7478,13 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "operator_checks": [
                 "Run public smoke after deployment.",
                 "Verify MCP tools/list public contract.",
-                "Verify private MCP tools fail closed without a valid operator-issued key.",
-                "Run a valid private key probe before claiming private MCP readiness.",
+                "Verify private and payment MCP tools are absent from tools/list.",
+                "If a separate private profile is enabled, test its dedicated X-13FLOW-Key path.",
                 "Record key id, scopes, limits and rotation date in the operator note.",
             ],
             "references": [
                 {"name": "Product status", "url": "/api/product-status"},
+                {"name": "Agent statistics", "url": "/api/agent-stats"},
                 {"name": "Public OpenAPI", "url": "/api/openapi.json"},
             ],
         }
@@ -7587,6 +7649,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             ("get_product_status", "Research readiness, validation boundary and disabled-claim list."),
             ("list_funds", "Public tracked fund list."),
             ("get_trust_artifact", "Machine-readable trust-layer artifact for source-linked workflows."),
+            ("get_agent_stats", "Aggregate 7/30-day MCP activity with an explicit no-identifiers privacy contract."),
         ]
         tool_rows = "".join(
             f"<tr><td><code>{html_escape(name)}</code></td><td>{html_escape(desc)}</td></tr>"
@@ -7597,7 +7660,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "curl -fsS -H \"Authorization: Bearer $TOKEN\" https://13flow.eu/api/sandbox/v1/status\n"
             "curl -fsS -H \"Authorization: Bearer $TOKEN\" https://13flow.eu/api/sandbox/v1/funds\n"
             "curl -fsS https://13flow.eu/api/product-status\n"
-            "curl -fsS https://13flow.eu/api/trust-artifact"
+            "curl -fsS https://13flow.eu/api/trust-artifact\n"
+            "curl -fsS https://13flow.eu/api/agent-stats"
         )
         curl_mcp = (
             "curl -fsS https://13flow.eu/api/mcp \\\n"
@@ -7618,6 +7682,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             f"<p class=\"meta\">Instant limited key: {limits['per_min']} / min, {limits['per_day']} / day.</p></div>"
             "<div class=\"card\"><h3>MCP</h3><p><a href=\"/api/mcp\">/api/mcp</a></p>"
             "<p class=\"meta\">Streamable HTTP public discovery and read-only status/product context.</p></div>"
+            "<div class=\"card\"><h3>Agent statistics</h3><p><a href=\"/agents\">/agents</a></p>"
+            "<p class=\"meta\">Privacy-safe daily MCP aggregates; no unique-user claim.</p></div>"
             "</div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Quick checks</h2>"
             f"<pre><code>{html_escape(curl_status)}</code></pre></div>"
@@ -7636,6 +7702,260 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "<a class=\"pill\" href=\"/trust-artifact\">Trust artifact</a></p></div>"
         )
         return _html_response("Developers", body)
+
+    def _agent_stats_page(lang: str = "en"):
+        fr = lang == "fr"
+        copy = {
+            "loading": "Chargement des agrégats MCP…" if fr else "Loading MCP aggregates…",
+            "loaded": "Agrégats chargés" if fr else "Aggregates loaded",
+            "unavailable": "Statistiques temporairement indisponibles" if fr else "Statistics temporarily unavailable",
+            "handshakes": "initialisations" if fr else "initializations",
+            "tool_calls": "appels de tools" if fr else "tool calls",
+            "success_rate": "succès des tools" if fr else "tool success",
+            "avg_latency": "latence moyenne" if fr else "average latency",
+            "no_activity": "Aucune activité sur cette période" if fr else "No activity in this period",
+            "other": "Autres clients MCP" if fr else "Other MCP clients",
+            "calls": "Appels" if fr else "Calls",
+            "success": "Succès" if fr else "Success",
+            "latency": "Latence moy." if fr else "Avg latency",
+            "client": "Famille déclarée" if fr else "Declared family",
+            "tool": "Tool",
+            "date": "Date",
+            "initializations": "Initialisations" if fr else "Initializations",
+            "updated": "Mis à jour" if fr else "Updated",
+            "version": "Version MCP" if fr else "MCP version",
+            "period7": "7 jours" if fr else "7 days",
+            "period30": "30 jours" if fr else "30 days",
+            "chart_label": "Activité MCP quotidienne" if fr else "Daily MCP activity",
+        }
+        title = "Statistiques agents" if fr else "Agent statistics"
+        kicker = "Usage MCP public et agrégé" if fr else "Public aggregate MCP usage"
+        lede = (
+            "Activité réelle du serveur MCP 13FLOW, agrégée par jour UTC. Les initialisations mesurent des handshakes, "
+            "pas des personnes, utilisateurs actifs ou installations uniques."
+            if fr else
+            "Real activity from the 13FLOW MCP server, aggregated by UTC day. Initializations measure handshakes, "
+            "not people, active users or unique installations."
+        )
+        privacy_title = "Confidentialité par construction" if fr else "Privacy by construction"
+        privacy_copy = (
+            "Le compteur ne conserve ni adresse IP, ni User-Agent, ni version client, ni arguments, prompts, réponses ou clés. "
+            "Le nom client autodéclaré est immédiatement réduit à une famille fixe."
+            if fr else
+            "The counter stores no IP address, User-Agent, client version, arguments, prompts, responses or keys. "
+            "The self-declared client name is immediately reduced to a fixed family."
+        )
+        body = f"""
+<style>
+.agent-toolbar{{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin:18px 0}}
+.agent-periods{{display:flex;gap:6px;padding:4px;border:1px solid var(--line);border-radius:999px;background:var(--panel)}}
+.agent-period{{border:0;border-radius:999px;background:transparent;color:var(--muted);font:700 12px var(--mono);padding:8px 12px;cursor:pointer}}
+.agent-period[aria-pressed="true"]{{background:var(--accent);color:#06140f}}
+.agent-status{{font:12px var(--mono);color:var(--faint)}}
+.agent-status[data-state="error"]{{color:var(--danger)}}
+.agent-chart{{width:100%;min-height:280px;display:block;border:1px solid var(--line-soft);border-radius:14px;background:var(--panel-2)}}
+.agent-legend{{display:flex;gap:18px;flex-wrap:wrap;margin:10px 0 0;color:var(--muted);font-size:12px}}
+.agent-legend span::before{{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;background:var(--accent)}}
+.agent-legend span:last-child::before{{background:var(--amber);border-radius:50%}}
+.agent-table-wrap{{overflow-x:auto}}
+.agent-empty{{color:var(--faint);text-align:left!important}}
+@media(max-width:760px){{.agent-chart{{min-height:220px}}.agent-toolbar{{align-items:flex-start;flex-direction:column}}}}
+</style>
+<section class="doc-hero"><div class="doc-copy"><div class="kicker">{html_escape(kicker)}</div>
+<h1>{html_escape(title)}</h1><p class="doc-lede">{html_escape(lede)}</p>
+<div class="actions"><a class="pill cta" href="/api/agent-stats">JSON</a>
+<a class="pill" href="{'/fr/methodology/mcp' if fr else '/methodology/mcp'}">{'Méthode MCP' if fr else 'MCP methodology'}</a>
+<a class="pill" href="{'/fr/developers' if fr else '/developers'}">{'Développeurs' if fr else 'Developers'}</a></div></div>
+<aside class="doc-panel"><h3>{html_escape(privacy_title)}</h3><p>{html_escape(privacy_copy)}</p>
+<p><span class="pill">aggregate_only:true</span><span id="agentRetention" class="pill">retention:–</span></p></aside></section>
+<div class="agent-toolbar"><div class="agent-periods" aria-label="{'Fenêtre statistique' if fr else 'Statistics window'}">
+<button class="agent-period" type="button" data-days="7" aria-pressed="true">{html_escape(copy['period7'])}</button>
+<button class="agent-period" type="button" data-days="30" aria-pressed="false">{html_escape(copy['period30'])}</button></div>
+<div id="agentStatus" class="agent-status" role="status" aria-live="polite">{html_escape(copy['loading'])}</div></div>
+<section class="doc-metrics" aria-label="{'Indicateurs MCP' if fr else 'MCP indicators'}">
+<div class="doc-metric"><b id="agentInitializations">–</b><span>{html_escape(copy['handshakes'])}</span></div>
+<div class="doc-metric"><b id="agentToolCalls">–</b><span>{html_escape(copy['tool_calls'])}</span></div>
+<div class="doc-metric"><b id="agentSuccessRate">–</b><span>{html_escape(copy['success_rate'])}</span></div>
+<div class="doc-metric"><b id="agentLatency">–</b><span>{html_escape(copy['avg_latency'])}</span></div></section>
+<section class="doc-section"><h2>{'Activité quotidienne' if fr else 'Daily activity'}</h2>
+<svg id="agentChart" class="agent-chart" viewBox="0 0 900 280" role="img" aria-label="{html_escape(copy['chart_label'])}"></svg>
+<div class="agent-legend"><span>{html_escape(copy['tool_calls'])}</span><span>{html_escape(copy['handshakes'])}</span></div></section>
+<section class="split"><div class="doc-section"><h2>{'Clients déclarés' if fr else 'Declared clients'}</h2>
+<p>{'Familles issues de <code>clientInfo.name</code>, sans identifiant brut. Ce ne sont pas des utilisateurs uniques.' if fr else 'Families derived from <code>clientInfo.name</code>, without raw identifiers. These are not unique users.'}</p>
+<div class="agent-table-wrap"><table><thead><tr><th>{html_escape(copy['client'])}</th><th>{html_escape(copy['initializations'])}</th></tr></thead><tbody id="agentClients"><tr><td colspan="2">–</td></tr></tbody></table></div></div>
+<div class="doc-section"><h2>{'Fiabilité des tools' if fr else 'Tool reliability'}</h2>
+<p>{'Résultats des handlers instrumentés, sans arguments ni réponses.' if fr else 'Instrumented handler outcomes, without arguments or responses.'}</p>
+<div class="agent-table-wrap"><table><thead><tr><th>{html_escape(copy['tool'])}</th><th>{html_escape(copy['calls'])}</th><th>{html_escape(copy['success'])}</th><th>{html_escape(copy['latency'])}</th></tr></thead><tbody id="agentTools"><tr><td colspan="4">–</td></tr></tbody></table></div></div></section>
+<section class="doc-section"><h2>{'Détail journalier UTC' if fr else 'UTC daily detail'}</h2>
+<div class="agent-table-wrap"><table><thead><tr><th>{html_escape(copy['date'])}</th><th>{html_escape(copy['initializations'])}</th><th>{html_escape(copy['calls'])}</th><th>{html_escape(copy['success'])}</th><th>{html_escape(copy['latency'])}</th></tr></thead><tbody id="agentDaily"><tr><td colspan="5">–</td></tr></tbody></table></div></section>
+<section class="doc-section"><h2>{'Définitions et source' if fr else 'Definitions and source'}</h2>
+<div class="mini-list"><div><b>{'Initialisation' if fr else 'Initialization'}:</b> {'handshake MCP accepté; une reconnexion est un nouveau handshake.' if fr else 'accepted MCP handshake; a reconnect is another handshake.'}</div>
+<div><b>{'Succès' if fr else 'Success'}:</b> {'exécution du handler sans erreur MCP; ce n’est pas une mesure de qualité du résultat de recherche.' if fr else 'handler execution without an MCP error; it is not a measure of research-result quality.'}</div>
+<div><b>{'Temps' if fr else 'Time'}:</b> {'jours calendaires UTC; la source déclare la rétention des détails et conserve des compteurs de durée de vie séparés.' if fr else 'UTC calendar days; the source reports detailed retention and keeps separate lifetime counters.'}</div>
+<div><b>Source:</b> <a href="/api/agent-stats"><code>/api/agent-stats</code></a> · <code>13flow://agent-stats</code> · <code>get_agent_stats</code></div></div>
+<p id="agentFreshness" class="meta">–</p></section>
+"""
+        script = "const AGENT_COPY = " + json.dumps(copy, ensure_ascii=False) + ";\n" + r"""
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const ns = "http://www.w3.org/2000/svg";
+  const lang = document.documentElement.lang === "fr" ? "fr-FR" : "en-US";
+  const numberFormat = new Intl.NumberFormat(lang);
+  const dateFormat = new Intl.DateTimeFormat(lang, {day: "2-digit", month: "short"});
+  const state = {days: 7, payload: null};
+  const safeNumber = (value) => {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? number : 0;
+  };
+  const setText = (id, value) => { const node = $(id); if (node) node.textContent = String(value); };
+  const dateKey = (date) => date.toISOString().slice(0, 10);
+  const periodKeys = (endKey, count) => {
+    const end = new Date(endKey + "T00:00:00Z");
+    if (Number.isNaN(end.getTime())) throw new Error("invalid generated date");
+    const keys = [];
+    for (let offset = count - 1; offset >= 0; offset -= 1) {
+      const current = new Date(end.getTime());
+      current.setUTCDate(current.getUTCDate() - offset);
+      keys.push(dateKey(current));
+    }
+    return keys;
+  };
+  const emptyDay = (date) => ({date, initializations: 0, tool_calls: 0, tool_successes: 0, tool_errors: 0, total_tool_duration_ms: 0, clients: {}, tools: []});
+  const rowsForPeriod = () => {
+    const payload = state.payload;
+    const endKey = String(payload.generated_at).slice(0, 10);
+    const byDate = new Map(payload.daily.filter((row) => /^\d{4}-\d{2}-\d{2}$/.test(String(row.date))).map((row) => [row.date, row]));
+    return periodKeys(endKey, state.days).map((key) => byDate.get(key) || emptyDay(key));
+  };
+  const aggregateRows = (rows) => {
+    const summary = {initializations: 0, tool_calls: 0, tool_successes: 0, tool_errors: 0, total_tool_duration_ms: 0, clients: new Map(), tools: new Map()};
+    rows.forEach((row) => {
+      ["initializations", "tool_calls", "tool_successes", "tool_errors", "total_tool_duration_ms"].forEach((key) => { summary[key] += safeNumber(row[key]); });
+      Object.entries(row.clients || {}).forEach(([family, count]) => summary.clients.set(family, (summary.clients.get(family) || 0) + safeNumber(count)));
+      (Array.isArray(row.tools) ? row.tools : []).forEach((tool) => {
+        const name = String(tool.name || "");
+        if (!name || name.length > 64) return;
+        const current = summary.tools.get(name) || {name, tool_calls: 0, tool_successes: 0, tool_errors: 0, total_tool_duration_ms: 0};
+        ["tool_calls", "tool_successes", "tool_errors", "total_tool_duration_ms"].forEach((key) => { current[key] += safeNumber(tool[key]); });
+        summary.tools.set(name, current);
+      });
+    });
+    return summary;
+  };
+  const tableRow = (values) => {
+    const tr = document.createElement("tr");
+    values.forEach((value) => { const td = document.createElement("td"); td.textContent = String(value); tr.appendChild(td); });
+    return tr;
+  };
+  const emptyTable = (columns) => {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = columns;
+    td.className = "agent-empty";
+    td.textContent = AGENT_COPY.no_activity;
+    tr.appendChild(td);
+    return tr;
+  };
+  const pct = (successes, calls) => calls ? new Intl.NumberFormat(lang, {style: "percent", maximumFractionDigits: 1}).format(successes / calls) : "–";
+  const latency = (duration, calls) => calls ? numberFormat.format(Math.round(duration / calls)) + " ms" : "–";
+  const svgNode = (name, attrs = {}) => {
+    const node = document.createElementNS(ns, name);
+    Object.entries(attrs).forEach(([key, value]) => node.setAttribute(key, String(value)));
+    return node;
+  };
+  const renderChart = (rows) => {
+    const svg = $("agentChart");
+    svg.replaceChildren();
+    const width = 900, height = 280, left = 48, right = 18, top = 22, bottom = 42;
+    const plotWidth = width - left - right, plotHeight = height - top - bottom;
+    const maximum = Math.max(0, ...rows.flatMap((row) => [safeNumber(row.tool_calls), safeNumber(row.initializations)]));
+    [0, .5, 1].forEach((ratio) => {
+      const y = top + plotHeight * (1 - ratio);
+      svg.appendChild(svgNode("line", {x1: left, y1: y, x2: width - right, y2: y, stroke: "#294236", "stroke-width": 1}));
+      const label = svgNode("text", {x: left - 8, y: y + 4, fill: "#6f897d", "font-size": 11, "text-anchor": "end"});
+      label.textContent = numberFormat.format(Math.round(maximum * ratio));
+      svg.appendChild(label);
+    });
+    if (!maximum) {
+      const label = svgNode("text", {x: width / 2, y: height / 2, fill: "#a9c4b7", "font-size": 14, "text-anchor": "middle"});
+      label.textContent = AGENT_COPY.no_activity;
+      svg.appendChild(label);
+      return;
+    }
+    const step = plotWidth / rows.length;
+    const barWidth = Math.max(4, Math.min(20, step * .58));
+    const points = [];
+    rows.forEach((row, index) => {
+      const x = left + step * index + step / 2;
+      const calls = safeNumber(row.tool_calls);
+      const barHeight = calls / maximum * plotHeight;
+      const rect = svgNode("rect", {x: x - barWidth / 2, y: top + plotHeight - barHeight, width: barWidth, height: Math.max(1, barHeight), rx: 3, fill: "#19c187", opacity: .82});
+      const title = svgNode("title"); title.textContent = row.date + ": " + numberFormat.format(calls) + " " + AGENT_COPY.tool_calls; rect.appendChild(title); svg.appendChild(rect);
+      const initY = top + plotHeight - safeNumber(row.initializations) / maximum * plotHeight;
+      points.push(x + "," + initY);
+      if (index === 0 || index === rows.length - 1 || index % Math.max(1, Math.ceil(rows.length / 6)) === 0) {
+        const label = svgNode("text", {x, y: height - 15, fill: "#6f897d", "font-size": 10, "text-anchor": "middle"});
+        label.textContent = dateFormat.format(new Date(row.date + "T00:00:00Z"));
+        svg.appendChild(label);
+      }
+    });
+    svg.appendChild(svgNode("polyline", {points: points.join(" "), fill: "none", stroke: "#e0a534", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round"}));
+    rows.forEach((row, index) => {
+      const x = left + step * index + step / 2;
+      const y = top + plotHeight - safeNumber(row.initializations) / maximum * plotHeight;
+      const dot = svgNode("circle", {cx: x, cy: y, r: 3, fill: "#e0a534"});
+      const title = svgNode("title"); title.textContent = row.date + ": " + numberFormat.format(safeNumber(row.initializations)) + " " + AGENT_COPY.initializations; dot.appendChild(title); svg.appendChild(dot);
+    });
+  };
+  const render = () => {
+    const rows = rowsForPeriod();
+    const summary = aggregateRows(rows);
+    setText("agentInitializations", numberFormat.format(summary.initializations));
+    setText("agentToolCalls", numberFormat.format(summary.tool_calls));
+    setText("agentSuccessRate", pct(summary.tool_successes, summary.tool_calls));
+    setText("agentLatency", latency(summary.total_tool_duration_ms, summary.tool_calls));
+    setText("agentRetention", "retention:" + state.payload.retention_days + "d");
+    const clients = Array.from(summary.clients.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    $("agentClients").replaceChildren(...(clients.length ? clients.map(([family, count]) => tableRow([family || AGENT_COPY.other, numberFormat.format(count)])) : [emptyTable(2)]));
+    const tools = Array.from(summary.tools.values()).sort((a, b) => b.tool_calls - a.tool_calls || a.name.localeCompare(b.name));
+    $("agentTools").replaceChildren(...(tools.length ? tools.map((tool) => tableRow([tool.name, numberFormat.format(tool.tool_calls), pct(tool.tool_successes, tool.tool_calls), latency(tool.total_tool_duration_ms, tool.tool_calls)])) : [emptyTable(4)]));
+    $("agentDaily").replaceChildren(...rows.slice().reverse().map((row) => tableRow([row.date, numberFormat.format(safeNumber(row.initializations)), numberFormat.format(safeNumber(row.tool_calls)), pct(safeNumber(row.tool_successes), safeNumber(row.tool_calls)), latency(safeNumber(row.total_tool_duration_ms), safeNumber(row.tool_calls))])));
+    renderChart(rows);
+    const status = $("agentStatus");
+    status.dataset.state = "ready";
+    status.textContent = AGENT_COPY.loaded + " · " + AGENT_COPY.updated + " " + new Date(state.payload.updated_at).toLocaleString(lang);
+    setText("agentFreshness", AGENT_COPY.version + " " + state.payload.server.version + " · SHA " + state.payload.server.git_sha + " · " + AGENT_COPY.updated + " " + state.payload.updated_at);
+  };
+  const validate = (payload) => {
+    if (!payload || payload.schema_version !== "agent_stats_v1" || !Array.isArray(payload.daily) || !payload.server || !payload.privacy || !Number.isInteger(payload.retention_days) || payload.retention_days < 7 || payload.retention_days > 90) throw new Error("invalid schema");
+    if (payload.privacy.aggregate_only !== true || payload.privacy.stores_ip_addresses !== false || payload.privacy.stores_user_agents !== false || payload.privacy.stores_arguments_prompts_or_responses !== false) throw new Error("privacy contract mismatch");
+    if (!/^\d{4}-\d{2}-\d{2}T/.test(String(payload.generated_at)) || !/^\d{4}-\d{2}-\d{2}T/.test(String(payload.updated_at))) throw new Error("invalid timestamps");
+    return payload;
+  };
+  document.querySelectorAll(".agent-period").forEach((button) => button.addEventListener("click", () => {
+    state.days = button.dataset.days === "30" ? 30 : 7;
+    document.querySelectorAll(".agent-period").forEach((candidate) => candidate.setAttribute("aria-pressed", String(candidate === button)));
+    if (state.payload) render();
+  }));
+  fetch("/api/agent-stats", {headers: {Accept: "application/json"}, credentials: "omit", redirect: "error"})
+    .then((response) => {
+      const length = Number(response.headers.get("content-length") || 0);
+      if (!response.ok || (length && length > 1048576) || !String(response.headers.get("content-type") || "").includes("application/json")) throw new Error("unexpected response");
+      return response.json();
+    })
+    .then((payload) => { state.payload = validate(payload); render(); })
+    .catch(() => { const status = $("agentStatus"); status.dataset.state = "error"; status.textContent = AGENT_COPY.unavailable; });
+})();
+"""
+        return _html_response(title, body, script, lang=lang, canonical_path="/agents")
+
+    @app.get("/agents")
+    def agent_stats_page():
+        return _agent_stats_page("en")
+
+    @app.get("/fr/agents")
+    def agent_stats_page_fr():
+        return _agent_stats_page("fr")
 
     @app.get("/legal/pro-api")
     def pro_api_terms_page():
@@ -8965,7 +9285,8 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "curl -fsS -H \"Authorization: Bearer $TOKEN\" https://13flow.eu/api/sandbox/v1/status\n"
             "curl -fsS -H \"Authorization: Bearer $TOKEN\" https://13flow.eu/api/sandbox/v1/funds\n"
             "curl -fsS https://13flow.eu/api/product-status\n"
-            "curl -fsS https://13flow.eu/api/i18n"
+            "curl -fsS https://13flow.eu/api/i18n\n"
+            "curl -fsS https://13flow.eu/api/agent-stats"
         )
         body = (
             "<h1>Développeurs</h1>"
@@ -8975,6 +9296,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<div class=\"card\"><h3>API publique</h3><p><a href=\"/api/openapi.json\">/api/openapi.json</a></p><p class=\"meta\">Pas de compte navigateur, pas de cookie, surface read-only.</p></div>"
             f"<div class=\"card\"><h3>Sandbox</h3><p><a href=\"/fr/sandbox\">/fr/sandbox</a></p><p class=\"meta\">Clé instantanée limitée: {limits['sandbox_rate_per_min']} / min, {limits['sandbox_rate_per_day']} / jour.</p></div>"
             "<div class=\"card\"><h3>Contrat i18n</h3><p><a href=\"/api/i18n\">/api/i18n</a></p><p class=\"meta\">Manifeste EN/FR utilisé par les tests et le smoke public.</p></div>"
+            "<div class=\"card\"><h3>Statistiques agents</h3><p><a href=\"/fr/agents\">/fr/agents</a></p><p class=\"meta\">Agrégats MCP quotidiens sans identifiant ni claim d'utilisateur unique.</p></div>"
             "</div><div class=\"panel\" style=\"margin-top:18px\"><h2>Quick checks</h2>"
             f"<pre><code>{html_escape(curl_status)}</code></pre></div>"
             "<div class=\"panel\" style=\"margin-top:18px\"><h2>Politique d'usage</h2><ul><li>13FLOW est un outil de recherche, pas un conseil en investissement.</li><li>Les filings 13F sont retardés et incomplets par nature.</li><li>Ne pas présenter les outputs comme alpha validé ou recommandation de trading.</li></ul></div>"
@@ -9067,7 +9389,8 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             f"<p class=\"meta\">score_claim={html_escape(validation['score_claim'])}</p></div></section>"
             "<section class=\"doc-section\"><h2>Surfaces de vérification</h2>"
             "<p><a class=\"pill\" href=\"/api/version\">/api/version</a> <a class=\"pill\" href=\"/api/live-status\">/api/live-status</a> "
-            "<a class=\"pill\" href=\"/api/data-quality\">/api/data-quality</a> <a class=\"pill\" href=\"/api/openapi.json\">OpenAPI</a></p></section>"
+            "<a class=\"pill\" href=\"/api/data-quality\">/api/data-quality</a> <a class=\"pill\" href=\"/api/agent-stats\">/api/agent-stats</a> "
+            "<a class=\"pill\" href=\"/api/openapi.json\">OpenAPI</a></p></section>"
         )
         return _html_response("Statut", body, lang="fr", canonical_path="/status")
 
@@ -9311,7 +9634,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<div class=\"doc-metric\"><b>Éditeur</b><span>l0g / bluetouff</span></div>"
             "<div class=\"doc-metric\"><b>Contact</b><span>admin@toonux.com</span></div>"
             "<div class=\"doc-metric\"><b>Source</b><span>filings publics SEC EDGAR</span></div>"
-            "<div class=\"doc-metric\"><b>Mise à jour</b><span>2026-07-04</span></div></section>"
+            "<div class=\"doc-metric\"><b>Mise à jour</b><span>2026-07-19</span></div></section>"
             "<section class=\"doc-section\"><h2>Éditeur et entité derrière 13FLOW</h2>"
             "<p>13FLOW est opéré et publié par <a href=\"https://l0g.fr/\" rel=\"noopener\">l0g</a>, projet indépendant de recherche et de données sur la macroéconomie, les marchés, les sources publiques, le risque systémique et l'intelligence financière machine-readable. Le projet est porté par bluetouff.</p>"
             "<div class=\"mini-list\"><div><b>Site:</b> https://13flow.eu</div><div><b>Contact et demandes de droits:</b> <a href=\"mailto:admin@toonux.com\">admin@toonux.com</a></div>"
@@ -9321,6 +9644,9 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<div class=\"split\"><div class=\"doc-card\"><h3>Données pouvant être traitées</h3><ul><li>Logs techniques: IP, timestamp, URL demandée, code statut et user-agent.</li><li>Signaux sécurité et anti-abus nécessaires à l'exploitation.</li><li>Messages envoyés volontairement par email.</li><li>Pour une intégration privée: organisation, contact, key id, endpoint, scope, statut et métadonnées d'audit.</li></ul></div>"
             "<div class=\"doc-card\"><h3>Finalités</h3><ul><li>Opérer le site public et les APIs.</li><li>Sécuriser le service et prévenir les abus.</li><li>Répondre aux demandes légales, privacy, support ou research.</li><li>Administrer une intégration API privée quand un accord existe.</li></ul></div></div>"
             "<p class=\"callout\" style=\"margin-top:12px\"><strong>Base légale.</strong> Intérêt légitime pour la sécurité et l'opération du service, consentement lorsque vous contactez volontairement l'éditeur, obligation légale si applicable.</p></section>"
+            "<section class=\"doc-section\"><h2>Statistiques publiques des agents MCP</h2>"
+            "<p>La page <a href=\"/fr/agents\">/fr/agents</a> utilise un compteur distinct des logs techniques. Il conserve seulement des agrégats journaliers UTC par famille client fixe et nom de tool enregistré.</p>"
+            "<p>Ce compteur ne conserve ni adresse IP, ni user-agent HTTP, ni version client, ni arguments, prompts, réponses, clés ou identifiants client bruts. Une initialisation est un handshake MCP et ne représente pas un utilisateur unique.</p></section>"
             "<section class=\"doc-section\"><h2>Vos droits</h2>"
             "<p>Au titre du RGPD, vous pouvez demander accès, rectification, effacement, limitation, opposition et portabilité lorsque c'est applicable. Écrivez à <a href=\"mailto:admin@toonux.com\">admin@toonux.com</a>. Une vérification raisonnable d'identité peut être demandée.</p>"
             "<p>En cas de désaccord, vous pouvez contacter l'autorité française: <a href=\"https://www.cnil.fr/\" rel=\"noopener\">CNIL</a>.</p></section>"
@@ -9560,7 +9886,7 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<div class=\"doc-metric\"><b>Publisher</b><span>l0g / bluetouff</span></div>"
             "<div class=\"doc-metric\"><b>Contact</b><span>admin@toonux.com</span></div>"
             "<div class=\"doc-metric\"><b>Source</b><span>SEC EDGAR public filings</span></div>"
-            "<div class=\"doc-metric\"><b>Updated</b><span>2026-07-03</span></div>"
+            "<div class=\"doc-metric\"><b>Updated</b><span>2026-07-19</span></div>"
             "</section>"
             "<section class=\"doc-section\"><h2>Publisher and entity behind 13FLOW</h2>"
             "<p>13FLOW is operated and published by <a href=\"https://l0g.fr/\" rel=\"noopener\">l0g</a>, "
@@ -9585,6 +9911,9 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<li>Administer scoped private API access when an operator-reviewed agreement exists.</li></ul></div></div>"
             "<p class=\"callout\" style=\"margin-top:12px\"><strong>Legal basis.</strong> Processing is based on legitimate interest for security and service operation, "
             "operator-reviewed private access discussions, consent where you voluntarily contact the publisher, and legal obligation where applicable.</p></section>"
+            "<section class=\"doc-section\"><h2>Public MCP agent statistics</h2>"
+            "<p>The <a href=\"/agents\">/agents</a> page uses a counter separate from technical server logs. It retains only UTC daily aggregates by fixed client family and registered tool name.</p>"
+            "<p>This counter stores no IP address, HTTP user-agent, client version, arguments, prompts, responses, keys or raw client identifiers. An initialization is an MCP handshake and does not represent a unique user.</p></section>"
             "<section class=\"doc-section\"><h2>Your rights</h2>"
             "<p>Under the GDPR / RGPD, you can request access, rectification, erasure, restriction, objection and portability where applicable. "
             "Send requests to <a href=\"mailto:admin@toonux.com\">admin@toonux.com</a>. The request may require reasonable identity verification before disclosure or deletion.</p>"

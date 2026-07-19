@@ -1,0 +1,19 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.bluetouff/13flow",
+  "title": "13FLOW",
+  "description": "Source-linked SEC 13F research, quality checks, watchlists and audit trails for agents.",
+  "version": "1.0.0",
+  "websiteUrl": "https://13flow.eu/developers",
+  "repository": {
+    "url": "https://github.com/bluetouff/13flow",
+    "source": "github",
+    "subfolder": "mcp-server"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://13flow.eu/api/mcp"
+    }
+  ]
+}

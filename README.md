@@ -60,11 +60,17 @@ Confluence API); production errors are shown instead of silently substituting sa
 `/api/live-status`, `/api/funds`, `/api/fund/<cik>`,
 `/api/consensus/{buys,holdings}`, `/api/compare`,
 `/api/signals/confluence`, `/api/signals/confluence/history`,
-`/api/methodology/confluence-v1`, `/api/data-quality`, `/api/openapi.json`, and the
-read-only MCP JSON-RPC endpoint `/api/mcp` (all public, read-only). Static,
+`/api/methodology/confluence-v1`, `/api/data-quality`, `/api/agent-stats`,
+`/api/openapi.json`, and the
+MCP Streamable HTTP endpoint `/api/mcp`. The Registry surface exposes only bounded, read-only
+public tools. Optional Pro/x402 tools are disabled by default and are not advertised publicly.
+The official Registry manifest is [`server.json`](server.json). Static,
 crawler-friendly pages are
 served at `/funds`, `/funds/<cik>`, `/stocks`, `/stocks/<ticker>`, `/signals`, and
 `/signals/<ticker>`, with SEC links where an accession or issuer search can be resolved.
+`/agents` and `/fr/agents` publish 7/30-day MCP activity from durable UTC aggregates. They
+make no unique-user claim and retain no IP address, User-Agent, client version, raw client
+identifier, arguments, prompts, responses or keys.
 `/api/live-status` is the public,
 machine-readable proof of live state: SHA, source (`SEC EDGAR`), latest quarter, row counts,
 data-quality summary, and `uses_synthetic_data=false`. `/api/product-status` is the
@@ -72,8 +78,9 @@ machine-readable operational status surface: it states live data coverage, disab
 claims, and why full quantitative validation remains blocked until imported 2013-2026
 adjusted-price and normalized Form 4 transaction artifacts are available. See the
 Core V1 scope gate in [`docs/CORE_V1_BOUNDARY.md`](docs/CORE_V1_BOUNDARY.md).
-The public Pro capability page lives at `/pro`; its machine-readable contract is
-`/api/pro-offer`.
+Current product and research boundaries are exposed at `/status`, `/readiness`,
+`/api/product-status` and `/api/research-readiness`. `/api/pro-offer` remains a retired
+compatibility endpoint and is not exposed as a canonical MCP tool.
 
 ## No browser accounts or checkout
 Core V1 deliberately has no browser account system, no public signup, no
@@ -156,7 +163,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 curl -H "Authorization: Bearer $TOKEN" https://13flow.eu/api/pro/v1/data-quality
 curl https://13flow.eu/api/pro/v1/openapi.json
 curl https://13flow.eu/api/product-status
-curl https://13flow.eu/api/pro-offer
+curl https://13flow.eu/api/research-readiness
 ```
 
 Security properties: opaque high-entropy tokens, key hashes only at rest, scoped access
@@ -420,7 +427,7 @@ sudo -E /opt/13flow/.venv/bin/python /opt/13flow/run.py --preflight --preflight-
 public site or staging, but never calls EDGAR. It fails if the root page regresses to
 `SAMPLE DATA`, auth/checkout copy appears in the open build, FAQ/Legal show legacy text,
 legacy page aliases stop redirecting to canonical URLs, public JSON contracts break, MCP
-disappears, or a Pro MCP tool no longer fails closed without payment/API key.
+disappears, or a private MCP tool is exposed on the default public surface.
 
 ```bash
 EXPECTED_SHA=<deployed-git-sha> /opt/13flow/deploy/smoke-public.sh

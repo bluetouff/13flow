@@ -1,19 +1,23 @@
 {
   "name": "13flow-mcp-server",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "13FLOW MCP server over Streamable HTTP, with public read-only tools and x402-gated Pro tools.",
+  "description": "Source-linked SEC 13F research tools over Streamable HTTP.",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "start": "node server.mjs",
-    "check": "node --check server.mjs && node --check test-client.mjs",
-    "test": "node test-client.mjs"
+    "check": "node --check server.mjs && node --check telemetry.mjs && node --check test-client.mjs && node --check test-config.mjs && node --check test-security.mjs && node --check test-telemetry.mjs && node --check verify-registry.mjs",
+    "test": "node test-client.mjs",
+    "test:config": "node test-config.mjs",
+    "test:security": "node test-security.mjs",
+    "test:telemetry": "node test-telemetry.mjs",
+    "registry:verify": "node verify-registry.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.21.0",
-    "zod": "^3.25.0"
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "zod": "3.25.76"
   }
 }

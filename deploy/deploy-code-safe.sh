@@ -13,6 +13,7 @@ APP_DIR=${APP_DIR:-/opt/13flow}
 SRC=${SRC:-}
 SHA=${SHA:-}
 WEB_GROUP=${WEB_GROUP:-flowapp}
+MCP_GROUP=${MCP_GROUP:-flowmcp}
 BACKUP_DIR=${BACKUP_DIR:-/home/bluetouff}
 
 if [[ $EUID -ne 0 ]]; then
@@ -23,9 +24,17 @@ if [[ -z "$SHA" || -z "$SRC" ]]; then
   echo "Set SHA=<git-sha> and SRC=<checked-out-source-dir>." >&2
   exit 2
 fi
+if [[ ! "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "SHA must be an exact 40-character lowercase hexadecimal Git commit." >&2
+  exit 2
+fi
 if [[ ! -d "$SRC" ]]; then
   echo "Source directory not found: $SRC" >&2
   exit 2
+fi
+if ! getent group "$MCP_GROUP" >/dev/null || ! id -u flowmcp >/dev/null 2>&1; then
+  echo "Refusing deploy: dedicated flowmcp user/group is missing." >&2
+  exit 3
 fi
 if [[ ! -x "$APP_DIR/.venv/bin/gunicorn" ]]; then
   echo "Refusing deploy: $APP_DIR/.venv/bin/gunicorn is missing or not executable." >&2
@@ -95,6 +104,15 @@ find "$APP_DIR" \
   -path "$APP_DIR/mcp-server/node_modules" -prune -o \
   -type f -exec chmod 640 {} +
 find "$APP_DIR/deploy" -maxdepth 1 -name '*.sh' -type f -exec chmod 750 {} +
+# flowmcp can traverse the application root but can only read its own subtree.
+chmod o+x "$APP_DIR"
+chown -R root:"$MCP_GROUP" "$APP_DIR/mcp-server"
+find "$APP_DIR/mcp-server" \
+  -path "$APP_DIR/mcp-server/node_modules" -prune -o \
+  -type d -exec chmod 750 {} +
+find "$APP_DIR/mcp-server" \
+  -path "$APP_DIR/mcp-server/node_modules" -prune -o \
+  -type f -exec chmod 640 {} +
 
 echo "==> [5/6] Stamp deployed SHA through systemd"
 stamp_sha 13flow.service
@@ -107,6 +125,8 @@ if [[ -f /etc/13flow/13flow-mcp.env ]]; then
   else
     printf '\nMCP_GIT_SHA=%s\n' "$SHA" >> /etc/13flow/13flow-mcp.env
   fi
+  chown root:"$MCP_GROUP" /etc/13flow/13flow-mcp.env
+  chmod 640 /etc/13flow/13flow-mcp.env
 fi
 systemctl daemon-reload
 

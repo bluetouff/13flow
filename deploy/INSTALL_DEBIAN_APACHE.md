@@ -60,12 +60,14 @@ sudo a2dissite 000-default.conf
 
 ## 4. Utilisateurs et dossiers
 
-Deux comptes système : **`flowapp`** fait tourner le web (lecture seule), **`flowingest`** écrit
-la base. Aucun shell.
+Trois comptes système séparent le web, l'ingestion et le MCP. **`flowapp`** fait tourner le
+web en lecture seule, **`flowingest`** écrit la base et **`flowmcp`** ne lit que le code MCP.
+Aucun compte n'a de shell.
 
 ```bash
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin flowapp
 sudo useradd --system --no-create-home --shell /usr/sbin/nologin flowingest
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin flowmcp
 sudo usermod -aG flowapp flowingest          # l'ingest écrit, le web lit (groupe commun)
 
 sudo mkdir -p /opt/13flow /var/lib/13flow /etc/13flow
@@ -82,8 +84,16 @@ sudo .venv/bin/pip install --upgrade pip
 sudo .venv/bin/pip install -r requirements.txt gunicorn
 # (le paquet 'stripe' de requirements n'est jamais importé en mode ouvert)
 
+# Le MCP exige Node 20 minimum. Vérifier avant l'installation verrouillée.
+node --version
+cd /opt/13flow/mcp-server
+sudo npm ci --omit=dev
+cd /opt/13flow
+
 sudo chown -R root:flowapp /opt/13flow
 sudo chmod -R o-rwx /opt/13flow
+sudo chmod o+x /opt/13flow
+sudo chown -R root:flowmcp /opt/13flow/mcp-server
 sudo chmod +x deploy/refresh-data.sh deploy/preflight.sh
 ```
 
@@ -166,6 +176,49 @@ curl -s localhost:8000/api/funds | head -c 200
 
 Le service tourne en `flowapp`, sandboxé (`ProtectSystem=strict`, sans capabilities,
 `MemoryDenyWriteExecute`, allow-list d'appels système) et écoute uniquement sur `127.0.0.1`.
+
+### Service MCP isolé
+
+Le daemon Registry public ne charge aucun outil privé ou paiement. Son fichier
+d'environnement appartient uniquement à `root:flowmcp`.
+
+```bash
+sudo tee /etc/13flow/13flow-mcp.env >/dev/null <<'EOF'
+MCP_HOST=127.0.0.1
+MCP_PORT=8849
+MCP_PATH=/mcp
+MCP_PUBLIC_SITE=https://13flow.eu
+MCP_13FLOW_API_BASE=http://127.0.0.1:8000
+MCP_ALLOWED_HOSTS=13flow.eu,www.13flow.eu,127.0.0.1,localhost
+MCP_ALLOWED_ORIGINS=https://13flow.eu,https://www.13flow.eu
+MCP_MAX_BODY=1048576
+MCP_MAX_UPSTREAM_BODY=8388608
+MCP_MAX_IN_FLIGHT=32
+MCP_MAX_CONNECTIONS=128
+MCP_MAX_PAYMENT_CACHE=500
+MCP_RATE_MAX=120
+MCP_STATS_RETENTION_DAYS=30
+MCP_PRO_TOOLS_ENABLED=0
+MCP_X402_ENABLED=0
+MCP_GIT_SHA=<exact-40-character-deployed-git-sha>
+EOF
+sudo chown root:flowmcp /etc/13flow/13flow-mcp.env
+sudo chmod 640 /etc/13flow/13flow-mcp.env
+sudo cp mcp-server/deploy/13flow-mcp.service /etc/systemd/system/13flow-mcp.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now 13flow-mcp
+curl -fsS http://127.0.0.1:8849/healthz | python3 -m json.tool
+curl -fsS http://127.0.0.1:8849/stats | python3 -m json.tool
+sudo systemd-analyze security 13flow-mcp.service
+```
+
+Le service tourne en `flowmcp`, lie uniquement la boucle locale et bloque toute connexion
+sortante hors loopback. Cette politique empêche aussi x402 de joindre un facilitateur externe.
+Ne l'assouplissez pas sur le daemon Registry public.
+L'unité crée `/var/lib/13flow-mcp` en `0700` via `StateDirectory`; seul ce répertoire est
+inscriptible durablement et `agent-stats.json` reste en `0600`. Ne redirigez pas ce fichier
+vers `/tmp`, le dépôt ou un répertoire partagé. Les détails journaliers sont conservés 30 jours
+et ne contiennent ni IP, User-Agent, version client, arguments, prompts, réponses ou clés.
 
 ## 9. Apache : vhost + TLS
 
@@ -271,15 +324,17 @@ depuis EDGAR. Une copie périodique suffit ; rien de sensible dedans (données p
   cookie, CSRF, mot de passe ni paiement → rien à voler.
 - **Aucune clé côté navigateur, aucun appel tiers depuis le front.** Le dashboard ne parle qu'à
   sa propre origine (`/api`), en HTTPS. Pas de clé API embarquée.
-- **Lecture seule, deux fois.** Seuls des endpoints GET existent ; Apache refuse aussi tout sauf
-  `GET/HEAD/OPTIONS`. Le process web ne peut pas écrire la base (`mode=ro` + permissions Unix).
+- **Lecture seule, deux fois.** Apache refuse les mutations du site et n'autorise que le POST
+  JSON-RPC exact de `/api/mcp`, plafonné à 1 MiB. Le process web ne peut pas écrire la base
+  (`mode=ro` + permissions Unix), et le MCP public n'expose que des outils en lecture seule.
 - **CSP stricte à nonce** sur le HTML (`script-src 'self' 'nonce-…'`, sans `'unsafe-inline'`),
   `default-src 'none'` sur le JSON, `X-Frame-Options: DENY`, HSTS au bord, `frame-ancestors 'none'`.
 - **Erreurs JSON génériques** (400/404/500), `debug=False`, pas de fuite de version. XML EDGAR
   parsé avec defusedxml (anti-XXE), entrées bornées/validées.
-- **Bac à sable systemd**, service non-root, bind loopback, TLS obligatoire (http→https forcé).
+- **Bacs à sable systemd séparés**, comptes non-root, bind loopback, réseau MCP limité à la
+  boucle locale, TLS obligatoire (http→https forcé).
 
-D�tails complets dans [`../SECURITY.md`](../SECURITY.md).
+Dtails complets dans [`../SECURITY.md`](../SECURITY.md).
 
 ## Dépannage
 

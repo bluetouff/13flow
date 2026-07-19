@@ -1,28 +1,33 @@
 [Unit]
-Description=13FLOW MCP server (Streamable HTTP, public + x402-gated Pro tools)
+Description=13FLOW MCP server (public read-only Streamable HTTP)
 After=network.target 13flow.service
 Wants=13flow.service
 
 [Service]
 Type=simple
-User=flowapp
-Group=flowapp
+User=flowmcp
+Group=flowmcp
 WorkingDirectory=/opt/13flow/mcp-server
 EnvironmentFile=/etc/13flow/13flow-mcp.env
-Environment=NODE_ENV=production
+UnsetEnvironment=NODE_ENV MCP_PRO_TOOLS_ENABLED MCP_X402_ENABLED MCP_X402_TEST_MODE MCP_X402_PAY_TO MCP_X402_FACILITATOR_URL MCP_X402_FACILITATOR_AUTH MCP_X402_FACILITATOR_AUTH_FILE MCP_13FLOW_INTERNAL_PRO_TOKEN MCP_13FLOW_INTERNAL_PRO_TOKEN_FILE
 RuntimeDirectory=13flow-mcp
+StateDirectory=13flow-mcp
+StateDirectoryMode=0700
 Environment=HOME=%t/13flow-mcp
-ExecStart=/usr/bin/node /opt/13flow/mcp-server/server.mjs
+UMask=0077
+ExecStart=/usr/bin/env NODE_ENV=production MCP_PRO_TOOLS_ENABLED=0 MCP_X402_ENABLED=0 MCP_X402_TEST_MODE=0 /usr/bin/node /opt/13flow/mcp-server/server.mjs
 Restart=on-failure
 RestartSec=3
 
 NoNewPrivileges=yes
 PrivateTmp=yes
 PrivateDevices=yes
+PrivateIPC=yes
 ProtectSystem=strict
 ProtectHome=yes
 ReadOnlyPaths=/opt/13flow
-ReadWritePaths=
+InaccessiblePaths=-/etc/13flow/13flow.env -/etc/13flow/13flow-pro.env -/var/lib/13flow -/var/lib/13flow-pro
+ReadWritePaths=/var/lib/13flow-mcp
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
@@ -30,7 +35,12 @@ ProtectControlGroups=yes
 ProtectClock=yes
 ProtectHostname=yes
 ProtectProc=invisible
+ProcSubset=pid
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressDeny=any
+IPAddressAllow=localhost
+SocketBindDeny=any
+SocketBindAllow=tcp:8849
 RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes

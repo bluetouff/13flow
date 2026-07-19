@@ -333,6 +333,21 @@ else
   bad "/developers page" "curl failed"
 fi
 
+agents_page="$tmpdir/agents.html"
+if fetch "/agents" "$agents_page"; then
+  grep -q "Agent statistics" "$agents_page" \
+    && grep -q "/api/agent-stats" "$agents_page" \
+    && grep -q "not people, active users or unique installations" "$agents_page" \
+    && grep -q "stores no IP address" "$agents_page" \
+    && grep -q 'id="agentChart"' "$agents_page" \
+    && ! grep -q '\.innerHTML' "$agents_page" \
+    && ok "/agents aggregate privacy page" \
+    || bad "/agents aggregate privacy page" "missing statistics or privacy contract"
+  contains_none "/agents has no legacy/auth/checkout copy" "$agents_page" "${legacy_forbidden[@]}"
+else
+  bad "/agents aggregate privacy page" "curl failed"
+fi
+
 pro_terms_code=$(curl -sS -o "$tmpdir/legal-pro-api.html" -w '%{http_code}' --max-time 20 "$SITE/legal/pro-api" || echo 000)
 if [[ "$pro_terms_code" =~ ^30[12378]$ ]]; then
   ok "/legal/pro-api redirects to neutral legal page"
@@ -351,6 +366,7 @@ fr_pages=(
   "/fr|Construit pour les builders|Accueil FR"
   "/fr/sandbox|Sandbox en 60 secondes|Sandbox FR"
   "/fr/developers|Développeurs|Developers FR"
+  "/fr/agents|Statistiques agents|Agent statistics FR"
   "/fr/alternatives|Pourquoi pas sec-api|Alternatives FR"
   "/fr/trust-artifact|Trust layer, pas alpha|Trust artifact FR"
   "/fr/status|Statut|Status FR"
@@ -477,6 +493,43 @@ PY
   fi
 else
   bad "/api/version fetch" "curl failed"
+fi
+
+agent_stats="$tmpdir/agent-stats.json"
+if fetch "/api/agent-stats" "$agent_stats"; then
+  json_check "/api/agent-stats aggregate privacy contract" "$agent_stats" "
+privacy = data.get('privacy') or {}
+server = data.get('server') or {}
+windows = data.get('windows') or {}
+forbidden_keys = {'ip', 'ip_address', 'user_agent', 'client_version', 'arguments', 'prompts', 'responses', 'keys', 'raw_client_id'}
+seen_forbidden = []
+def walk(value):
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if str(key).lower() in forbidden_keys:
+                seen_forbidden.append(str(key))
+            walk(child)
+    elif isinstance(value, list):
+        for child in value:
+            walk(child)
+walk(data)
+ok = (
+    data.get('schema_version') == 'agent_stats_v1'
+    and privacy.get('aggregate_only') is True
+    and privacy.get('stores_ip_addresses') is False
+    and privacy.get('stores_user_agents') is False
+    and privacy.get('stores_client_versions') is False
+    and privacy.get('stores_arguments_prompts_or_responses') is False
+    and privacy.get('initializations_are_not_unique_users') is True
+    and isinstance(data.get('daily'), list)
+    and {'7d', '30d'} <= set(windows)
+    and bool(server.get('version'))
+    and not seen_forbidden
+)
+msg = 'forbidden keys: ' + ', '.join(seen_forbidden) if seen_forbidden else str(data)[:1000]
+"
+else
+  bad "/api/agent-stats aggregate privacy contract" "curl failed"
 fi
 
 live="$tmpdir/live-status.json"
@@ -815,7 +868,7 @@ openapi="$tmpdir/_api_openapi.json"
 if [[ -s "$openapi" ]]; then
   json_check "/api/openapi.json public paths" "$openapi" "
 paths = data.get('paths') or {}
-required = ['/api/live-status', '/api/product-status', '/api/research-readiness', '/api/security-posture', '/api/pilot-intake', '/api/pilot-intake.md', '/api/pilot-request-assist', '/api/buyer-pack', '/api/buyer-pack.md', '/api/i18n', '/api/funds', '/api/watchlist/discover', '/api/mcp', '/api/methodology/confluence-v1']
+required = ['/api/live-status', '/api/product-status', '/api/research-readiness', '/api/security-posture', '/api/agent-stats', '/api/pilot-intake', '/api/pilot-intake.md', '/api/pilot-request-assist', '/api/buyer-pack', '/api/buyer-pack.md', '/api/i18n', '/api/funds', '/api/watchlist/discover', '/api/mcp', '/api/methodology/confluence-v1']
 missing = [p for p in required if p not in paths]
 ok = not missing
 msg = 'missing paths: ' + ', '.join(missing)
@@ -839,10 +892,16 @@ if [[ "$REQUIRE_MCP" == "1" ]]; then
     json_check "MCP tools/list public contract" "$mcp_tools" "
 tools = ((data.get('result') or {}).get('tools') or [])
 names = {t.get('name') for t in tools}
-required = {'get_live_status', 'get_product_status', 'get_pro_offer', 'list_funds', 'get_payment_policy', 'pro.list_funds'}
+required = {
+    'get_live_status', 'get_product_status', 'get_research_readiness',
+    'list_funds', 'get_fund', 'get_stock', 'preview_watchlist',
+    'discover_watchlist', 'get_confluence_signals', 'get_signal_history',
+    'get_confluence_methodology', 'get_data_quality', 'get_agent_stats',
+}
 missing = sorted(required - names)
-ok = not missing
-msg = 'missing MCP tools: ' + ', '.join(missing)
+forbidden = sorted({'get_pro_offer', 'get_payment_policy', 'pro.list_funds', 'pro.get_fund', 'pro.get_data_quality'} & names)
+ok = not missing and not forbidden
+msg = 'missing MCP tools: ' + ', '.join(missing) if missing else 'private/retired MCP tools exposed: ' + ', '.join(forbidden)
 "
   else
     bad "MCP tools/list public contract" "curl failed"
@@ -853,9 +912,16 @@ msg = 'missing MCP tools: ' + ', '.join(missing)
       -H 'Accept: application/json, text/event-stream' \
       --data '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"pro.list_funds","arguments":{}}}' \
       || echo 000)
-  [[ "$mcp_pro_status" == "402" ]] \
-    && ok "MCP Pro tool fail-closed without payment/key" \
-    || bad "MCP Pro tool fail-closed without payment/key" "got HTTP $mcp_pro_status"
+  if [[ "$mcp_pro_status" == "200" ]]; then
+    json_check "MCP private tool is not executable" "$tmpdir/mcp-pro.json" "
+error = data.get('error') or {}
+result = data.get('result') or {}
+ok = bool(error) or result.get('isError') is True
+msg = 'private tool unexpectedly returned a successful result'
+"
+  else
+    bad "MCP private tool is not executable" "expected JSON-RPC HTTP 200 rejection, got HTTP $mcp_pro_status"
+  fi
 fi
 
 print_timing_summary

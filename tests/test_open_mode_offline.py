@@ -37,6 +37,76 @@ def _seed(path):
     s.close()
 
 
+def test_agent_stats_loopback_proxy_enforces_privacy_contract(monkeypatch):
+    import json
+
+    payload = {
+        "schema_version": "agent_stats_v1",
+        "generated_at": "2026-07-19T10:00:00.000Z",
+        "updated_at": "2026-07-19T10:00:00.000Z",
+        "retention_days": 30,
+        "daily": [],
+        "windows": {"7d": {}, "30d": {}},
+        "server": {"version": "1.0.0", "git_sha": "a" * 40},
+        "privacy": {
+            "aggregate_only": True,
+            "stores_ip_addresses": False,
+            "stores_user_agents": False,
+            "stores_client_versions": False,
+            "stores_arguments_prompts_or_responses": False,
+            "initializations_are_not_unique_users": True,
+        },
+    }
+
+    class FakeResponse:
+        status = 200
+
+        def getheader(self, name):
+            raw = json.dumps(payload).encode()
+            return "application/json" if name == "Content-Type" else str(len(raw))
+
+        def read(self, _limit):
+            return json.dumps(payload).encode()
+
+    calls = []
+
+    class FakeConnection:
+        def __init__(self, host, port, timeout):
+            calls.append((host, port, timeout))
+
+        def request(self, method, path, headers):
+            calls.append((method, path, headers))
+
+        def getresponse(self):
+            return FakeResponse()
+
+        def close(self):
+            calls.append("closed")
+
+    monkeypatch.setattr("smartmoney.api.http.client.HTTPConnection", FakeConnection)
+    with tempfile.TemporaryDirectory() as d:
+        db = str(Path(d) / "stats-proxy.db")
+        _seed(db)
+        response = create_app(db, secure_cookies=False, open_mode=True).test_client().get("/api/agent-stats")
+
+    assert response.status_code == 200
+    assert response.get_json() == payload
+    assert response.headers["Cache-Control"] == "public, max-age=60, stale-while-revalidate=300"
+    assert calls[0] == ("127.0.0.1", 8849, 2)
+    assert calls[1] == ("GET", "/stats", {"Host": "localhost", "Accept": "application/json"})
+    assert calls[-1] == "closed"
+
+    payload["privacy"]["stores_ip_addresses"] = True
+    calls.clear()
+    with tempfile.TemporaryDirectory() as d:
+        db = str(Path(d) / "stats-proxy-reject.db")
+        _seed(db)
+        rejected = create_app(db, secure_cookies=False, open_mode=True).test_client().get("/api/agent-stats")
+    assert rejected.status_code == 503
+    assert rejected.get_json()["error"] == "agent statistics unavailable"
+    assert calls[-1] == "closed"
+
+
 def test_open_mode_hides_private_surface_and_keeps_public():
     with tempfile.TemporaryDirectory() as d:
         db = str(Path(d) / "open.db")
@@ -343,15 +413,17 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             ("/trust-artifact", "Trust layer, not alpha"),
             ("/pro/onboarding", "Integration Diagnostic"),
             ("/developers", "MCP tools/list"),
+            ("/agents", "Agent statistics"),
             ("/methodology", "Application methodology"),
             ("/methodology/app", "13F filings are delayed regulatory disclosures"),
-            ("/methodology/mcp", "Private tools must fail closed"),
+            ("/methodology/mcp", "Private tools must be absent"),
             ("/faq", "Frequently asked questions"),
             ("/about", "13FLOW is operated by l0g"),
             ("/legal", "Legal, privacy and data terms"),
             ("/fr", "Construit pour les builders"),
             ("/fr/sandbox", "Sandbox en 60 secondes"),
             ("/fr/developers", "Développeurs"),
+            ("/fr/agents", "Statistiques agents"),
             ("/fr/alternatives", "Pourquoi pas sec-api"),
             ("/fr/trust-artifact", "Trust layer, pas alpha"),
             ("/fr/status", "Console de preuve production"),
@@ -375,8 +447,24 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             assert 'hreflang="fr"' in page, path
             assert 'aria-label="Language switcher"' in page, path
 
+        agent_page = c.get("/agents").get_data(as_text=True)
+        agent_page_lower = agent_page.lower()
+        assert 'fetch("/api/agent-stats"' in agent_page
+        assert "initializations measure handshakes" in agent_page_lower
+        assert "not people, active users or unique installations" in agent_page_lower
+        assert "stores no ip address" in agent_page_lower
+        assert ".innerHTML" not in agent_page
+        assert "textContent" in agent_page
+        assert 'id="agentChart"' in agent_page
+        assert 'aria-live="polite"' in agent_page
+
+        agent_page_fr = c.get("/fr/agents").get_data(as_text=True)
+        assert "pas des personnes, utilisateurs actifs ou installations uniques" in agent_page_fr
+        assert "ne conserve ni adresse IP" in agent_page_fr
+        assert 'href="/agents" hreflang="en"' in agent_page_fr
+
         fr_public_pages = [
-            "/fr", "/fr/sandbox", "/fr/developers", "/fr/alternatives",
+            "/fr", "/fr/sandbox", "/fr/developers", "/fr/agents", "/fr/alternatives",
             "/fr/status", "/fr/coverage", "/fr/validation", "/fr/security",
             "/fr/methodology", "/fr/methodology/app", "/fr/methodology/mcp",
             "/fr/faq", "/fr/about", "/fr/legal", "/fr/buyer-pack",
@@ -426,6 +514,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "/api/product-status" in doc["paths"]
         assert "/api/research-readiness" in doc["paths"]
         assert "/api/security-posture" in doc["paths"]
+        assert "/api/agent-stats" in doc["paths"]
         assert "/api/pilot-intake" in doc["paths"]
         assert "/api/pilot-intake.md" in doc["paths"]
         assert "/api/pilot-request-assist" in doc["paths"]
@@ -495,8 +584,12 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Publishable as full validation" in app_method_page
 
         mcp_method = c.get("/api/methodology/mcp").get_json()
-        assert "Private tools must fail closed" in mcp_method["contract"][1]
-        assert mcp_method["security"]["credential_headers"][0].startswith("Authorization")
+        assert "Private tools must be absent" in mcp_method["contract"][1]
+        assert "get_agent_stats" in mcp_method["surfaces"][0]["tools"]
+        assert any("Agent statistics must remain aggregate-only" in item
+                   for item in mcp_method["contract"])
+        assert mcp_method["security"]["credential_headers"] == ["X-13FLOW-Key: <token>"]
+        assert mcp_method["security"]["authorization_passthrough"] is False
 
         sandbox_page_public = c.get("/sandbox").get_data(as_text=True)
         assert "Sandbox in 60 seconds" in sandbox_page_public

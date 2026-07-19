@@ -107,6 +107,43 @@ Operational requirements (also in INSTALL_SERVER.md):
 - Public browser accounts, SMTP verification, HIBP and Stripe settings are not part of
   Core V1.
 
+## MCP public transport
+
+The Registry daemon at `/api/mcp` is a separate Node process with a public-data-only
+contract. Its default and production systemd profile does not register Pro or x402 tools.
+
+- **Protocol edge:** Apache accepts POST only on the exact MCP path, caps the body at 1 MiB,
+  removes client-supplied forwarding headers and proxies only to `127.0.0.1:8849`. The Node
+  service independently validates Host, Origin, JSON Content-Type, both MCP Accept types and
+  a single non-batch JSON-RPC object.
+- **Resource bounds:** header, request, upstream-response, connection, in-flight, per-client
+  rate-bucket and payment-cache limits are explicit. Request and upstream timeouts are
+  enforced; upstream redirects and non-JSON responses are rejected.
+- **Credential boundary:** client `Authorization` is never treated as a downstream Pro token
+  or forwarded. The optional private profile accepts only `X-13FLOW-Key`. Production secret
+  files must be root-owned, inaccessible to other users and opened without following links.
+- **Agent-content boundary:** SEC-derived labels and other external text remain untrusted data,
+  not instructions. Tool responses say so explicitly and all tools advertise read-only,
+  non-destructive annotations.
+- **Aggregate telemetry boundary:** the agent statistics store contains UTC daily counters by
+  fixed client family and registered tool name only. It never retains IP addresses,
+  User-Agents, client versions, raw client names, arguments, prompts, responses or keys.
+  Initializations are documented as handshakes, not unique users. Detailed days are pruned
+  after 30 days; the production path is pinned to the daemon's mode `0700` systemd
+  `StateDirectory`, the file is bounded to 1 MiB and written mode `0600` without following
+  links on read.
+- **Process isolation:** `13flow-mcp.service` runs as dedicated `flowmcp`, cannot read the web
+  or Pro environment/data paths, has no capabilities, and can connect only to loopback. The
+  unit removes every Pro/x402 activation and secret variable after reading its environment
+  file.
+- **Publication gate:** a valid `server.json` is not deployment proof. Publish an immutable
+  Registry version only after the same MCP version is live, the public smoke passes, private
+  tools are absent and the exact Registry record can be checked independently.
+
+Residual risk: application limits do not replace volumetric protection at Apache/CDN level.
+The dormant optional x402 profile is not approved for the public Registry daemon; enabling an
+external facilitator requires a separate unit, egress policy and security review.
+
 ## Deployment hardening checklist
 - [ ] `pip install defusedxml` (activates the strongest XML parse path).
 - [ ] Run the API behind auth + TLS (reverse proxy); never `--host 0.0.0.0` without it.
@@ -121,6 +158,10 @@ Operational requirements (also in INSTALL_SERVER.md):
 - [ ] If Pro API is enabled, route it to `13flow-pro.service`; public `13flow.service` must
       have no `SMARTMONEY_PRO_API`, no `SMARTMONEY_PRO_DB`, and no writable
       `/var/lib/13flow-pro` path. Back up the Pro DB and monitor audit volume.
+- [ ] Keep the Registry MCP unit on `flowmcp`, loopback-only, with
+      `MCP_PRO_TOOLS_ENABLED=0` and `MCP_X402_ENABLED=0`; run `npm run test:config`,
+      `npm run test:security`, `npm run test:telemetry` and the public smoke before Registry
+      publication. Confirm `/api/agent-stats` still reports the no-identifiers privacy contract.
 
 ## Residual risks (known, documented)
 - **DNS rebinding** on webhooks (mitigated, not eliminated — see egress proxy above).
@@ -182,8 +223,9 @@ surface. `SMARTMONEY_OPEN=1` is retained for compatibility.
   password, or payment code runs.
 - **Pro API is explicit.** `/api/pro/v1/*` is registered only when `SMARTMONEY_PRO_API=1`
   and is protected by API keys, scopes, rate limits, and audit in the separate Pro DB.
-- **GET-only, enforced twice.** Only read endpoints exist; Apache also denies anything but
-  `GET/HEAD/OPTIONS` at the edge (`<LimitExcept>`).
+- **Read-only, enforced twice.** Public web/API routes are GET-oriented. Apache admits POST
+  only for the exact MCP JSON-RPC transport and the explicitly documented admin login/logout
+  controls; the public MCP tool set itself contains no mutation.
 - **The web process cannot write the DB.** `SMARTMONEY_DB_READONLY=1` opens SQLite
   `mode=ro`; filesystem ownership (ingest user writes, web user reads) enforces it again. The
   ingest job runs separately and checkpoints the WAL so the served file is self-contained.
@@ -194,6 +236,7 @@ surface. `SMARTMONEY_OPEN=1` is retained for compatibility.
 - **systemd sandbox + TLS reverse proxy.** See `deploy/` — non-root service,
   `ProtectSystem=strict`, no capabilities, `MemoryDenyWriteExecute`, syscall allow-list;
   bound to `127.0.0.1` behind Apache TLS with HSTS.
-- **Residual / by-design.** Rate limiting is at the edge (mod_evasive / CDN), not in-app.
+- **Residual / by-design.** Volumetric web protection remains at the edge (mod_evasive / CDN);
+  the MCP additionally has process-level per-client and concurrency limits.
   Live Confluence (`SMARTMONEY_CONFLUENCE_LIVE=1`) makes the web tier do outbound EDGAR
   calls — leave it off (sample) or precompute if you want the web tier strictly offline.
