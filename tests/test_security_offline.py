@@ -187,6 +187,55 @@ def test_private_stats_generation_minimizes_data_and_is_sandboxed():
     assert "Persistent=true" in timer
 
 
+def test_zen_default_vhost_is_inert_first_order_and_separately_logged():
+    root = Path(__file__).resolve().parents[1]
+    vhost = (root / "deploy" / "apache-zen-default.conf").read_text(encoding="utf-8")
+    page = (root / "deploy" / "zen-default" / "index.html").read_text(encoding="utf-8")
+    css = (root / "deploy" / "zen-default" / "zen.css").read_text(encoding="utf-8")
+    deploy = (root / "deploy" / "deploy-code-safe.sh").read_text(encoding="utf-8")
+    cert_activator_path = root / "deploy" / "activate-zen-default-cert.sh"
+    cert_activator = cert_activator_path.read_text(encoding="utf-8")
+
+    assert vhost.count("<VirtualHost *:") == 2
+    assert "<VirtualHost *:80>" in vhost and "<VirtualHost *:443>" in vhost
+    assert vhost.count("ServerName zen.invalid") == 2
+    assert vhost.count("ServerAlias toonux.org toonux.com l0g.me l0g.us w2p.org") == 2
+    assert vhost.count("DocumentRoot /var/www/html/zen-default") == 2
+    assert vhost.count("FallbackResource /index.html") == 2
+    assert vhost.count("<LimitExcept GET HEAD>") == 2
+    assert "ProxyPass" not in vhost
+    assert "zen_default_access.log zen_default_minimal" in vhost
+    assert "13flow_access.log" not in vhost
+    assert "script-src 'none'" in vhost
+    assert "connect-src 'none'" in vhost
+    assert "frame-ancestors 'none'" in vhost
+    assert "X-Robots-Tag \"noindex, nofollow, noarchive\"" in vhost
+    assert "Strict-Transport-Security" not in vhost
+    assert "powered by Debian GNU Linux" in page
+    assert "runned by bluetouff" in page
+    assert "no service mapped to this hostname" in page
+    assert "<script" not in page.lower()
+    assert 'href="/zen.css"' in page
+    assert "url(" not in css.lower()
+    assert cert_activator_path.stat().st_mode & 0o111
+    assert "zen_hosts=(toonux.org toonux.com l0g.me l0g.us w2p.org)" in cert_activator
+    assert "openssl x509" in cert_activator and '-checkhost "$zen_host"' in cert_activator
+    assert "apache2ctl configtest" in cert_activator
+    assert "systemctl reload apache2" in cert_activator
+    assert '--resolve "$zen_host:443:127.0.0.1"' in cert_activator
+    assert "ZEN_DEFAULT_VHOST=/etc/apache2/sites-available/000-zen-default.conf" in deploy
+    assert "ZEN_DEFAULT_CERT_DIR=/etc/letsencrypt/live/zen-default" in deploy
+    assert "ZEN_DEFAULT_HOSTS=(toonux.org toonux.com l0g.me l0g.us w2p.org)" in deploy
+    assert "the dedicated ZEN default certificate is incomplete" in deploy
+    assert "openssl x509" in deploy and '-checkhost "$zen_host"' in deploy
+    assert 'zen_default_cert_name=zen-default' in deploy
+    assert "--resolve toonux.org:443:127.0.0.1" in deploy
+    assert "a2ensite 000-zen-default.conf" in deploy
+    assert "Host: unconfigured.zen.invalid" in deploy
+    assert "X-Zen-Node: online" in deploy
+    assert "Host: 13flow.eu" in deploy
+
+
 def test_safe_deploy_restarts_and_stamps_pro_service():
     root = Path(__file__).resolve().parents[1]
     script = (root / "deploy" / "deploy-code-safe.sh").read_text(encoding="utf-8")

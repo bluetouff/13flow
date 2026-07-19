@@ -75,6 +75,9 @@ The separate operator-only `/stats/` surface is an optional password-protected G
 report generated from Apache logs. It adds no browser tracking, strips query strings,
 anonymizes report IPs at level 2 and keeps a 90-day reporting window. Its dedicated CSP is
 scoped to the authenticated report so the public site's nonce policy remains unchanged.
+Production also installs a first-in-order static `000-zen-default.conf` vhost. Unknown Host
+headers receive an inert ZEN page and a separate minimal access log instead of reaching
+13FLOW or contaminating `13flow_access.log`; named vhosts continue to route normally.
 `/api/live-status` is the public,
 machine-readable proof of live state: SHA, source (`SEC EDGAR`), latest quarter, row counts,
 data-quality summary, and `uses_synthetic_data=false`. `/api/product-status` is the

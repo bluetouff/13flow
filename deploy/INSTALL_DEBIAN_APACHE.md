@@ -235,7 +235,39 @@ sudo certbot certonly --apache -d 13flow.eu -d www.13flow.eu \
      --agree-tos -m contact@13flow.eu --no-eff-email
 ```
 
-Le vhost référence déjà `/etc/letsencrypt/live/13flow.eu/…`. Test et reload :
+Installez ensuite le vhost par défaut avant les vhosts nommés :
+
+```bash
+sudo install -d -o root -g www-data -m 750 /var/www/html/zen-default
+sudo install -o root -g www-data -m 640 deploy/zen-default/index.html /var/www/html/zen-default/index.html
+sudo install -o root -g www-data -m 640 deploy/zen-default/zen.css /var/www/html/zen-default/zen.css
+sudo install -o root -g root -m 644 deploy/apache-zen-default.conf /etc/apache2/sites-available/000-zen-default.conf
+sudo a2ensite 000-zen-default.conf
+```
+
+Rechargez d'abord Apache avec le certificat de repli, puis émettez le certificat dédié par
+webroot et activez-le transactionnellement :
+
+```bash
+sudo apache2ctl configtest && sudo systemctl reload apache2
+sudo certbot certonly --webroot -w /var/www/html/zen-default --cert-name zen-default \
+  -d toonux.org -d toonux.com -d l0g.me -d l0g.us -d w2p.org \
+  --deploy-hook "systemctl reload apache2"
+sudo /opt/13flow/deploy/activate-zen-default-cert.sh
+```
+
+`deploy-code-safe.sh` maintient ensuite automatiquement ce vhost et sa page. Le préfixe
+`000-` est une barrière fonctionnelle : Apache l'évalue avant `13flow.conf`, donc un Host
+inconnu reste sur la page ZEN et écrit dans `zen_default_access.log`, jamais dans
+`13flow_access.log`. Le journal minimal omet query string, referrer et User-Agent.
+
+Le déploiement valide que le certificat `zen-default` couvre les cinq noms avant de l'utiliser.
+S'il est absent, le vhost TLS réutilise temporairement le certificat de 13FLOW uniquement pour
+isoler les requêtes qui terminent leur handshake ; le navigateur conservera alors un
+avertissement de nom. Un certificat dédié partiel ou ne couvrant pas les cinq noms bloque le
+déploiement.
+
+Les vhosts référencent désormais `/etc/letsencrypt/live/13flow.eu/…`. Test et reload :
 
 ```bash
 sudo apache2ctl configtest && sudo systemctl reload apache2
