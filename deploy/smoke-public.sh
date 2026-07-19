@@ -84,7 +84,7 @@ path, code = sys.argv[1], sys.argv[2]
 with open(path, "r", encoding="utf-8") as fh:
     data = json.load(fh)
 env = {"data": data, "ok": True, "msg": ""}
-exec(code, {}, env)
+exec(code, env, env)
 if not env.get("ok"):
     raise SystemExit(env.get("msg") or "json check failed")
 PY
@@ -789,8 +789,10 @@ contract = data.get('contract') or []
 security = data.get('security') or {}
 ok = (
     data.get('title') == '13FLOW MCP methodology'
-    and any('fail closed' in item for item in contract)
-    and 'Authorization: Bearer <token>' in (security.get('credential_headers') or [])
+    and any('Private tools must be absent' in item for item in contract)
+    and any('Agent statistics must remain aggregate-only' in item for item in contract)
+    and security.get('credential_headers') == ['X-13FLOW-Key: <token>']
+    and security.get('authorization_passthrough') is False
 )
 msg = str(data)
 "

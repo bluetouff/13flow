@@ -103,6 +103,9 @@ def test_apache_method_policy_separates_public_and_pro_api():
     assert "<LimitExcept GET HEAD OPTIONS>" in public_conf
     assert "<LimitExcept GET HEAD OPTIONS POST PUT PATCH DELETE>" in pro_conf
     assert "ProxyPass        /api/pro/ http://127.0.0.1:8001/api/pro/" in pro_conf
+    assert "<LimitExcept GET HEAD OPTIONS POST PUT PATCH DELETE>" in public_conf
+    assert "ProxyPass        /api/pro/ http://127.0.0.1:8001/api/pro/" in public_conf
+    assert "api/pro/|pro/admin/login" in public_conf
 
 
 def test_safe_deploy_restarts_and_stamps_pro_service():
