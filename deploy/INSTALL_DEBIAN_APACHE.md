@@ -245,7 +245,46 @@ Ouvrez **https://13flow.eu** : le dashboard se charge **sans bouton Sign in ni o
 (build ouvert), la FAQ est en bas de la barre latérale. Le renouvellement TLS est automatique
 (`systemctl list-timers | grep certbot`).
 
-## 10. Rafraîchir les données automatiquement
+## 10. Statistiques privées sans cookie
+
+Le rapport d'exploitation `/stats/` suit le modèle de CompatAir : GoAccess lit le journal
+Apache de 13FLOW côté serveur, sans ajouter de cookie ni de script de suivi aux pages publiques.
+Les paramètres d'URL sont supprimés, les adresses IP sont anonymisées au niveau 2 dans le
+rapport et seules les 90 dernières journées sont affichées. Les « visiteurs » restent des
+hôtes anonymisés estimés par GoAccess, pas des personnes ni des comptes 13FLOW.
+
+Après avoir déployé le vhost qui contient l'`IncludeOptional`, lancez :
+
+```bash
+sudo /opt/13flow/deploy/install-stats.sh
+```
+
+L'installateur demande un identifiant et un mot de passe d'au moins 16 caractères sans les
+afficher. Il stocke uniquement un hash bcrypt dans
+`/etc/apache2/13flow-stats.htpasswd` (`root:www-data`, mode `0640`), crée l'utilisateur système
+sans shell `flowstats`, génère le premier rapport et active un timer toutes les 15 minutes.
+
+La CSP principale du site n'est pas assouplie. Une CSP séparée, limitée à `/stats/`, autorise
+le bootstrap inline et les fichiers JS/CSS de GoAccess ; elle conserve notamment
+`connect-src 'none'`, `object-src 'none'` et `frame-ancestors 'none'`. Ne copiez pas cette
+exception vers les pages publiques.
+
+Contrôles opérateur :
+
+```bash
+curl -sSI https://13flow.eu/stats/ | sed -n '1,20p'  # 401 + challenge Basic
+sudo systemctl status 13flow-stats.timer --no-pager
+sudo systemctl status 13flow-stats.service --no-pager
+sudo systemd-analyze security 13flow-stats.service
+```
+
+Le rapport est disponible à `https://13flow.eu/stats/`. Le chemin exact `/stats` redirige vers
+`/stats/`. Il est envoyé avec `private, no-store` et `X-Robots-Tag: noindex, nofollow, noarchive`.
+Les accès au rapport lui-même sont exclus du journal utilisé pour les métriques. Ils restent
+auditables dans `/var/log/apache2/13flow_stats_access.log`, avec une ligne volontairement
+minimale qui ne contient ni identifiant Basic Auth, ni query string, ni referrer, ni User-Agent.
+
+## 11. Rafraîchir les données automatiquement
 
 ```bash
 sudo cp deploy/13flow-refresh.service /etc/systemd/system/
@@ -260,7 +299,7 @@ journalctl -u 13flow-refresh.service --no-pager      # vérifier l'ingestion
 fichier autonome, lisible en `mode=ro`. Les workers prennent les nouvelles données à la
 connexion suivante (`sudo systemctl reload 13flow` optionnel).
 
-## 11. (Option) protection anti-flood
+## 12. (Option) protection anti-flood
 
 ```bash
 sudo apt -y install libapache2-mod-evasive
@@ -272,7 +311,7 @@ sudo systemctl reload apache2
 Un CDN devant le site (Cloudflare) est l'option la moins chère pour un site quasi statique en
 lecture seule (cache au bord + protection volumétrique).
 
-## 12. Vérification post-déploiement (preflight)
+## 13. Vérification post-déploiement (preflight)
 
 ```bash
 /opt/13flow/deploy/preflight.sh           # teste https://13flow.eu

@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh the private 13FLOW GoAccess report every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+RandomizedDelaySec=30
+Unit=13flow-stats.service
+
+[Install]
+WantedBy=timers.target

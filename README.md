@@ -71,6 +71,10 @@ served at `/funds`, `/funds/<cik>`, `/stocks`, `/stocks/<ticker>`, `/signals`, a
 `/agents` and `/fr/agents` publish 7/30-day MCP activity from durable UTC aggregates. They
 make no unique-user claim and retain no IP address, User-Agent, client version, raw client
 identifier, arguments, prompts, responses or keys.
+The separate operator-only `/stats/` surface is an optional password-protected GoAccess
+report generated from Apache logs. It adds no browser tracking, strips query strings,
+anonymizes report IPs at level 2 and keeps a 90-day reporting window. Its dedicated CSP is
+scoped to the authenticated report so the public site's nonce policy remains unchanged.
 `/api/live-status` is the public,
 machine-readable proof of live state: SHA, source (`SEC EDGAR`), latest quarter, row counts,
 data-quality summary, and `uses_synthetic_data=false`. `/api/product-status` is the

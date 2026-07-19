@@ -17,6 +17,12 @@ MCP_GROUP=${MCP_GROUP:-flowmcp}
 BACKUP_DIR=${BACKUP_DIR:-/home/bluetouff}
 MCP_UNIT=/etc/systemd/system/13flow-mcp.service
 APACHE_VHOST=/etc/apache2/sites-available/13flow.conf
+STATS_APACHE_FRAGMENT=/etc/apache2/13flow-stats.conf
+STATS_HTPASSWD=/etc/apache2/13flow-stats.htpasswd
+STATS_GENERATOR=/usr/local/libexec/13flow-generate-stats
+STATS_UNIT=/etc/systemd/system/13flow-stats.service
+STATS_TIMER=/etc/systemd/system/13flow-stats.timer
+stats_runtime_enabled=0
 
 if [[ $EUID -ne 0 ]]; then
   echo "Run me with sudo." >&2
@@ -45,6 +51,37 @@ fi
 if [[ ! -d "$APP_DIR/mcp-server/node_modules/@modelcontextprotocol/sdk" ]]; then
   echo "Refusing deploy: MCP node_modules are missing. Run npm ci in $APP_DIR/mcp-server first." >&2
   exit 3
+fi
+
+stats_runtime_count=0
+for stats_path in \
+  "$STATS_APACHE_FRAGMENT" "$STATS_HTPASSWD" "$STATS_GENERATOR" \
+  "$STATS_UNIT" "$STATS_TIMER"; do
+  [[ -f "$stats_path" ]] && stats_runtime_count=$((stats_runtime_count + 1))
+done
+if (( stats_runtime_count != 0 && stats_runtime_count != 5 )); then
+  echo "Refusing deploy: private statistics installation is incomplete." >&2
+  exit 3
+fi
+(( stats_runtime_count == 5 )) && stats_runtime_enabled=1
+if (( stats_runtime_enabled )); then
+  for stats_path in \
+    "$STATS_APACHE_FRAGMENT" "$STATS_HTPASSWD" "$STATS_GENERATOR" \
+    "$STATS_UNIT" "$STATS_TIMER"; do
+    if [[ -L "$stats_path" ]]; then
+      echo "Refusing deploy: statistics runtime file is a symlink: $stats_path" >&2
+      exit 3
+    fi
+  done
+  if [[ $(stat -c '%a:%U:%G' "$STATS_HTPASSWD") != "640:root:www-data" ]]; then
+    echo "Refusing deploy: statistics password file ownership or mode is unsafe." >&2
+    exit 3
+  fi
+  if ! id -u flowstats >/dev/null 2>&1 || \
+     [[ ! -d /var/www/html/13flow-stats || -L /var/www/html/13flow-stats ]]; then
+    echo "Refusing deploy: statistics user or output directory is missing or unsafe." >&2
+    exit 3
+  fi
 fi
 
 wait_url() {
@@ -77,12 +114,22 @@ rollback() {
   if [[ -f "${config_backup:-}/13flow.conf" ]]; then
     cp -a "$config_backup/13flow.conf" "$APACHE_VHOST"
   fi
+  if (( stats_runtime_enabled )); then
+    cp -a "$config_backup/13flow-stats.conf" "$STATS_APACHE_FRAGMENT"
+    cp -a "$config_backup/13flow-generate-stats" "$STATS_GENERATOR"
+    cp -a "$config_backup/13flow-stats.service" "$STATS_UNIT"
+    cp -a "$config_backup/13flow-stats.timer" "$STATS_TIMER"
+  fi
   systemctl daemon-reload
   systemctl restart 13flow
   if service_exists 13flow-pro.service; then
     systemctl restart 13flow-pro
   fi
   systemctl restart 13flow-mcp
+  if (( stats_runtime_enabled )); then
+    systemctl restart 13flow-stats.timer
+    systemctl start 13flow-stats.service
+  fi
   apache2ctl configtest && systemctl reload apache2
   exit "$rc"
 }
@@ -106,6 +153,12 @@ cp -a "$APP_DIR" "$backup"
 install -d -m 700 "$config_backup"
 cp -a "$MCP_UNIT" "$config_backup/13flow-mcp.service"
 cp -a "$APACHE_VHOST" "$config_backup/13flow.conf"
+if (( stats_runtime_enabled )); then
+  cp -a "$STATS_APACHE_FRAGMENT" "$config_backup/13flow-stats.conf"
+  cp -a "$STATS_GENERATOR" "$config_backup/13flow-generate-stats"
+  cp -a "$STATS_UNIT" "$config_backup/13flow-stats.service"
+  cp -a "$STATS_TIMER" "$config_backup/13flow-stats.timer"
+fi
 
 echo "==> [2/8] Stop services"
 systemctl stop 13flow-mcp || true
@@ -160,6 +213,16 @@ install -o root -g root -m 644 \
   "$APP_DIR/mcp-server/deploy/13flow-mcp.service" "$MCP_UNIT"
 install -o root -g root -m 644 \
   "$APP_DIR/deploy/apache-13flow.conf" "$APACHE_VHOST"
+if (( stats_runtime_enabled )); then
+  install -o root -g root -m 644 \
+    "$APP_DIR/deploy/apache-13flow-stats.conf" "$STATS_APACHE_FRAGMENT"
+  install -o root -g root -m 755 \
+    "$APP_DIR/deploy/generate-stats.sh" "$STATS_GENERATOR"
+  install -o root -g root -m 644 \
+    "$APP_DIR/deploy/13flow-stats.service" "$STATS_UNIT"
+  install -o root -g root -m 644 \
+    "$APP_DIR/deploy/13flow-stats.timer" "$STATS_TIMER"
+fi
 apache2ctl configtest
 
 echo "==> [7/8] Stamp deployed SHA through systemd"
@@ -185,6 +248,10 @@ if service_exists 13flow-pro.service; then
   systemctl restart 13flow-pro
 fi
 systemctl restart 13flow-mcp
+if (( stats_runtime_enabled )); then
+  systemctl restart 13flow-stats.timer
+  systemctl start 13flow-stats.service
+fi
 
 wait_url "13flow API" "http://127.0.0.1:8000/api/version" 20 1
 if service_exists 13flow-pro.service; then
