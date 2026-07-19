@@ -371,15 +371,32 @@ fi
 wait_url "13flow MCP" "http://127.0.0.1:8849/healthz" 20 1
 wait_url "13flow agent statistics" "http://127.0.0.1:8849/stats" 20 1
 systemctl reload apache2
-zen_default_headers=$(curl --silent --show-error --head --max-time 5 \
-  --noproxy '*' --header 'Host: unconfigured.zen.invalid' http://127.0.0.1/)
-grep -qi '^X-Zen-Node: online' <<<"$zen_default_headers"
-zen_default_html=$(curl --silent --show-error --fail --max-time 5 \
-  --noproxy '*' --header 'Host: unconfigured.zen.invalid' http://127.0.0.1/arbitrary/path)
-grep -Fq 'powered by Debian GNU Linux' <<<"$zen_default_html"
-grep -Fq 'runned by bluetouff' <<<"$zen_default_html"
-known_host_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
-  --max-time 5 --noproxy '*' --header 'Host: 13flow.eu' http://127.0.0.1/)
+if ! zen_default_headers=$(curl --silent --show-error --head --max-time 5 \
+  --noproxy '*' --header 'Host: unconfigured.zen.invalid' http://127.0.0.1/); then
+  echo "ZEN default Host-boundary probe failed." >&2
+  exit 4
+fi
+if ! grep -qi '^X-Zen-Node: online' <<<"$zen_default_headers"; then
+  echo "Unknown Host did not reach the isolated ZEN default vhost." >&2
+  exit 4
+fi
+# A strict ModSecurity policy may reject the deliberately invalid Host above.
+# Fetch the body with an explicitly allowed hostname instead.
+if ! zen_default_html=$(curl --silent --show-error --fail --max-time 5 \
+  --noproxy '*' --header 'Host: toonux.org' http://127.0.0.1/arbitrary/path); then
+  echo "ZEN default page probe failed for an allowed hostname." >&2
+  exit 4
+fi
+if ! grep -Fq 'powered by Debian GNU Linux' <<<"$zen_default_html" || \
+   ! grep -Fq 'runned by bluetouff' <<<"$zen_default_html"; then
+  echo "ZEN default page content is incomplete." >&2
+  exit 4
+fi
+if ! known_host_status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+  --max-time 5 --noproxy '*' --header 'Host: 13flow.eu' http://127.0.0.1/); then
+  echo "Named 13flow.eu vhost probe failed." >&2
+  exit 4
+fi
 if [[ "$known_host_status" != "301" ]]; then
   echo "Expected the named 13flow.eu HTTP vhost to remain a 301, got $known_host_status." >&2
   exit 4

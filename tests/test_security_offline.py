@@ -232,6 +232,7 @@ def test_zen_default_vhost_is_inert_first_order_and_separately_logged():
     assert "--resolve toonux.org:443:127.0.0.1" in deploy
     assert "a2ensite 000-zen-default.conf" in deploy
     assert "Host: unconfigured.zen.invalid" in deploy
+    assert "Host: toonux.org" in deploy
     assert "X-Zen-Node: online" in deploy
     assert "Host: 13flow.eu" in deploy
 
