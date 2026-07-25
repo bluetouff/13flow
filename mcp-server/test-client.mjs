@@ -41,7 +41,7 @@ await expectHttpStatus('incomplete MCP Accept header', 406, {
   headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
   body: '{}',
 });
-await expectHttpStatus('malformed JSON rejection', 400, {
+await expectHttpStatus('malformed JSON rejection', EXPECT_WAF_REJECTIONS ? [400, 500] : 400, {
   method: 'POST',
   headers: JSON_HEADERS,
   body: '{',

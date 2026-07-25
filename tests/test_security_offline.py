@@ -109,17 +109,22 @@ def test_apache_method_policy_separates_public_and_pro_api():
     assert "api/pro/|pro/admin/login" in public_conf
 
 
-def test_mcp_modsecurity_parser_errors_fail_closed_without_disabling_inspection():
+def test_mcp_modsecurity_parser_bug_is_bounded_without_disabling_inspection():
     root = Path(__file__).resolve().parents[1]
     public_conf = (root / "deploy" / "apache-13flow.conf").read_text(encoding="utf-8")
     mcp_location = public_conf.split('<LocationMatch "^/api/mcp$">', 1)[1].split(
         "</LocationMatch>", 1
     )[0]
+    smoke = (root / "deploy" / "smoke-public.sh").read_text(encoding="utf-8")
+    client = (root / "mcp-server" / "test-client.mjs").read_text(encoding="utf-8")
+    readme = (root / "mcp-server" / "README.md").read_text(encoding="utf-8")
 
-    assert 'SecRule REQBODY_ERROR "!@eq 0"' in mcp_location
-    assert "id:13001301,phase:2,t:none,log,deny,status:400" in mcp_location
     assert "SecRequestBodyAccess Off" not in mcp_location
     assert "SecRuleEngine Off" not in mcp_location
+    assert 'case "$mcp_malformed_status" in' in smoke
+    assert "MCP malformed JSON rejected by ModSecurity 2.x (500)" in smoke
+    assert "EXPECT_WAF_REJECTIONS ? [400, 500] : 400" in client
+    assert "https://github.com/owasp-modsecurity/ModSecurity/issues/2807" in readme
 
 
 def test_dependency_security_floors_are_pinned():

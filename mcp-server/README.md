@@ -173,8 +173,15 @@ upstream response and concurrency-cap regressions. `npm run test:telemetry` veri
 persistence, retention, metric reconciliation and absence of raw client/tool data. Set
 `SKIP_HEALTH=1` only when testing
 through a public proxy that intentionally keeps `/healthz` private. The production
-ModSecurity edge can reject an unsupported request content type before the MCP backend;
-set `EXPECT_WAF_REJECTIONS=1` for that stricter public boundary:
+ModSecurity edge can reject an unsupported request content type before the MCP backend.
+On Debian 12, the packaged ModSecurity 2.x JSON processor is also affected by
+[upstream issue #2807](https://github.com/owasp-modsecurity/ModSecurity/issues/2807):
+truncated JSON can be rejected with a generic HTTP 500 before `REQBODY_ERROR` becomes
+available to a phase-2 rule. Set `EXPECT_WAF_REJECTIONS=1` to accept only these bounded,
+fail-closed edge differences (403 or 415 for unsupported content type; 400 or 500 for
+truncated JSON). Direct backend tests remain strict and require 415 and 400 respectively.
+Do not disable `SecRequestBodyAccess` or the JSON processor to normalize these statuses:
+that would reduce request-body inspection.
 
 ```bash
 URL=https://13flow.eu/api/mcp \
