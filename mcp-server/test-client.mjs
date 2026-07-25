@@ -5,6 +5,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 const URL_ = process.env.URL || 'http://127.0.0.1:8849/mcp';
 const EXPECTED_VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 const EXPECT_PRO_TOOLS = process.env.EXPECT_PRO_TOOLS === '1';
+const EXPECT_WAF_REJECTIONS = process.env.EXPECT_WAF_REJECTIONS === '1';
 const JSON_HEADERS = {
   'Content-Type': 'application/json',
   Accept: 'application/json, text/event-stream',
@@ -30,7 +31,7 @@ await expectHttpStatus('invalid Host rejection', [400, 421], {
   headers: { ...JSON_HEADERS, Host: 'evil.example' },
   body: '{}',
 });
-await expectHttpStatus('missing JSON content type', 415, {
+await expectHttpStatus('missing JSON content type', EXPECT_WAF_REJECTIONS ? [403, 415] : 415, {
   method: 'POST',
   headers: { Accept: JSON_HEADERS.Accept },
   body: '{}',

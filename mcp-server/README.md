@@ -172,7 +172,15 @@ result-size bounds, canonical provenance links and absence of Pro tools by defau
 upstream response and concurrency-cap regressions. `npm run test:telemetry` verifies
 persistence, retention, metric reconciliation and absence of raw client/tool data. Set
 `SKIP_HEALTH=1` only when testing
-through a public proxy that intentionally keeps `/healthz` private.
+through a public proxy that intentionally keeps `/healthz` private. The production
+ModSecurity edge can reject an unsupported request content type before the MCP backend;
+set `EXPECT_WAF_REJECTIONS=1` for that stricter public boundary:
+
+```bash
+URL=https://13flow.eu/api/mcp \
+STATS_URL=https://13flow.eu/api/agent-stats \
+SKIP_HEALTH=1 EXPECT_WAF_REJECTIONS=1 npm test
+```
 
 ## Official MCP Registry
 

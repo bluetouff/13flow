@@ -885,6 +885,17 @@ else
 fi
 
 if [[ "$REQUIRE_MCP" == "1" ]]; then
+  mcp_malformed_status=$(curl -sS -o "$tmpdir/mcp-malformed.txt" -w '%{http_code}' \
+      --max-time 20 "$SITE/api/mcp" \
+      -H 'Content-Type: application/json' \
+      -H 'Accept: application/json, text/event-stream' \
+      --data-binary '{' || echo 000)
+  if [[ "$mcp_malformed_status" == "400" ]]; then
+    ok "MCP malformed JSON fails closed (400)"
+  else
+    bad "MCP malformed JSON fails closed" "got HTTP $mcp_malformed_status, expected 400"
+  fi
+
   mcp_tools="$tmpdir/mcp-tools.json"
   if curl -fsS --max-time 20 "$SITE/api/mcp" \
       -H 'Content-Type: application/json' \
