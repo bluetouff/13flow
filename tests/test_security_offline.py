@@ -4,6 +4,7 @@ Security regression tests. No network (DNS resolution disabled in URL checks).
 Locks in the hardening so a future refactor can't silently reopen a hole.
 """
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -106,6 +107,27 @@ def test_apache_method_policy_separates_public_and_pro_api():
     assert "<LimitExcept GET HEAD OPTIONS POST PUT PATCH DELETE>" in public_conf
     assert "ProxyPass        /api/pro/ http://127.0.0.1:8001/api/pro/" in public_conf
     assert "api/pro/|pro/admin/login" in public_conf
+
+
+def test_dependency_security_floors_are_pinned():
+    root = Path(__file__).resolve().parents[1]
+    package = json.loads(
+        (root / "mcp-server" / "package.json").read_text(encoding="utf-8")
+    )
+    package_lock = json.loads(
+        (root / "mcp-server" / "package-lock.json").read_text(encoding="utf-8")
+    )
+    install_guide = (root / "deploy" / "INSTALL_DEBIAN_APACHE.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert package["overrides"]["@hono/node-server"] == "2.0.11"
+    assert package["overrides"]["fast-uri"] == "3.1.4"
+    assert (
+        package_lock["packages"]["node_modules/@hono/node-server"]["version"] == "2.0.11"
+    )
+    assert package_lock["packages"]["node_modules/fast-uri"]["version"] == "3.1.4"
+    assert '"pip>=26.1.2"' in install_guide
 
 
 def test_private_stats_apache_boundary_and_csp_are_isolated():
