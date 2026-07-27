@@ -160,6 +160,9 @@
   .qsev.critical{background:rgba(239,106,82,.16);color:var(--down)}
   .qsev.high{background:rgba(224,165,52,.16);color:#e9b85a}
   .qsev.review{background:var(--accent-soft);color:var(--accent-2)}
+  .qscope{display:block;margin-top:5px;font-size:9px;text-transform:uppercase;letter-spacing:.05em;text-align:center;color:var(--faint)}
+  .qscope.current{color:var(--down);font-weight:700}
+  .qscope.historical{color:var(--accent-2)}
   .qmeta{color:var(--faint);font-size:11px}
   .qval{color:var(--muted)}
 
@@ -688,7 +691,7 @@ async function vCompare(){
 
 //---- Data quality ----
 async function vQuality(){
-  V.innerHTML=`<p class="view-title">Data-quality flags stay visible. Suspect filing jumps are surfaced for review instead of being corrected silently.</p>
+  V.innerHTML=`<p class="view-title">Current-quarter issues are separated from historical anomalies. Historical findings stay visible for audit without being presented as current signal failures.</p>
     <div class="stats" id="qstats"></div>
     <div class="panel">
       <div class="panel-h"><h3>AUM discontinuities</h3><span class="hint" id="qhint">THRESHOLD 100X</span></div>
@@ -701,16 +704,16 @@ async function vQuality(){
   const q=await api("/api/data-quality?threshold=100&limit=50");
   const s=q.summary||{};
   document.getElementById("qstats").innerHTML=[
-    ["Status",esc((s.status||"unknown").toUpperCase())],
-    ["Funds scanned",s.funds_scanned||0],
-    ["Warnings",s.aum_jump_warnings||0],
-    ["x1000 candidates",s.unit_scale_candidates||0],
+    ["Current status",esc((s.current_status||"unknown").toUpperCase())],
+    ["Current quarter",esc(s.current_quarter||"unknown")],
+    ["Current issues",s.current_review_items||0],
+    ["Historical anomalies",s.historical_review_items||0],
   ].map(([l,v])=>`<div class="stat"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
   const warnings=q.warnings||[];
   document.getElementById("qrows").innerHTML=warnings.length?warnings.map(w=>`
     <div class="qrow fade">
       <div><div class="qfund">${esc(w.fund.label)}</div><div class="qmeta">${esc(w.fund.cik)}</div></div>
-      <div><span class="qsev ${esc(w.severity)}">${esc(w.severity)}</span></div>
+      <div><span class="qsev ${esc(w.severity)}">${esc(w.severity)}</span><span class="qscope ${w.affects_current_quarter?'current':(w.temporal_scope==='historical'?'historical':'')}">${w.affects_current_quarter?'current impact':(w.temporal_scope==='historical'?'historical':'other quarter')}</span></div>
       <div><div class="qval">${esc(w.from.report_date)} · ${fmtUSD(w.from.total_value)}</div><div class="qmeta">${esc(w.from.form)} · ${esc(w.from.n_positions)} pos.</div></div>
       <div><div class="qval">${esc(w.to.report_date)} · ${fmtUSD(w.to.total_value)}</div><div class="qmeta">${esc(w.to.form)} · ${esc(w.to.n_positions)} pos.</div></div>
       <div class="count" style="font-size:20px;text-align:right">${(+w.ratio).toFixed(0)}<small>x ${esc(w.direction)}</small></div>
@@ -719,7 +722,7 @@ async function vQuality(){
   document.getElementById("qcands").innerHTML=cands.length?cands.map(c=>`
     <div class="qrow fade">
       <div><div class="qfund">${esc(c.fund.label)}</div><div class="qmeta">${esc(c.fund.cik)}</div></div>
-      <div><span class="qsev high">${esc(c.action)}</span></div>
+      <div><span class="qsev high">${esc(c.action)}</span><span class="qscope ${c.affects_current_quarter?'current':(c.temporal_scope==='historical'?'historical':'')}">${c.affects_current_quarter?'current impact':(c.temporal_scope==='historical'?'historical':'other quarter')}</span></div>
       <div class="qval">${esc(c.previous.report_date)} · ${fmtUSD(c.previous.total_value)}</div>
       <div class="qval">${esc(c.current.report_date)} · ${fmtUSD(c.current.total_value)}</div>
       <div class="num" style="text-align:right">${(+c.ratio_to_neighbor_geomean).toFixed(6)}</div>
@@ -1021,14 +1024,14 @@ const SAMPLE={
  coverage:{coverage:{overall_value_share:0.978,value_unresolved:1.9e9,per_fund:[]},tail:[]},
  quality:{notes:["Warnings are read-only data-quality signals, not automatic corrections."],
   parameters:{aum_jump_threshold:100,limit:50},
-  summary:{status:"review",funds_scanned:39,series_points:1144,aum_jump_warnings:2,unit_scale_candidates:0},
+  summary:{status:"review",current_status:"review",current_quarter:"2024-06-30",funds_scanned:39,series_points:1144,aum_jump_warnings:2,current_aum_jump_warnings:1,historical_aum_jump_warnings:1,unit_scale_candidates:0,current_unit_scale_candidates:0,historical_unit_scale_candidates:0,current_review_items:1,historical_review_items:1,outside_current_quarter_review_items:0,review_items:2},
   unit_scale_candidates:[],
   warnings:[
-   {type:"aum_jump",severity:"critical",status:"review_required",direction:"up",ratio:1842.9,
+   {type:"aum_jump",severity:"critical",status:"review_required",direction:"up",ratio:1842.9,event_quarter:"2024-06-30",current_quarter:"2024-06-30",temporal_scope:"current_quarter",affects_current_quarter:true,
     fund:{cik:"0001541617",label:"Altimeter"},
     from:{accession:"0001541617-23-000003",filing_date:"2023-02-14",form:"13F-HR",n_positions:11,report_date:"2022-12-31",total_value:3652571},
     to:{accession:"0001541617-24-000007",filing_date:"2024-08-14",form:"13F-HR",n_positions:20,report_date:"2024-06-30",total_value:6731598776}},
-   {type:"aum_jump",severity:"review",status:"review_required",direction:"up",ratio:120,
+   {type:"aum_jump",severity:"review",status:"review_required",direction:"up",ratio:120,event_quarter:"2013-06-30",current_quarter:"2024-06-30",temporal_scope:"historical",affects_current_quarter:false,
     fund:{cik:"0001112520",label:"Akre Capital"},
     from:{accession:"0000919574-13-004202",filing_date:"2013-07-29",form:"13F-HR/A",n_positions:1,report_date:"2013-03-31",total_value:18428000},
     to:{accession:"0000919574-13-004807",filing_date:"2013-08-14",form:"13F-HR",n_positions:37,report_date:"2013-06-30",total_value:2210576000}},

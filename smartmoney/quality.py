@@ -119,6 +119,47 @@ def _add_reason(decision: dict[str, Any], code: str, detail: dict[str, Any] | No
     decision["reasons"].append(reason)
 
 
+def _temporal_scope(event_quarter: str | None, current_quarter: str | None) -> str:
+    if not event_quarter or not current_quarter:
+        return "unknown"
+    if event_quarter == current_quarter:
+        return "current_quarter"
+    if event_quarter < current_quarter:
+        return "historical"
+    return "outside_current_quarter"
+
+
+def _annotate_temporal_scope(
+    store,
+    warnings: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    active_ciks: set[str] | None = None,
+) -> str | None:
+    """Mark findings by whether they can affect the current signal quarter."""
+    current_quarter = signal_quarter(store, active_ciks)
+    for warning in warnings:
+        event_quarter = (warning.get("to") or {}).get("report_date")
+        scope = _temporal_scope(event_quarter, current_quarter)
+        warning["event_quarter"] = event_quarter
+        warning["current_quarter"] = current_quarter
+        warning["temporal_scope"] = scope
+        warning["affects_current_quarter"] = scope == "current_quarter"
+
+    for candidate in candidates:
+        anomaly_quarter = (candidate.get("current") or {}).get("report_date")
+        next_quarter = (candidate.get("next") or {}).get("report_date")
+        # A bad previous-quarter baseline also contaminates the current
+        # quarter-over-quarter move, even when the latest filing itself is sound.
+        impact_quarter = next_quarter or anomaly_quarter
+        scope = _temporal_scope(impact_quarter, current_quarter)
+        candidate["anomaly_quarter"] = anomaly_quarter
+        candidate["impact_quarter"] = impact_quarter
+        candidate["current_quarter"] = current_quarter
+        candidate["temporal_scope"] = scope
+        candidate["affects_current_quarter"] = scope == "current_quarter"
+    return current_quarter
+
+
 def aum_jump_warnings(
     store,
     threshold: float = 100.0,
@@ -309,17 +350,54 @@ def data_quality_report(
     stale = stale_fund_warnings(store, active_ciks=active_ciks)
     duplicates = duplicate_label_warnings(store, active_ciks=active_ciks)
     candidates = unit_scale_candidates(store, active_ciks=active_ciks)
+    current_quarter = _annotate_temporal_scope(
+        store, warnings, candidates, active_ciks=active_ciks,
+    )
     limit = max(1, min(int(limit), 500))
+    current_warnings = [w for w in warnings if w["affects_current_quarter"]]
+    historical_warnings = [w for w in warnings if w["temporal_scope"] == "historical"]
+    current_candidates = [c for c in candidates if c["affects_current_quarter"]]
+    historical_candidates = [c for c in candidates if c["temporal_scope"] == "historical"]
+    outside_warnings = [
+        w for w in warnings if w["temporal_scope"] not in {"current_quarter", "historical"}
+    ]
+    outside_candidates = [
+        c for c in candidates if c["temporal_scope"] not in {"current_quarter", "historical"}
+    ]
+    warnings.sort(
+        key=lambda w: (not w["affects_current_quarter"], -float(w.get("ratio") or 0)),
+    )
+    candidates.sort(
+        key=lambda c: (
+            not c["affects_current_quarter"],
+            -abs(math.log(float(c.get("ratio_to_neighbor_geomean") or 1))),
+        ),
+    )
+    current_review_items = (
+        len(current_warnings) + len(stale) + len(duplicates) + len(current_candidates)
+    )
+    historical_review_items = len(historical_warnings) + len(historical_candidates)
     review_items = len(warnings) + len(stale) + len(duplicates) + len(candidates)
     return {
         "summary": {
             "status": "review" if review_items else "ok",
+            "current_status": "review" if current_review_items else "ok",
+            "current_quarter": current_quarter,
             "funds_scanned": len(by_fund),
             "series_points": sum(len(seq) for seq in by_fund.values()),
             "aum_jump_warnings": len(warnings),
+            "current_aum_jump_warnings": len(current_warnings),
+            "historical_aum_jump_warnings": len(historical_warnings),
             "stale_funds": len(stale),
             "duplicate_labels": len(duplicates),
             "unit_scale_candidates": len(candidates),
+            "current_unit_scale_candidates": len(current_candidates),
+            "historical_unit_scale_candidates": len(historical_candidates),
+            "current_review_items": current_review_items,
+            "historical_review_items": historical_review_items,
+            "outside_current_quarter_review_items": (
+                len(outside_warnings) + len(outside_candidates)
+            ),
             "review_items": review_items,
         },
         "parameters": {
@@ -332,6 +410,7 @@ def data_quality_report(
         "unit_scale_candidates": candidates[:limit],
         "notes": [
             "Warnings are read-only data-quality signals, not automatic corrections.",
+            "Historical findings remain visible for audit but do not by themselves fail the current-quarter signal gate.",
             "The automated quality gate excludes non-trusted funds from product signals.",
             "Human review is not required for routine publication; only DB repairs need operator action.",
         ],
@@ -356,6 +435,9 @@ def quality_gate_report(
     stale = stale_fund_warnings(store, active_ciks=active_ciks)
     duplicates = duplicate_label_warnings(store, active_ciks=active_ciks)
     candidates = unit_scale_candidates(store, active_ciks=active_ciks)
+    current_quarter = _annotate_temporal_scope(
+        store, warnings, candidates, active_ciks=active_ciks,
+    )
 
     decisions: dict[str, dict[str, Any]] = {}
     for fund in funds:
@@ -396,14 +478,7 @@ def quality_gate_report(
     for warning in warnings:
         fund = warning.get("fund") or {}
         cik = fund.get("cik")
-        if cik not in decisions:
-            continue
-        latest = (decisions[cik].get("latest_filing") or {}).get("report_date")
-        endpoints = {
-            (warning.get("from") or {}).get("report_date"),
-            (warning.get("to") or {}).get("report_date"),
-        }
-        if latest not in endpoints:
+        if cik not in decisions or not warning.get("affects_current_quarter"):
             continue
         severity = warning.get("severity")
         status = "quarantined" if severity == "critical" else "degraded"
@@ -412,16 +487,19 @@ def quality_gate_report(
             "severity": severity,
             "ratio": warning.get("ratio"),
             "direction": warning.get("direction"),
+            "current_quarter": current_quarter,
         })
 
     for candidate in candidates:
         fund = candidate.get("fund") or {}
         cik = fund.get("cik")
-        if cik in decisions:
+        if cik in decisions and candidate.get("affects_current_quarter"):
             decisions[cik]["status"] = _downgrade(decisions[cik]["status"], "quarantined")
             _add_reason(decisions[cik], "unit_scale_candidate", {
                 "action": candidate.get("action"),
                 "ratio_to_neighbor_geomean": candidate.get("ratio_to_neighbor_geomean"),
+                "anomaly_quarter": candidate.get("anomaly_quarter"),
+                "current_quarter": current_quarter,
             })
 
     for warning in duplicates:
@@ -452,6 +530,7 @@ def quality_gate_report(
     }
     return {
         "summary": summary,
+        "current_quarter": current_quarter,
         "trusted_ciks": [d["cik"] for d in ordered if d["signal_eligible"]],
         "excluded_ciks": [d["cik"] for d in ordered if not d["signal_eligible"]],
         "funds": ordered,
@@ -459,6 +538,7 @@ def quality_gate_report(
             "mode": "automated_fail_closed",
             "human_review_required_for_routine_publication": False,
             "signal_rule": "Only trusted funds are eligible for scores, consensus and watchlist signals.",
+            "historical_rule": "Historical findings remain auditable but do not exclude a fund unless they affect the current quarter-over-quarter signal window.",
             "statuses": {
                 "trusted": "eligible for product signals",
                 "degraded": "visible for audit, excluded from product signals",

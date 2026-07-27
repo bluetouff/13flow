@@ -4720,10 +4720,19 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             },
             "quality_summary": {
                 "status": quality["status"],
+                "current_status": quality["current_status"],
+                "current_quarter": quality["current_quarter"],
                 "aum_jump_warnings": quality["aum_jump_warnings"],
+                "current_aum_jump_warnings": quality["current_aum_jump_warnings"],
+                "historical_aum_jump_warnings": quality["historical_aum_jump_warnings"],
                 "stale_funds": quality["stale_funds"],
                 "duplicate_labels": quality["duplicate_labels"],
                 "unit_scale_candidates": quality["unit_scale_candidates"],
+                "current_unit_scale_candidates": quality["current_unit_scale_candidates"],
+                "historical_unit_scale_candidates": quality["historical_unit_scale_candidates"],
+                "current_review_items": quality["current_review_items"],
+                "historical_review_items": quality["historical_review_items"],
+                "outside_current_quarter_review_items": quality["outside_current_quarter_review_items"],
                 "review_items": quality["review_items"],
                 "quality_gate_status": gate["summary"]["status"],
                 "trusted_funds": gate["summary"]["trusted_funds"],
@@ -4945,8 +4954,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             soft_blocks.append("validation artifact state changed and should be reviewed")
         if readiness.get("x402") != "not_enabled":
             soft_blocks.append("x402 status changed; settlement requires a fresh security check")
-        if int(quality.get("review_items") or 0) > 0:
-            soft_blocks.append("data-quality review items remain visible and must stay disclosed")
+        if int(quality.get("current_review_items") or 0) > 0:
+            soft_blocks.append("current-quarter data-quality review items remain visible and must stay disclosed")
         status = "controlled_pilot_ready" if not hard_blocks else "not_ready"
         if status == "controlled_pilot_ready" and soft_blocks:
             status = "controlled_pilot_ready_with_disclosures"
@@ -4963,7 +4972,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "evidence": "/api/data-quality",
                 "summary": (
                     f"trusted={quality.get('trusted_funds')} quarantined={quality.get('quarantined_funds')} "
-                    f"review_items={quality.get('review_items')}"
+                    f"current_review_items={quality.get('current_review_items')} "
+                    f"historical_review_items={quality.get('historical_review_items')}"
                 ),
             },
             {
@@ -5044,6 +5054,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     "trusted_funds": quality.get("trusted_funds"),
                     "signal_eligible_funds": quality.get("signal_eligible_funds"),
                     "quarantined_funds": quality.get("quarantined_funds"),
+                    "current_review_items": quality.get("current_review_items"),
+                    "historical_review_items": quality.get("historical_review_items"),
                     "review_items": quality.get("review_items"),
                     "human_review_required_for_routine_publication": False,
                 },
@@ -5847,9 +5859,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             ("Funds", str(counts.get("funds") or 0)),
             ("Filings", str(counts.get("filings") or 0)),
             ("Latest filing rows", str(counts.get("latest_filings") or 0)),
-            ("Quality status", quality.get("status") or "unknown"),
-            ("AUM jump warnings", str(quality.get("aum_jump_warnings") or 0)),
-            ("Unit-scale candidates", str(quality.get("unit_scale_candidates") or 0)),
+            ("Current-quarter quality", quality.get("current_status") or "unknown"),
+            ("Current-quarter review items", str(quality.get("current_review_items") or 0)),
+            ("Historical review items", str(quality.get("historical_review_items") or 0)),
         ]
         rows_html = "".join(
             f"<tr><td>{html_escape(k)}</td><td><code>{html_escape(v)}</code></td></tr>"
@@ -6816,8 +6828,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             f"uses_synthetic_data={str(status['uses_synthetic_data']).lower()}; "
             f"coverage={cov_s}; latest_accessions={status['accessions']['latest_count']}; "
             f"/api/funds serves {counts['funds']} funds; latest 13F quarter {latest_s}; "
-            f"data quality has {quality['aum_jump_warnings']} AUM warnings and "
-            f"{quality['unit_scale_candidates']} unit-scale candidates."
+            f"data quality has {quality['current_review_items']} current-quarter review items and "
+            f"{quality['historical_review_items']} historical review items."
         )
         return {
             "src_text": src_text,
@@ -9381,9 +9393,10 @@ button{{border:0;border-radius:8px;background:#20c48d;color:#04120c;padding:11px
             "<div class=\"runstep\"><b>03</b><span>Ouvrir l'app, les pages publiques et les docs via Apache.</span></div>"
             "<div class=\"runstep\"><b>04</b><span>Seulement ensuite qualifier la release de vérifiée.</span></div></div></section>"
             "<section class=\"split\"><div class=\"panel\"><h2>Qualité</h2>"
-            f"<p><span class=\"pill\">status:{html_escape(str(quality.get('status') or '-'))}</span>"
+            f"<p><span class=\"pill\">trimestre courant:{html_escape(str(quality.get('current_status') or '-'))}</span>"
             f"<span class=\"pill\">trusted:{html_escape(str(quality.get('trusted_funds') or 0))}</span>"
-            f"<span class=\"pill\">warnings AUM:{html_escape(str(quality.get('aum_jump_warnings') or 0))}</span></p></div>"
+            f"<span class=\"pill\">problèmes courants:{html_escape(str(quality.get('current_review_items') or 0))}</span>"
+            f"<span class=\"pill\">anomalies historiques:{html_escape(str(quality.get('historical_review_items') or 0))}</span></p></div>"
             "<div class=\"panel\"><h2>Validation</h2>"
             f"<p>{html_escape(validation['blocked_by'])}</p>"
             f"<p class=\"meta\">score_claim={html_escape(validation['score_claim'])}</p></div></section>"

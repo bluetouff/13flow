@@ -1167,6 +1167,10 @@ def test_ticker_flow_uses_trusted_universe_and_exposes_automatic_exclusions():
         assert "current_aum_jump" in coverage_page
         assert "Berkshire Hathaway" in coverage_page
 
+        app_page = c.get("/app").get_data(as_text=True)
+        assert "Current-quarter issues are separated from historical anomalies." in app_page
+        assert "Historical anomalies" in app_page
+
 
 if __name__ == "__main__":
     import sys, pytest

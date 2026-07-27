@@ -189,11 +189,12 @@ def _market_db_checks(db_path: str) -> list[Check]:
 
         quality = data_quality_report(s, limit=25)
         summary = quality["summary"]
-        q_status = "fail" if summary["unit_scale_candidates"] else "pass"
+        q_status = "fail" if summary["current_unit_scale_candidates"] else "pass"
         detail = (
-            f"status={summary['status']}, "
-            f"aum_jump_warnings={summary['aum_jump_warnings']}, "
-            f"unit_scale_candidates={summary['unit_scale_candidates']}"
+            f"current_status={summary['current_status']}, "
+            f"current_quarter={summary['current_quarter']}, "
+            f"current_review_items={summary['current_review_items']}, "
+            f"historical_review_items={summary['historical_review_items']}"
         )
         checks.append(_check("market_db.data_quality", q_status, detail, summary=summary))
     except Exception as e:  # noqa: BLE001

@@ -42,13 +42,23 @@ def test_data_quality_report_flags_aum_jumps_and_strict_unit_candidates():
 
     assert report["summary"]["funds_scanned"] == 2
     assert report["summary"]["aum_jump_warnings"] == 2
+    assert report["summary"]["current_aum_jump_warnings"] == 1
+    assert report["summary"]["historical_aum_jump_warnings"] == 1
     assert report["summary"]["unit_scale_candidates"] == 1
+    assert report["summary"]["current_unit_scale_candidates"] == 1
+    assert report["summary"]["historical_unit_scale_candidates"] == 0
+    assert report["summary"]["current_quarter"] == "2024-09-30"
+    assert report["summary"]["current_status"] == "review"
     assert {w["fund"]["label"] for w in report["warnings"]} == {"Unit Bug Fund"}
+    assert {w["temporal_scope"] for w in report["warnings"]} == {
+        "current_quarter", "historical",
+    }
 
     candidate = report["unit_scale_candidates"][0]
     assert candidate["action"] == "MULTIPLY_1000"
     assert candidate["current"]["accession"] == "A2"
     assert candidate["status"] == "operator_review_required"
+    assert candidate["affects_current_quarter"] is True
 
 
 def test_data_quality_report_flags_stale_funds_and_duplicate_labels():
@@ -120,8 +130,13 @@ def test_data_quality_endpoint_is_public_read_only_and_validates_params():
         assert r.status_code == 200
         payload = r.get_json()
         assert payload["summary"]["status"] == "review"
+        assert payload["summary"]["current_status"] == "review"
+        assert payload["summary"]["current_quarter"] == "2024-09-30"
+        assert payload["summary"]["current_review_items"] == 3
+        assert payload["summary"]["historical_review_items"] == 1
         assert payload["summary"]["unit_scale_candidates"] == 1
         assert len(payload["warnings"]) == 2
+        assert all("temporal_scope" in warning for warning in payload["warnings"])
 
         bad = client.get("/api/data-quality?threshold=abc")
         assert bad.status_code == 400 and bad.is_json
@@ -190,3 +205,34 @@ def test_quality_gate_automatically_excludes_untrusted_funds_from_signals():
     assert by_label["Partial Fund"]["status"] == "quarantined"
     assert by_label["Jump Fund"]["status"] == "quarantined"
     assert {r["code"] for r in by_label["Jump Fund"]["reasons"]} == {"current_aum_jump"}
+
+
+def test_historical_anomaly_stays_auditable_without_failing_current_quarter():
+    with tempfile.TemporaryDirectory() as d:
+        store = Store(str(Path(d) / "historical-anomaly.db"))
+        try:
+            for accession, filing_date, report_date, total_value in (
+                ("H1", "2025-05-15", "2025-03-31", 1_000_000),
+                ("H2", "2025-08-14", "2025-06-30", 1_000),
+                ("H3", "2025-11-14", "2025-09-30", 1_100_000),
+                ("H4", "2026-02-14", "2025-12-31", 1_200_000),
+            ):
+                _save(store, "0000000005", "Recovered Fund", "PM5", accession, "13F-HR",
+                      filing_date, report_date,
+                      [("APPLE INC", AAPL, total_value, 100, "")])
+
+            report = data_quality_report(store, aum_jump_threshold=100, limit=10)
+            gate = quality_gate_report(store, aum_jump_threshold=100)
+        finally:
+            store.close()
+
+    assert report["summary"]["status"] == "review"
+    assert report["summary"]["current_status"] == "ok"
+    assert report["summary"]["current_quarter"] == "2025-12-31"
+    assert report["summary"]["current_review_items"] == 0
+    assert report["summary"]["historical_review_items"] == 3
+    assert all(not item["affects_current_quarter"] for item in report["warnings"])
+    assert report["unit_scale_candidates"][0]["temporal_scope"] == "historical"
+    assert gate["summary"]["status"] == "ok"
+    assert gate["trusted_ciks"] == ["0000000005"]
+    assert gate["funds"][0]["reasons"] == [{"code": "passed_automated_quality_gate"}]
