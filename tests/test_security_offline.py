@@ -47,7 +47,8 @@ def test_webhook_send_refuses_internal():
 def test_email_recipient_validation():
     validate_email_recipient("ok@example.com")
     for bad in ["a@b.com\nBcc: evil@x.com", "a@b.com\r\nSubject: x", "no-at-sign",
-                "x@y", "a@@b.com", "\x00@b.com"]:
+                "x@y", "a@@b.com", "\x00@b.com", ".a@b.com", "a.@b.com",
+                "a@b..com", "!@!." + "!." * 98]:
         with pytest.raises(AddressError):
             validate_email_recipient(bad)
 

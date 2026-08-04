@@ -14,8 +14,8 @@ run outbound traffic through an egress allowlist/proxy (see SECURITY.md).
 from __future__ import annotations
 
 import ipaddress
-import re
 import socket
+import string
 from urllib.parse import urlparse
 
 
@@ -82,7 +82,8 @@ def validate_public_url(url: str, *, resolve_dns: bool = False) -> str:
     return url
 
 
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_EMAIL_LOCAL_CHARS = frozenset(string.ascii_letters + string.digits + "!#$%&'*+-/=?^_`{|}~.")
+_EMAIL_DOMAIN_CHARS = frozenset(string.ascii_letters + string.digits + "-")
 
 
 def validate_email_recipient(addr: str) -> str:
@@ -91,6 +92,26 @@ def validate_email_recipient(addr: str) -> str:
         raise AddressError("invalid email address")
     if any(c in addr for c in ("\r", "\n", "\x00")) or any(ord(c) < 32 for c in addr):
         raise AddressError("control characters not allowed in recipient")
-    if not _EMAIL_RE.match(addr):
+    if addr.count("@") != 1:
+        raise AddressError("malformed email address")
+    local, domain = addr.split("@", 1)
+    if (
+        not local
+        or len(local) > 64
+        or local.startswith(".")
+        or local.endswith(".")
+        or ".." in local
+        or any(char not in _EMAIL_LOCAL_CHARS for char in local)
+    ):
+        raise AddressError("malformed email address")
+    labels = domain.split(".")
+    if len(labels) < 2 or any(
+        not label
+        or len(label) > 63
+        or label.startswith("-")
+        or label.endswith("-")
+        or any(char not in _EMAIL_DOMAIN_CHARS for char in label)
+        for label in labels
+    ):
         raise AddressError(f"malformed email address: {addr!r}")
     return addr

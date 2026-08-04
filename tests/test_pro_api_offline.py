@@ -695,6 +695,7 @@ def test_pro_workspace_enforces_storage_limits_and_id_shape(monkeypatch):
         assert limited.status_code == 409
         payload = limited.get_json()
         assert payload["error"] == "workspace_quota_exceeded"
+        assert payload["detail"] == "saved watchlist limit reached"
         assert payload["workspace_limits"]["max_watchlists_per_key"] == 1
 
         bad_id = c.get("/api/pro/v1/workspace/watchlists/not-a-watchlist-id", headers=hdr)
@@ -832,6 +833,18 @@ def test_pro_admin_health_requires_admin_scope_and_redacts_secrets(monkeypatch):
             headers={"Authorization": "Bearer " + admin_token},
         )
         assert create_forbidden.status_code == 403
+
+        invalid_email = c.post(
+            "/api/pro/v1/admin/keys",
+            json={
+                "label": "Invalid email",
+                "contact_email": "!@!." + "!." * 98,
+                "scopes": ["funds:read"],
+            },
+            headers={"Authorization": "Bearer " + admin_write_token},
+        )
+        assert invalid_email.status_code == 400
+        assert invalid_email.get_json()["error"] == "valid_contact_email_required"
 
         create_response = c.post(
             "/api/pro/v1/admin/keys",
@@ -1244,6 +1257,25 @@ def test_pro_admin_ops_treats_stale_only_quality_gate_as_notice(monkeypatch):
         assert "Check /api/data-quality and keep quality disclosures visible." in (
             ops["verdict"]["operator_actions"]
         )
+
+
+def test_create_api_key_cli_does_not_echo_contact_email(capsys):
+    from run import cmd_create_api_key
+
+    with tempfile.TemporaryDirectory() as d:
+        cmd_create_api_key(
+            str(Path(d) / "pro.db"),
+            "Desk key",
+            "funds:read",
+            120,
+            10_000,
+            30,
+            21,
+            contact_email="private-desk@example.invalid",
+        )
+    output = capsys.readouterr().out
+    assert "private-desk@example.invalid" not in output
+    assert "contact_email: configured" in output
 
 
 def test_pro_api_audit_uses_trusted_proxy_xff(monkeypatch):

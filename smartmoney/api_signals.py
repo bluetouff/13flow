@@ -207,11 +207,11 @@ def make_signals_blueprint(provider: ConfluenceProvider, cache_dir=None, cache_e
 
         try:
             signals = provider.confluence(window)
-        except ConfluenceUnavailable as e:
+        except ConfluenceUnavailable:
             metadata = getattr(provider, "confluence_metadata", lambda: {})()
             return jsonify({
                 "error": "confluence_unavailable",
-                "message": str(e),
+                "message": "Confluence data is unavailable for the requested window.",
                 "metadata": merge_methodology_metadata({}, metadata)["metadata"],
                 "parameters": {"window_days": window, "min_score": min_score},
             }), 503

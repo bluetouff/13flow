@@ -226,7 +226,7 @@ def cmd_create_api_key(pro_db, label, scopes, rate_per_min, rate_per_day,
     print(f"  id: {key.key_id}")
     print(f"  label: {key.label}")
     if contact_email:
-        print(f"  contact_email: {contact_email}")
+        print("  contact_email: configured")
     print(f"  scopes: {' '.join(key.scopes)}")
     print(f"  rate: {key.rate_per_min}/min, {key.rate_per_day}/day")
     print(f"  expires_at: {key.expires_at or '-'}")

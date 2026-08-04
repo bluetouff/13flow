@@ -53,6 +53,7 @@ from .analytics import consensus_moves
 from .registry import Fund, active_ciks
 from .db import Store
 from .diff import Move, diff_portfolios
+from .netsec import AddressError, validate_email_recipient
 from .portfolio import Portfolio
 from .pro import APIKeyError, APIRateLimited, ProAPIStore, WorkspaceQuotaExceeded
 from .quality import data_quality_report, quality_gate_report, signal_quarter
@@ -279,9 +280,11 @@ class _StoreConfluence:
         from .api_signals import ConfluenceUnavailable
         try:
             inst = self._institutional()
-        except Exception as e:
-            __import__("logging").getLogger("smartmoney.api").warning("inst build failed: %s", e)
-            raise ConfluenceUnavailable(f"Institutional Confluence build failed: {e}") from e
+        except Exception as exc:
+            __import__("logging").getLogger("smartmoney.api").warning(
+                "institutional Confluence build failed (%s)", type(exc).__name__
+            )
+            raise ConfluenceUnavailable("Institutional Confluence build failed.") from exc
         if not inst:
             raise ConfluenceUnavailable("No institutional accumulation candidates for Confluence.")
         idx = self._issuer_index()
@@ -296,9 +299,9 @@ class _StoreConfluence:
             try:
                 forms = f4.insider_filings(cik, window_days=window_days)
                 insiders[ticker] = aggregate_insider_activity(ticker, forms, window_days=window_days)
-            except Exception as e:   # pragma: no cover - network; one bad issuer won't sink it
+            except Exception as exc:   # pragma: no cover - network; one bad issuer won't sink it
                 __import__("logging").getLogger("smartmoney.api").warning(
-                    "Form 4 fetch failed for %s: %s", ticker, e)
+                    "Form 4 fetch failed for %s (%s)", ticker, type(exc).__name__)
         return build_confluence(inst, insiders)
 
 
@@ -1174,9 +1177,6 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             return auth.split(" ", 1)[1].strip()
         return request.headers.get("X-13FLOW-Key", "").strip()
 
-    def _admin_panel_password_hash() -> str:
-        return os.environ.get("SMARTMONEY_ADMIN_PANEL_PASSWORD_SHA256", "").strip().lower()
-
     def _admin_pbkdf2_hash() -> str:
         return os.environ.get("SMARTMONEY_ADMIN_PASSWORD_PBKDF2", "").strip()
 
@@ -1187,7 +1187,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         return _env_int("SMARTMONEY_ADMIN_SESSION_SECONDS", 1800, 300, 43200)
 
     def _admin_auth_configured() -> bool:
-        return bool(admin_session_secret and (_admin_pbkdf2_hash() or _admin_panel_password_hash()))
+        return bool(admin_session_secret and _admin_pbkdf2_hash())
 
     def _admin_verify_pbkdf2(password: str, encoded: str) -> bool:
         try:
@@ -1195,10 +1195,12 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             if algo != "pbkdf2-sha256":
                 return False
             iterations = int(iterations_s)
-            if iterations < 200_000:
+            if iterations < 200_000 or iterations > 2_000_000:
                 return False
             salt = bytes.fromhex(salt_hex)
             expected = bytes.fromhex(digest_hex)
+            if len(salt) < 16 or len(expected) != hashlib.sha256().digest_size:
+                return False
         except (TypeError, ValueError):
             return False
         actual = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
@@ -1206,15 +1208,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 
     def _admin_verify_password(password: str) -> bool:
         pbkdf2_hash = _admin_pbkdf2_hash()
-        if pbkdf2_hash:
-            return _admin_verify_pbkdf2(password or "", pbkdf2_hash)
-        expected_hash = _admin_panel_password_hash()
-        if not expected_hash:
-            return False
-        return hmac.compare_digest(
-            hashlib.sha256((password or "").encode("utf-8")).hexdigest(),
-            expected_hash,
-        )
+        return bool(pbkdf2_hash and _admin_verify_pbkdf2(password or "", pbkdf2_hash))
 
     def _admin_totp_secret() -> str:
         return os.environ.get("SMARTMONEY_ADMIN_TOTP_SECRET", "").strip().replace(" ", "")
@@ -3448,9 +3442,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 return jsonify({"jsonrpc": "2.0", "id": mid,
                                 "error": {"code": -32601, "message": "method not found"}})
             return jsonify({"jsonrpc": "2.0", "id": mid, "result": result})
-        except Exception as e:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            app.logger.error("MCP request failed (%s)", type(exc).__name__)
             return jsonify({"jsonrpc": "2.0", "id": mid,
-                            "error": {"code": -32603, "message": str(e)}}), 500
+                            "error": {"code": -32603, "message": "internal error"}}), 500
 
     if pro_enabled:
         @app.get("/api/pro/v1/status")
@@ -3995,10 +3990,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                         notes=payload["notes"],
                         max_watchlists=pro_workspace_max_watchlists,
                     )
-                except WorkspaceQuotaExceeded as e:
+                except WorkspaceQuotaExceeded:
                     return jsonify({
                         "error": "workspace_quota_exceeded",
-                        "detail": str(e),
+                        "detail": "saved watchlist limit reached",
                         "workspace_limits": _pro_workspace_limits_payload(),
                     }), 409
                 ps.record_workspace_activity(
@@ -4300,7 +4295,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             scopes = list(dict.fromkeys(scopes or ["funds:read", "quality:read"]))
             if not label:
                 return jsonify({"error": "label_required"}), 400
-            if not contact_email or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", contact_email):
+            try:
+                validate_email_recipient(contact_email)
+            except AddressError:
                 return jsonify({"error": "valid_contact_email_required"}), 400
             if any(scope not in allowed_scopes for scope in scopes):
                 return jsonify({"error": "invalid_scope", "allowed_scopes": sorted(allowed_scopes)}), 400

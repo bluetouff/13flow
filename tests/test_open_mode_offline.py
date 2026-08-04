@@ -11,6 +11,7 @@ import os
 import re
 import struct
 import time
+from html.parser import HTMLParser
 
 import tempfile
 from pathlib import Path
@@ -18,6 +19,29 @@ from pathlib import Path
 from smartmoney.db import Store
 from smartmoney.api import create_app
 from tests.test_db_offline import AAPL, MSFT, _save
+
+
+class _HrefCollector(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.hrefs = set()
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "a":
+            self.hrefs.update(value for name, value in attrs if name == "href" and value)
+
+
+def _hrefs(markup: str) -> set[str]:
+    parser = _HrefCollector()
+    parser.feed(markup)
+    return parser.hrefs
+
+
+def _admin_pbkdf2(password: str) -> str:
+    iterations = 200_000
+    salt = b"13flow-test-salt"
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+    return f"pbkdf2-sha256${iterations}${salt.hex()}${digest.hex()}"
 
 
 def _totp(secret: str, when: int | None = None) -> str:
@@ -146,6 +170,7 @@ def test_open_mode_hides_private_surface_and_keeps_public():
         cf = c.get("/api/signals/confluence")
         assert cf.status_code == 503
         assert cf.get_json()["error"] == "confluence_unavailable"
+        assert cf.get_json()["message"] == "Confluence data is unavailable for the requested window."
 
         # the entire private surface is unregistered -> 404 (not 401), incl. mutations
         assert c.get("/api/auth/me").status_code == 404
@@ -688,8 +713,8 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert c.get("/pro/admin").status_code == 404
 
         monkeypatch.setenv(
-            "SMARTMONEY_ADMIN_PANEL_PASSWORD_SHA256",
-            "1c8bfe8f801d79745c4631d09fff36c82aa37fc4cce4fc946683d7b336b63032",
+            "SMARTMONEY_ADMIN_PASSWORD_PBKDF2",
+            _admin_pbkdf2("letmein"),
         )
         monkeypatch.setenv("SMARTMONEY_ADMIN_SESSION_SECRET", "test-admin-session-secret")
         protected = create_app(db, secure_cookies=False, open_mode=True).test_client()
@@ -922,7 +947,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
 
         about_page = c.get("/about").get_data(as_text=True)
         assert "Filing intelligence, built in the l0g lab" in about_page
-        assert "https://l0g.fr/" in about_page
+        assert "https://l0g.fr/" in _hrefs(about_page)
         assert "13FLOW is operated by l0g" in about_page
         assert "machine-readable financial intelligence" in about_page
         assert "It does not present a magic trading signal" in about_page
@@ -934,7 +959,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "admin@toonux.com" in legal_page
         assert "advertising or behavioral analytics cookies" in legal_page
         assert "operated and published by" in legal_page
-        assert "https://l0g.fr/" in legal_page
+        assert "https://l0g.fr/" in _hrefs(legal_page)
         assert "Technical server logs" in legal_page
         assert "Private access and operator boundary" in legal_page
         assert "Built by" in legal_page
@@ -1002,6 +1027,15 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         }).get_json()
         assert pro_offer["result"]["structuredContent"]["offer"]["self_serve_checkout"] is False
 
+        invalid_mcp = c.post("/api/mcp", json={
+            "jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": ["invalid"]
+        })
+        assert invalid_mcp.status_code == 500
+        assert invalid_mcp.get_json()["error"] == {
+            "code": -32603,
+            "message": "internal error",
+        }
+
 
 def test_pro_admin_login_can_require_totp(monkeypatch):
     with tempfile.TemporaryDirectory() as d:
@@ -1009,8 +1043,8 @@ def test_pro_admin_login_can_require_totp(monkeypatch):
         _seed(db)
         secret = "JBSWY3DPEHPK3PXP"
         monkeypatch.setenv(
-            "SMARTMONEY_ADMIN_PANEL_PASSWORD_SHA256",
-            "1c8bfe8f801d79745c4631d09fff36c82aa37fc4cce4fc946683d7b336b63032",
+            "SMARTMONEY_ADMIN_PASSWORD_PBKDF2",
+            _admin_pbkdf2("letmein"),
         )
         monkeypatch.setenv("SMARTMONEY_ADMIN_SESSION_SECRET", "test-admin-session-secret")
         monkeypatch.setenv("SMARTMONEY_ADMIN_TOTP_SECRET", secret)
@@ -1040,6 +1074,22 @@ def test_pro_admin_login_can_require_totp(monkeypatch):
         )
         assert login.status_code == 200
         assert "Admin Console" in login.get_data(as_text=True)
+
+
+def test_pro_admin_ignores_legacy_sha256_password_config(monkeypatch):
+    with tempfile.TemporaryDirectory() as d:
+        db = str(Path(d) / "admin-legacy-hash.db")
+        _seed(db)
+        monkeypatch.delenv("SMARTMONEY_ADMIN_PASSWORD_PBKDF2", raising=False)
+        monkeypatch.setenv(
+            "SMARTMONEY_ADMIN_PANEL_PASSWORD_SHA256",
+            "0" * 64,
+        )
+        monkeypatch.setenv("SMARTMONEY_ADMIN_SESSION_SECRET", "test-admin-session-secret")
+        c = create_app(db, secure_cookies=False, open_mode=True).test_client()
+
+        assert c.get("/pro/admin/login").status_code == 404
+        assert c.get("/pro/admin").status_code == 404
 
 
 def test_ticker_flow_payload_explains_quarter_moves_and_confidence():
