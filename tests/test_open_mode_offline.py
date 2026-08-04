@@ -12,6 +12,7 @@ import re
 import struct
 import time
 from html.parser import HTMLParser
+from urllib.parse import urlsplit
 
 import tempfile
 from pathlib import Path
@@ -35,6 +36,14 @@ def _hrefs(markup: str) -> set[str]:
     parser = _HrefCollector()
     parser.feed(markup)
     return parser.hrefs
+
+
+def _href_targets(markup: str) -> set[tuple[str, str | None, int | None, str, str, str]]:
+    return {
+        (parsed.scheme, parsed.hostname, parsed.port, parsed.path, parsed.query, parsed.fragment)
+        for href in _hrefs(markup)
+        for parsed in (urlsplit(href),)
+    }
 
 
 def _admin_pbkdf2(password: str) -> str:
@@ -947,7 +956,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
 
         about_page = c.get("/about").get_data(as_text=True)
         assert "Filing intelligence, built in the l0g lab" in about_page
-        assert "https://l0g.fr/" in _hrefs(about_page)
+        assert ("https", "l0g.fr", None, "/", "", "") in _href_targets(about_page)
         assert "13FLOW is operated by l0g" in about_page
         assert "machine-readable financial intelligence" in about_page
         assert "It does not present a magic trading signal" in about_page
@@ -959,7 +968,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "admin@toonux.com" in legal_page
         assert "advertising or behavioral analytics cookies" in legal_page
         assert "operated and published by" in legal_page
-        assert "https://l0g.fr/" in _hrefs(legal_page)
+        assert ("https", "l0g.fr", None, "/", "", "") in _href_targets(legal_page)
         assert "Technical server logs" in legal_page
         assert "Private access and operator boundary" in legal_page
         assert "Built by" in legal_page
