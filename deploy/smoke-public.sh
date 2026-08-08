@@ -105,6 +105,16 @@ contains_none() {
   [[ -z "$hit" ]] && ok "$label" || bad "$label" "forbidden text found: $hit"
 }
 
+has_retired_19_offer_copy() {
+  local file=$1 needle
+  for needle in \
+    '$19/month' '$19 / month' '$19 public' '$19 offer' '$19 plan' \
+    '$19 trust layer' 'What $19 means' 'if $19 is too high' 'offer is $19'; do
+    grep -Fiq "$needle" "$file" && return 0
+  done
+  return 1
+}
+
 code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "$HTTP_SITE/" || echo 000)
 [[ "$code" =~ ^30 ]] && ok "http redirects to https ($code)" || bad "http redirects to https" "got $code"
 
@@ -388,7 +398,7 @@ for item in "${fr_pages[@]}"; do
     grep -q "$needle" "$out" \
       && grep -q 'hreflang="en"' "$out" \
       && grep -q 'hreflang="fr"' "$out" \
-      && ! grep -q '\$19' "$out" \
+      && ! has_retired_19_offer_copy "$out" \
       && ok "$label" \
       || bad "$label" "missing FR/i18n contract copy"
     contains_none "$label has no legacy/auth/checkout copy" "$out" \

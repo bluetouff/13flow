@@ -153,6 +153,15 @@ def test_dependency_security_floors_are_pinned():
     assert '"pip>=26.2.1"' in install_guide
 
 
+def test_public_smoke_distinguishes_retired_pricing_from_market_values():
+    root = Path(__file__).resolve().parents[1]
+    smoke = (root / "deploy" / "smoke-public.sh").read_text(encoding="utf-8")
+
+    assert "has_retired_19_offer_copy" in smoke
+    assert "! has_retired_19_offer_copy \"$out\"" in smoke
+    assert "! grep -q '\\$19' \"$out\"" not in smoke
+
+
 def test_private_stats_apache_boundary_and_csp_are_isolated():
     root = Path(__file__).resolve().parents[1]
     public_conf = (root / "deploy" / "apache-13flow.conf").read_text(encoding="utf-8")

@@ -14,6 +14,22 @@ def _client(tmpdir):
     return create_app(data_db, secure_cookies=False, open_mode=True).test_client()
 
 
+def _assert_no_retired_19_offer(markup: str) -> None:
+    folded = markup.casefold()
+    for retired_copy in (
+        "$19/month",
+        "$19 / month",
+        "$19 public",
+        "$19 offer",
+        "$19 plan",
+        "$19 trust layer",
+        "what $19 means",
+        "if $19 is too high",
+        "offer is $19",
+    ):
+        assert retired_copy.casefold() not in folded
+
+
 def _boundary(payload):
     boundary = payload.get("core_v1_boundary") or {}
     assert boundary["status"] == "controlled_pilot_core_v1"
@@ -97,7 +113,7 @@ def test_pilot_release_candidate_pages_do_not_show_self_serve_language():
     assert "continue to checkout" not in joined
     assert "stripe checkout" not in joined
     assert "490 eur" not in joined
-    assert "$19" not in joined
+    _assert_no_retired_19_offer(joined)
     assert "paid access coming soon" not in joined
     assert "validated alpha claim" not in joined
     assert "server_side_pii_storage:false" in joined

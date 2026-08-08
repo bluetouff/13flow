@@ -46,6 +46,22 @@ def _href_targets(markup: str) -> set[tuple[str, str | None, int | None, str, st
     }
 
 
+def _assert_no_retired_19_offer(markup: str) -> None:
+    folded = markup.casefold()
+    for retired_copy in (
+        "$19/month",
+        "$19 / month",
+        "$19 public",
+        "$19 offer",
+        "$19 plan",
+        "$19 trust layer",
+        "what $19 means",
+        "if $19 is too high",
+        "offer is $19",
+    ):
+        assert retired_copy.casefold() not in folded
+
+
 def _admin_pbkdf2(password: str) -> str:
     iterations = 200_000
     salt = b"13flow-test-salt"
@@ -577,8 +593,8 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
             fr = c.get(route["fr"])
             assert en.status_code == 200, route
             assert fr.status_code == 200, route
-            assert "$19" not in en.get_data(as_text=True)
-            assert "$19" not in fr.get_data(as_text=True)
+            _assert_no_retired_19_offer(en.get_data(as_text=True))
+            _assert_no_retired_19_offer(fr.get_data(as_text=True))
 
         offer = c.get("/api/pro-offer").get_json()
         assert offer["status"] == "public_offer_retired"
@@ -630,7 +646,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Paid access" not in sandbox_page_public
         assert "No public price" not in sandbox_page_public
         assert "13FLOW Builder Sandbox" not in sandbox_page_public
-        assert "$19" not in sandbox_page_public
+        _assert_no_retired_19_offer(sandbox_page_public)
 
         sandbox_key = c.get("/api/sandbox/key").get_json()
         assert sandbox_key["production_access"] is False
