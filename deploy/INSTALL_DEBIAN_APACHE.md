@@ -80,9 +80,8 @@ Copiez le projet dans `/opt/13flow` (git clone / scp / rsync), puis :
 ```bash
 cd /opt/13flow
 sudo python3 -m venv .venv
-sudo .venv/bin/python -m pip install --upgrade "pip>=26.1.2"
+sudo .venv/bin/python -m pip install --upgrade "pip>=26.2.1"
 sudo .venv/bin/pip install -r requirements.txt gunicorn
-# (le paquet 'stripe' de requirements n'est jamais importé en mode ouvert)
 
 # Le MCP exige Node 20 minimum. Vérifier avant l'installation verrouillée.
 node --version

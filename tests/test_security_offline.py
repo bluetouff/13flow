@@ -140,17 +140,17 @@ def test_dependency_security_floors_are_pinned():
         encoding="utf-8"
     )
 
-    assert package["overrides"]["@hono/node-server"] == "2.0.11"
+    assert package["overrides"]["@hono/node-server"] == "2.1.0"
     assert package["overrides"]["fast-uri"] == "3.1.5"
-    assert package["overrides"]["hono"] == "4.12.34"
+    assert package["overrides"]["hono"] == "4.13.1"
     assert package["overrides"]["ip-address"] == "10.4.0"
     assert (
-        package_lock["packages"]["node_modules/@hono/node-server"]["version"] == "2.0.11"
+        package_lock["packages"]["node_modules/@hono/node-server"]["version"] == "2.1.0"
     )
     assert package_lock["packages"]["node_modules/fast-uri"]["version"] == "3.1.5"
-    assert package_lock["packages"]["node_modules/hono"]["version"] == "4.12.34"
+    assert package_lock["packages"]["node_modules/hono"]["version"] == "4.13.1"
     assert package_lock["packages"]["node_modules/ip-address"]["version"] == "10.4.0"
-    assert '"pip>=26.1.2"' in install_guide
+    assert '"pip>=26.2.1"' in install_guide
 
 
 def test_private_stats_apache_boundary_and_csp_are_isolated():
