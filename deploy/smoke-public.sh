@@ -436,7 +436,8 @@ if fetch "/pro/workspace" "$pro_workspace_page"; then
     && grep -q "sessionStorage" "$pro_workspace_page" \
     && grep -q "Edit Watchlist" "$pro_workspace_page" \
     && grep -q "Save changes" "$pro_workspace_page" \
-    && grep -q "Workspace Report" "$pro_workspace_page" \
+    && grep -q "Changes between snapshots" "$pro_workspace_page" \
+    && grep -q 'id="workspaceReport"' "$pro_workspace_page" \
     && grep -q "workspaceReportRefresh" "$pro_workspace_page" \
     && grep -q "renderWorkspaceReport" "$pro_workspace_page" \
     && grep -q "Export JSON" "$pro_workspace_page" \
