@@ -8,9 +8,9 @@ mechanical (window functions + a view, both supported there too).
 Design notes:
   - A stored FILING is a portfolio snapshot, keyed by its accession number.
   - Amendments (13F-HR/A) share a (cik, report_date) with the original. The
-    `latest_filings` VIEW resolves each quarter to the latest complete-enough
-    accession, so true restatements supersede originals while tiny partial
-    amendments do not replace a full portfolio snapshot.
+    `latest_filings` selects the latest revision. Explicit RESTATEMENT and
+    NEW HOLDINGS metadata compose portfolios through read-only views; raw
+    filings remain intact. Unknown chains are excluded by the quality gate.
   - CUSIP is the reliable grouping key (that's its job); ticker is carried along as
     a display label via MAX(), so funds enriched at different times don't fragment.
 """
@@ -23,6 +23,7 @@ from typing import Optional
 
 from .edgar import Filing
 from .portfolio import Portfolio, Position
+from . import amendments
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS funds (
@@ -84,30 +85,6 @@ CREATE TABLE IF NOT EXISTS deliveries (
     PRIMARY KEY (subscription_id, accession)
 );
 
--- One row per (cik, report_date) pointing at the latest complete-enough accession.
--- Some 13F-HR/A filings are partial corrections with only a handful of holdings;
--- prefer the newest filing whose position count is at least half of the largest
--- snapshot for that quarter, falling back to the filing itself when it is alone.
-DROP VIEW IF EXISTS latest_filings;
-CREATE VIEW latest_filings AS
-SELECT cik, report_date, accession FROM (
-    SELECT cik, report_date, accession,
-           ROW_NUMBER() OVER (
-               PARTITION BY cik, report_date
-               ORDER BY
-                   CASE WHEN COALESCE(n_positions, 0) >= max_positions * 0.5
-                        THEN 1 ELSE 0 END DESC,
-                   filing_date DESC,
-                   accession DESC
-           ) AS rn
-    FROM (
-        SELECT f.*,
-               MAX(COALESCE(n_positions, 0)) OVER (
-                   PARTITION BY cik, report_date
-               ) AS max_positions
-        FROM filings f
-    )
-) WHERE rn = 1;
 """
 
 
@@ -130,6 +107,10 @@ class Store:
             # produced offline by the ingest CLI; checkpoint its WAL after ingest).
             self.conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
             self.conn.row_factory = sqlite3.Row
+            if not self.conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='view' AND name='portfolio_filings'"
+            ).fetchone():
+                amendments.install_legacy_read_views(self.conn)
             return
         self.conn = sqlite3.connect(path)
         self.conn.row_factory = sqlite3.Row
@@ -137,6 +118,7 @@ class Store:
         self.conn.execute("PRAGMA journal_mode = WAL")
         self.conn.executescript(SCHEMA)
         self._migrate()
+        self.conn.executescript("BEGIN IMMEDIATE;\n" + amendments.SCHEMA + "\nCOMMIT;")
         self.conn.commit()
 
     def _migrate(self) -> None:
@@ -177,6 +159,14 @@ class Store:
         cur = self.conn.execute("SELECT accession FROM filings WHERE cik=?", (cik.zfill(10),))
         return {r["accession"] for r in cur.fetchall()}
 
+    def unclassified_amendments(self, cik: str) -> set[str]:
+        return {r["accession"] for r in self.conn.execute(
+            """SELECT f.accession FROM filings f
+               LEFT JOIN filing_revisions r ON r.accession=f.accession
+               WHERE f.cik=? AND f.form='13F-HR/A' AND r.accession IS NULL""",
+            (cik.zfill(10),),
+        )}
+
     def save_portfolio(self, pf: Portfolio, filing: Filing, manager: Optional[str] = None) -> None:
         cik = filing.cik.zfill(10)
         self.upsert_fund(cik, pf.fund_label, manager)
@@ -209,6 +199,14 @@ class Store:
                     for p in pf.positions.values()
                 ],
             )
+            self.conn.execute(
+                """INSERT INTO filing_revisions(accession,amendment_type,amendment_number,status)
+                   VALUES (?,?,?,'pending') ON CONFLICT(accession) DO UPDATE SET
+                   amendment_type=excluded.amendment_type,
+                   amendment_number=excluded.amendment_number""",
+                (filing.accession, filing.amendment_type, filing.amendment_number),
+            )
+            amendments.rebuild_quarter(self.conn, cik, filing.report_date)
 
     # --- read --------------------------------------------------------------
     def _fund_label(self, cik: str) -> str:
@@ -233,7 +231,6 @@ class Store:
         if report_date is None:
             return self.conn.execute(
                 """SELECT lf.accession, lf.report_date FROM latest_filings lf
-                   JOIN filings f ON f.accession=lf.accession
                    WHERE lf.cik=? ORDER BY lf.report_date DESC LIMIT 1""",
                 (cik.zfill(10),),
             ).fetchone()
@@ -247,13 +244,21 @@ class Store:
         row = self._accession_for(cik, report_date)
         if row is None:
             return None
-        accession = row["accession"]
+        return self.load_filing_portfolio(row["accession"])
+
+    def load_filing_portfolio(self, accession: str) -> Optional[Portfolio]:
+        """Load the composition belonging to this exact filing, including older revisions."""
         finfo = self.conn.execute(
-            "SELECT form, report_date FROM filings WHERE accession=?", (accession,)
+            "SELECT * FROM portfolio_filings WHERE accession=?", (accession,)
         ).fetchone()
+        if finfo is None:
+            return None
+        cik = finfo["cik"]
         pf = Portfolio(cik=cik, fund_label=self._fund_label(cik),
-                       report_date=finfo["report_date"], form=finfo["form"])
-        for h in self.conn.execute("SELECT * FROM holdings WHERE accession=?", (accession,)):
+                       report_date=finfo["report_date"], form=finfo["form"],
+                       composition_status=finfo["composition_status"],
+                       source_accessions=finfo["source_accessions"].split(","))
+        for h in self.conn.execute("SELECT * FROM portfolio_holdings WHERE accession=?", (accession,)):
             pos = Position(
                 cusip=h["cusip"], issuer=h["issuer"], title_of_class=h["title_of_class"],
                 put_call=h["put_call"], value_usd=h["value_usd"], shares=h["shares"],
@@ -286,7 +291,7 @@ class Store:
                    SUM(h.value_usd)                AS total_value,
                    GROUP_CONCAT(DISTINCT fn.label) AS funds
             FROM latest_filings lf
-            JOIN holdings h ON h.accession = lf.accession AND h.put_call = ''
+            JOIN portfolio_holdings h ON h.accession = lf.accession AND h.put_call = ''
             JOIN funds fn   ON fn.cik = lf.cik
             WHERE lf.report_date = ? {cik_sql}
             GROUP BY h.cusip
@@ -304,7 +309,7 @@ class Store:
             SELECT lf.report_date AS report_date, h.shares AS shares,
                    h.value_usd AS value_usd, h.weight AS weight
             FROM latest_filings lf
-            JOIN holdings h ON h.accession = lf.accession
+            JOIN portfolio_holdings h ON h.accession = lf.accession
             WHERE lf.cik = ? AND h.cusip = ? AND h.put_call = ''
             ORDER BY lf.report_date
             """,
@@ -319,7 +324,7 @@ class Store:
             SELECT fn.label AS fund, h.value_usd AS value_usd,
                    h.shares AS shares, h.weight AS weight
             FROM latest_filings lf
-            JOIN holdings h ON h.accession = lf.accession AND h.put_call = ''
+            JOIN portfolio_holdings h ON h.accession = lf.accession AND h.put_call = ''
             JOIN funds fn   ON fn.cik = lf.cik
             WHERE lf.report_date = ? AND h.cusip = ?
             ORDER BY h.value_usd DESC
@@ -352,7 +357,7 @@ class Store:
                    SUM(h.value_usd) AS val,
                    SUM(CASE WHEN h.ticker IS NOT NULL AND h.ticker<>'' THEN h.value_usd ELSE 0 END) AS val_res
             FROM latest_filings lf
-            JOIN holdings h ON h.accession = lf.accession AND h.put_call = ''
+            JOIN portfolio_holdings h ON h.accession = lf.accession AND h.put_call = ''
             JOIN funds fn   ON fn.cik = lf.cik
             {where}
             GROUP BY lf.cik
@@ -392,7 +397,7 @@ class Store:
             SELECT h.cusip AS cusip, MAX(h.issuer) AS issuer,
                    SUM(h.value_usd) AS value, COUNT(DISTINCT lf.cik) AS n_funds
             FROM latest_filings lf
-            JOIN holdings h ON h.accession = lf.accession AND h.put_call = ''
+            JOIN portfolio_holdings h ON h.accession = lf.accession AND h.put_call = ''
             WHERE (h.ticker IS NULL OR h.ticker = '') {where}
             GROUP BY h.cusip
             ORDER BY value DESC
@@ -418,7 +423,7 @@ class Store:
         cur = self.conn.execute(
             """SELECT lf.report_date AS report_date, f.total_value AS total_value,
                       f.n_positions AS n_positions
-               FROM latest_filings lf JOIN filings f ON f.accession = lf.accession
+               FROM latest_filings lf JOIN portfolio_filings f ON f.accession = lf.accession
                WHERE lf.cik = ? ORDER BY lf.report_date""",
             (cik.zfill(10),),
         )
@@ -426,7 +431,7 @@ class Store:
 
     # --- filing lookups (for alerting) ------------------------------------
     def get_filing(self, accession: str) -> Optional[dict]:
-        r = self.conn.execute("SELECT * FROM filings WHERE accession=?", (accession,)).fetchone()
+        r = self.conn.execute("SELECT * FROM portfolio_filings WHERE accession=?", (accession,)).fetchone()
         return dict(r) if r else None
 
     def latest_filing_row(self, cik: str) -> Optional[dict]:

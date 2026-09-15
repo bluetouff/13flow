@@ -82,6 +82,23 @@ Do not add these until operational demand and capacity are proven:
 
 ## Maintenance rule
 
+The existing workspace report carries snapshot change explanations and source
+links. The existing alert inbox carries automatic resolution/invalidation and
+reactivation. These extend existing contracts without a new endpoint, scheduled
+job, account system or dependency. Comparison evidence is bounded to saved top
+movements; it does not claim a complete historical replay or calibrated alpha.
+
+13F ingestion now retains every filing in the selected quarter window and reads
+amendment cover metadata. Raw `filings`/`holdings` are preserved; additive
+`filing_revisions`/`filing_components` tables and portfolio views describe the
+composition. Existing read-only snapshots remain readable without disk writes;
+old amendments whose types have not been fetched are explicitly unclassified.
+The next bounded sync classifies old amendments and rebuilds the relevant chains.
+An unreadable/unrecognised cover must never be inferred from position count.
+For a future rollout, preflight a copied data snapshot and deploy code/data
+together. A rollback must restore the matching previous data snapshot as well
+as the previous code, because old workers do not compose supplemental holdings.
+
 Prefer extending existing contracts over adding new surfaces:
 
 - public truth belongs in `/api/product-status`, `/api/buyer-pack`,

@@ -45,6 +45,8 @@ class Portfolio:
     report_date: str         # quarter end, YYYY-MM-DD
     form: str
     positions: dict[tuple[str, str], Position] = field(default_factory=dict)
+    composition_status: str = "complete"
+    source_accessions: list[str] = field(default_factory=list)
 
     @property
     def total_value(self) -> float:

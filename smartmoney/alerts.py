@@ -105,12 +105,12 @@ def _edgar_url(cik: str, accession: str) -> str:
 def build_alert(store: Store, cik: str, accession: str, top_n: int = 15) -> Optional[Alert]:
     """Build an Alert for a stored filing by diffing it against the prior stored quarter."""
     filing = store.get_filing(accession)
-    if filing is None:
+    if filing is None or filing["cik"] != cik.zfill(10):
         return None
     fund = store.fund_row(cik) or {}
 
     report_date = filing["report_date"]
-    curr = store.load_portfolio(cik, report_date)
+    curr = store.load_filing_portfolio(accession)
     if curr is None:
         return None
     prev_q = store.previous_quarter(cik, report_date)
@@ -118,6 +118,8 @@ def build_alert(store: Store, cik: str, accession: str, top_n: int = 15) -> Opti
         cik=cik, fund_label=curr.fund_label, report_date="", form="")
 
     report = diff_portfolios(prev, curr)
+    if report.status != "available":
+        return None
     counts: dict[str, int] = {}
     moves: list[AlertMove] = []
     for mv in (Move.NEW, Move.EXIT, Move.ADD, Move.TRIM):
@@ -207,6 +209,11 @@ class AlertEngine:
             return []
 
         alert = build_alert(self.store, cik, accession, top_n=top_n)
+        if alert is None:
+            # Keep delivery pending so a repaired chain can be retried safely.
+            return [{"subscription_id": sub["id"], "accession": accession,
+                     "status": "blocked", "reason": "incomplete_amendment_chain"}
+                    for sub in pending]
         results = []
         for sub in pending:
             channel = self._resolve_channel(sub)

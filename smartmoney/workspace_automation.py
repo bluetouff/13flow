@@ -15,6 +15,7 @@ from typing import Any
 
 from .api import create_app
 from .pro import ProAPIStore
+from .workspace_changes import signal_delta, observation_metadata
 
 
 def _score(item: dict) -> float:
@@ -52,19 +53,26 @@ def _summary(items: list[dict]) -> dict:
 
 
 def _signals_for_watchlist(client, item: dict) -> dict:
-    response = client.get(
-        "/api/watchlist/preview",
-        query_string={"tickers": ",".join(item.get("tickers") or [])},
-    )
-    if response.status_code != 200:
-        raise RuntimeError(f"preview failed with HTTP {response.status_code}")
-    payload = response.get_json() or {}
-    watchlist = payload.get("watchlist") or payload
+    tickers = item.get("tickers") or []
+    source_items = []
+    metadata = {}
+    # The public preview is bounded at 25 tickers; saved lists allow 50.
+    # Finish every batch before persisting anything, including alert resolutions.
+    for offset in range(0, len(tickers), 25):
+        response = client.get(
+            "/api/watchlist/preview",
+            query_string={"tickers": ",".join(tickers[offset:offset + 25])},
+        )
+        if response.status_code != 200:
+            raise RuntimeError(f"preview failed with HTTP {response.status_code}")
+        payload = response.get_json() or {}
+        watchlist = payload.get("watchlist") or payload
+        source_items.extend(watchlist.get("items") or [])
+        metadata.update(watchlist.get("metadata") or {})
     filters = item.get("filters") or {}
-    source_items = list(watchlist.get("items") or [])
     filtered = [x for x in source_items if _matches_filters(x, filters)]
-    metadata = dict(watchlist.get("metadata") or {})
     metadata.update({
+        **observation_metadata(source_items, item.get("tickers") or []),
         "version": "saved_watchlist_signals_v1",
         "source": "saved_workspace_watchlist",
         "saved_watchlist_id": item["id"],
@@ -80,49 +88,6 @@ def _signals_for_watchlist(client, item: dict) -> dict:
         "metadata": metadata,
         "summary": _summary(filtered),
         "items": filtered,
-    }
-
-
-def _delta_basis(payload: dict) -> dict[str, dict]:
-    out = {}
-    for item in (payload or {}).get("items") or []:
-        ticker = str(item.get("ticker") or "").upper().strip()
-        if ticker:
-            out[ticker] = {
-                "action": item.get("action"),
-                "score": _score(item),
-            }
-    return out
-
-
-def _signal_delta(current: dict, previous_snapshot: dict | None) -> dict:
-    previous_signals = (previous_snapshot or {}).get("signals") or {}
-    current_by_ticker = _delta_basis(current)
-    previous_by_ticker = _delta_basis(previous_signals)
-    current_tickers = set(current_by_ticker)
-    previous_tickers = set(previous_by_ticker)
-    shared = sorted(current_tickers & previous_tickers)
-    changed_actions = []
-    changed_scores = []
-    for ticker in shared:
-        prev = previous_by_ticker[ticker]
-        curr = current_by_ticker[ticker]
-        if prev.get("action") != curr.get("action"):
-            changed_actions.append({"ticker": ticker, "from": prev.get("action"), "to": curr.get("action")})
-        if abs(float(curr.get("score") or 0.0) - float(prev.get("score") or 0.0)) >= 0.1:
-            changed_scores.append({
-                "ticker": ticker,
-                "from": round(float(prev.get("score") or 0.0), 2),
-                "to": round(float(curr.get("score") or 0.0), 2),
-            })
-    return {
-        "baseline_snapshot_id": (previous_snapshot or {}).get("id"),
-        "previous_count": len(previous_tickers),
-        "current_count": len(current_tickers),
-        "added_tickers": sorted(current_tickers - previous_tickers),
-        "removed_tickers": sorted(previous_tickers - current_tickers),
-        "changed_actions": changed_actions,
-        "changed_scores": changed_scores,
     }
 
 
@@ -163,7 +128,7 @@ def run_workspace_automation(
                     alerts = pro.upsert_workspace_alerts(
                         item["key_id"], item["id"], snapshot["id"], signals,
                     )
-                    delta = _signal_delta(signals, previous)
+                    delta = signal_delta(signals, previous)
                     pro.record_workspace_activity(
                         item["key_id"],
                         "signals.snapshot.automated",

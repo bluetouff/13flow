@@ -110,3 +110,35 @@ def test_workspace_automation_respects_weekly_cadence(monkeypatch):
         due_again = run_workspace_automation(data_db, pro_db, now=now)
         assert due_again["due"] == 1
         assert _count(pro_db, "saved_watchlist_signal_snapshots") == 2
+
+
+def test_automation_batches_full_watchlists_and_rejects_partial_failure():
+    import pytest
+    from smartmoney.workspace_automation import _signals_for_watchlist
+
+    class Client:
+        def __init__(self, fail_second=False):
+            self.sizes = []
+            self.fail_second = fail_second
+
+        def get(self, path, query_string):
+            tickers = query_string["tickers"].split(",")
+            self.sizes.append(len(tickers))
+            status = 503 if self.fail_second and len(self.sizes) == 2 else 200
+
+            class Response:
+                status_code = status
+
+                def get_json(self):
+                    return {"items": [{"ticker": ticker, "action": "monitor"} for ticker in tickers]}
+
+            return Response()
+
+    watchlist = {"id": "test", "name": "Test", "tickers": [f"T{i}" for i in range(50)]}
+    client = Client()
+    result = _signals_for_watchlist(client, watchlist)
+    assert client.sizes == [25, 25]
+    assert len(result["metadata"]["observed_states"]) == 50
+    assert len(result["items"]) == 50
+    with pytest.raises(RuntimeError, match="HTTP 503"):
+        _signals_for_watchlist(Client(fail_second=True), watchlist)

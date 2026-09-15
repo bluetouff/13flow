@@ -200,6 +200,19 @@ calculation basis. Responses include `positions_total`/`positions_returned` and
 `changes_total`/`changes_returned` so clients can detect truncation deterministically.
 
 ## Alerts — real delivery
+
+The Pro workspace report compares the last two saved snapshots. It now includes
+per-ticker explanations, before/after scores and the SEC filings referenced by
+the saved movements. The first snapshot establishes a baseline; filtered list
+entries and removals are not described as purchases or sales. Manual snapshots
+and the existing scheduled runner use the same comparison logic.
+
+Saved workspace alerts automatically become `resolved` when their conditions
+stop matching, or `invalidated` when data quality blocks them. A fresh qualifying
+snapshot reactivates the alert. Acknowledgements and dismissals survive unchanged
+signals; unavailable observations do not imply a resolution. These states are
+visible through the existing workspace, reports and alert endpoints.
+
 Subscribe to a fund and get the **diff** (not just "a filing appeared") delivered when a
 new 13F lands. Channels: console (default), webhook, email.
 ```bash
@@ -481,8 +494,8 @@ separated from the web user, and a scheduled refresh) lives in [`deploy/`](deplo
 - `resolver.py` — long-tail resolver chain (OpenFIGI → CUSIP-prefix → SEC name → manual),
   confidence + provenance, retryable cache, coverage reporting.
 - `diff.py` — classifies moves by **share count**: NEW / EXIT / ADD / TRIM / HOLD.
-- `db.py` — **SQLite store**: save/load portfolios, a `latest_filings` view so amendments
-  supersede, and SQL screens (consensus holdings, conviction timeline, holders, AUM timeline).
+- `db.py` / `amendments.py` — **SQLite store**: preserve raw filings, compose declared
+  amendments, and SQL screens (consensus holdings, conviction timeline, holders, AUM timeline).
 - `analytics.py` — **consensus buys/sells** across funds (diff-based, the sharper screen).
 - `prices.py` — pluggable price/fundamentals providers: `StooqProvider` (free) + `MassiveProvider`.
 - `valuation.py` — revalue a stored portfolio at current prices: current weights, implied

@@ -43,7 +43,7 @@ def consensus_moves(
     for cik in ciks:
         cik = cik.zfill(10)
         curr = store.load_portfolio(cik, report_date)
-        if curr is None:
+        if curr is None or curr.composition_status != "complete":
             continue
         prev_q = store.previous_quarter(cik, report_date)
         prev = store.load_portfolio(cik, prev_q) if prev_q else None

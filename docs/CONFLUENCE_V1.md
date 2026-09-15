@@ -18,8 +18,13 @@ frequency, and not an expected-return estimate.
 ## Frozen universe
 
 The institutional side is the tracked 13F manager universe stored in the market SQLite DB.
-For each manager and quarter, the `latest_filings` view selects one complete-enough filing:
-later amendments supersede originals only when they retain sufficient position coverage.
+For each manager and quarter, `latest_filings` selects the latest revision.
+`portfolio_holdings` and `portfolio_filings` compose explicit `RESTATEMENT`
+(replacement) and `NEW HOLDINGS` (supplement) declarations from the cover XML.
+Raw filings and holdings remain unchanged. An unknown type, missing base or
+missing intermediate amendment excludes the affected current comparison from
+signals. Position count is not used to infer an amendment type. See
+[SEC Form 13F FAQ 58b–58c](https://www.sec.gov/rules-regulations/staff-guidance/division-investment-management-frequently-asked-questions/frequently-asked-questions-about-form-13f).
 
 The insider side is Form 4 open-market activity when a live/precomputed Confluence provider
 is explicitly configured. Production must not silently substitute sample data.

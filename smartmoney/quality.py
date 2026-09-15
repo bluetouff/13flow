@@ -10,7 +10,6 @@ from __future__ import annotations
 import math
 from typing import Any
 
-PARTIAL_AMENDMENT_MAX_POSITIONS = 3
 PARTIAL_SIGNAL_QUARTER_MIN_FUNDS = 5
 PARTIAL_SIGNAL_QUARTER_MIN_SHARE = 0.10
 STATUS_RANK = {
@@ -34,9 +33,9 @@ def _latest_rows_by_fund(store, active_ciks: set[str] | None = None) -> dict[str
     rows = store.conn.execute(
         f"""
         SELECT f.cik, fn.label, f.accession, f.report_date, f.filing_date,
-               f.form, f.total_value, f.n_positions
+               f.form, f.total_value, f.n_positions, f.composition_status, f.amendment_type
         FROM latest_filings lf
-        JOIN filings f ON f.accession = lf.accession
+        JOIN portfolio_filings f ON f.accession = lf.accession
         JOIN funds fn ON fn.cik = f.cik
         WHERE 1=1 {active_sql}
         ORDER BY fn.label, f.report_date
@@ -58,6 +57,8 @@ def _filing_payload(row: dict[str, Any]) -> dict[str, Any]:
         "form": row["form"],
         "total_value": row["total_value"],
         "n_positions": row["n_positions"],
+        "composition_status": row.get("composition_status", "complete"),
+        "amendment_type": row.get("amendment_type"),
     }
 
 
@@ -353,6 +354,21 @@ def data_quality_report(
     current_quarter = _annotate_temporal_scope(
         store, warnings, candidates, active_ciks=active_ciks,
     )
+    amendment_warnings = []
+    for cik, sequence in by_fund.items():
+        for index, filing in enumerate(sequence):
+            if filing.get("composition_status") == "complete":
+                continue
+            next_quarter = sequence[index + 1]["report_date"] if index + 1 < len(sequence) else None
+            affects_current = current_quarter in {filing["report_date"], next_quarter}
+            amendment_warnings.append({
+                "type": "incomplete_amendment_chain", "severity": "high",
+                "fund": {"cik": cik, "label": filing["label"]},
+                "filing": _filing_payload(filing),
+                "event_quarter": filing["report_date"],
+                "affects_current_quarter": affects_current,
+                "temporal_scope": "current_quarter" if affects_current else _temporal_scope(filing["report_date"], current_quarter),
+            })
     limit = max(1, min(int(limit), 500))
     current_warnings = [w for w in warnings if w["affects_current_quarter"]]
     historical_warnings = [w for w in warnings if w["temporal_scope"] == "historical"]
@@ -375,9 +391,11 @@ def data_quality_report(
     )
     current_review_items = (
         len(current_warnings) + len(stale) + len(duplicates) + len(current_candidates)
+        + sum(w["affects_current_quarter"] for w in amendment_warnings)
     )
-    historical_review_items = len(historical_warnings) + len(historical_candidates)
-    review_items = len(warnings) + len(stale) + len(duplicates) + len(candidates)
+    historical_review_items = len(historical_warnings) + len(historical_candidates) + sum(
+        w["temporal_scope"] == "historical" for w in amendment_warnings)
+    review_items = len(warnings) + len(stale) + len(duplicates) + len(candidates) + len(amendment_warnings)
     return {
         "summary": {
             "status": "review" if review_items else "ok",
@@ -391,12 +409,15 @@ def data_quality_report(
             "stale_funds": len(stale),
             "duplicate_labels": len(duplicates),
             "unit_scale_candidates": len(candidates),
+            "amendment_warnings": len(amendment_warnings),
             "current_unit_scale_candidates": len(current_candidates),
             "historical_unit_scale_candidates": len(historical_candidates),
             "current_review_items": current_review_items,
             "historical_review_items": historical_review_items,
             "outside_current_quarter_review_items": (
                 len(outside_warnings) + len(outside_candidates)
+                + sum(w["temporal_scope"] not in {"current_quarter", "historical"}
+                      for w in amendment_warnings)
             ),
             "review_items": review_items,
         },
@@ -408,6 +429,7 @@ def data_quality_report(
         "freshness_warnings": stale[:limit],
         "duplicate_label_warnings": duplicates[:limit],
         "unit_scale_candidates": candidates[:limit],
+        "amendment_warnings": amendment_warnings[:limit],
         "notes": [
             "Warnings are read-only data-quality signals, not automatic corrections.",
             "Historical findings remain visible for audit but do not by themselves fail the current-quarter signal gate.",
@@ -457,12 +479,17 @@ def quality_gate_report(
             decisions[cik]["status"] = "quarantined"
             _add_reason(decisions[cik], "missing_latest_filing")
             continue
-        if str(row.get("form") or "").endswith("/A") and int(row.get("n_positions") or 0) <= PARTIAL_AMENDMENT_MAX_POSITIONS:
-            decisions[cik]["status"] = _downgrade(decisions[cik]["status"], "quarantined")
-            _add_reason(decisions[cik], "partial_amendment_latest", {
-                "accession": row.get("accession"),
-                "n_positions": row.get("n_positions"),
-            })
+        # Both the current holdings and their comparison baseline must be complete.
+        comparison = [f for f in by_fund.get(cik, [])
+                      if current_quarter and f["report_date"] <= current_quarter]
+        for filing in comparison[-2:]:
+            if filing.get("composition_status") != "complete":
+                decisions[cik]["status"] = "quarantined"
+                _add_reason(decisions[cik], "incomplete_amendment_chain", {
+                    "accession": filing["accession"],
+                    "report_date": filing["report_date"],
+                    "composition_status": filing.get("composition_status"),
+                })
 
     for warning in stale:
         fund = warning.get("fund") or {}

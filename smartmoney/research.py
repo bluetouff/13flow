@@ -77,7 +77,7 @@ def confluence_v1_spec(code_commit: str = "unknown") -> dict[str, Any]:
         "effective_universe": {
             "institutional": (
                 "Tracked 13F managers stored in the SQLite market database; latest_filings "
-                "selects one complete-enough filing per manager and report date."
+                "selects the latest revision per manager and report date; explicit amendments are composed and incomplete chains are excluded from signals."
             ),
             "insider": (
                 "Form 4 open-market P/S issuer filings when live/precomputed Confluence is "

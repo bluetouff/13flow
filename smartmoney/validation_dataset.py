@@ -395,7 +395,7 @@ def build_validation_rows(
             by_ticker: dict[str, dict[str, Any]] = {}
             for cik in ciks:
                 curr = store.load_portfolio(cik, report_date)
-                if curr is None:
+                if curr is None or curr.composition_status != "complete":
                     continue
                 prev_q = store.previous_quarter(cik, report_date)
                 prev = store.load_portfolio(cik, prev_q) if prev_q else None

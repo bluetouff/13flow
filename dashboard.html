@@ -631,6 +631,7 @@ async function fundDetail(cik){
         ${val?`<div class="pnl ${cls(val.pnl_pct)}">${signpct(val.pnl_pct)}</div>
           <div class="num" style="font-size:11px;color:var(--faint)">implied since filing</div>`:""}
       </div></div>
+    ${d.moves_status && d.moves_status !== "available" ? '<p role="status" class="view-title">Changes unavailable: the current filing or its comparison baseline has an incomplete amendment chain. Holdings below are retained for source review.</p>' : ""}
     <div class="movechips">${["NEW","EXIT","ADD","TRIM"].map(m=>{
         const n=(d.moves[m]||[]).length; if(!n)return"";
         const ex=(d.moves[m][0]); return `<span class="mc"><span class="tag ${esc(m)}">${esc(m)}</span> ${n} · <span class="gold">${esc(ex.ticker||ex.issuer)}</span>${m==='NEW'||m==='EXIT'?' '+fmtUSD(ex.value):(ex.pct!=null?' '+signpct(ex.pct):'')}</span>`;

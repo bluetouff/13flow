@@ -54,6 +54,7 @@ from .registry import Fund, active_ciks
 from .db import Store
 from .diff import Move, diff_portfolios
 from .netsec import AddressError, validate_email_recipient
+from .workspace_changes import signal_delta, observation_metadata
 from .portfolio import Portfolio
 from .pro import APIKeyError, APIRateLimited, ProAPIStore, WorkspaceQuotaExceeded
 from .quality import data_quality_report, quality_gate_report, signal_quarter
@@ -234,7 +235,7 @@ class _StoreConfluence:
         rows = store.conn.execute(
             f"""SELECT fn.label, h.value_usd, h.weight
                 FROM latest_filings lf
-                JOIN holdings h ON h.accession=lf.accession AND h.put_call=''
+                JOIN portfolio_holdings h ON h.accession=lf.accession AND h.put_call=''
                 JOIN funds fn ON fn.cik=lf.cik
                 WHERE lf.report_date=? AND UPPER(h.ticker)=? AND fn.label IN ({placeholders})""",
             (report_date, ticker.upper(), *fund_labels),
@@ -338,7 +339,7 @@ def _enrich_confluence_cache_payload(db_path: str, payload: dict) -> dict:
             rows = store.conn.execute(
                 f"""SELECT fn.label, fn.cik, h.value_usd, h.weight
                     FROM latest_filings lf
-                    JOIN holdings h ON h.accession=lf.accession AND h.put_call=''
+                    JOIN portfolio_holdings h ON h.accession=lf.accession AND h.put_call=''
                     JOIN funds fn ON fn.cik=lf.cik
                     WHERE lf.report_date=? AND UPPER(h.ticker)=?
                       AND fn.label IN ({placeholders})""",
@@ -363,7 +364,7 @@ def _enrich_confluence_cache_payload(db_path: str, payload: dict) -> dict:
                     was_held = bool(store.conn.execute(
                         """SELECT 1
                            FROM latest_filings lf
-                           JOIN holdings h ON h.accession=lf.accession AND h.put_call=''
+                           JOIN portfolio_holdings h ON h.accession=lf.accession AND h.put_call=''
                            WHERE lf.cik=? AND lf.report_date=? AND UPPER(h.ticker)=?
                            LIMIT 1""",
                         (r["cik"], prev_date, ticker),
@@ -535,8 +536,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "2023-01-03 report values in thousands; later filings report whole dollars."
             ),
             "latest_filing_rule": (
-                "For each CIK/report_date, use the latest complete-enough accession; tiny "
-                "partial amendments do not replace fuller portfolio snapshots."
+                "For each CIK/report_date, select the latest revision. Explicit RESTATEMENT "
+                "replaces prior holdings; NEW HOLDINGS supplements the preceding complete "
+                "chain. Unclassified or incomplete amendments are excluded from signals."
             ),
             "move_classification": (
                 "Quarter-over-quarter moves are classified by share count, not value, with "
@@ -556,7 +558,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             args.append(report_date)
         row = s.conn.execute(
             f"""SELECT f.* FROM latest_filings lf
-                JOIN filings f ON f.accession=lf.accession
+                JOIN portfolio_filings f ON f.accession=lf.accession
                 {where}
                 ORDER BY lf.report_date DESC LIMIT 1""",
             tuple(args),
@@ -573,6 +575,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "report_date": row["report_date"],
             "total_value": row["total_value"],
             "n_positions": row["n_positions"],
+            "amendment_type": row.get("amendment_type"),
+            "composition_status": row.get("composition_status", "complete"),
+            "source_accessions": str(row.get("source_accessions") or row["accession"]).split(","),
         }
 
     def position_payload(p) -> dict:
@@ -921,7 +926,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                         "summary": "List saved workspace alerts",
                         "parameters": [
                             {"name": "status", "in": "query", "required": False,
-                             "schema": {"type": "string", "enum": ["open", "acknowledged", "dismissed", "all"],
+                             "schema": {"type": "string", "enum": ["open", "acknowledged", "dismissed", "resolved", "invalidated", "all"],
                                         "default": "open"}},
                             {"name": "limit", "in": "query", "required": False,
                              "schema": {"type": "integer", "minimum": 1, "maximum": 100,
@@ -939,6 +944,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                         "parameters": [{"name": "alert_id", "in": "path", "required": True,
                                         "schema": {"type": "string"}}],
                         "responses": {"200": {"description": "Workspace alert updated"},
+                                      "409": {"description": "Inactive signal; take a new snapshot to reassess"},
                                       "404": {"description": "Not found"}},
                     },
                 },
@@ -1427,6 +1433,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "form": pf.form, "aum": pf.total_value, "n_positions": len(pf.positions),
                 "quarters": s.quarters(cik),
                 "positions": pos_json, "moves": moves, "conviction": conviction,
+                "moves_status": rep.status,
+                "composition_status": pf.composition_status,
+                "source_accessions": pf.source_accessions,
             }
 
             if do_value and provider is not None:
@@ -1737,13 +1746,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         if quality_flags:
             status = "review"
             reasons.append("At least one involved fund has an active data-quality warning.")
-        partials = [
-            h for h in holders
-            if str(h.get("form") or "").endswith("/A") and int(h.get("n_positions") or 0) <= 3
-        ]
+        partials = [h for h in holders if h.get("composition_status", "complete") != "complete"]
         if partials:
             status = "review"
-            reasons.append("One or more latest holder rows come from a tiny 13F amendment.")
+            reasons.append("One or more holder rows have an incomplete amendment chain.")
         if not reasons:
             reasons.append("Latest holders come from active-registry 13F rows with no ticker-level quality warning.")
         return {
@@ -1802,12 +1808,12 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 active_sql = " AND 1=0"
             rows = [dict(r) for r in s.conn.execute(
                 f"""SELECT fn.label, lf.cik, lf.report_date, f.accession, f.filing_date,
-                          f.form, f.n_positions,
+                          f.form, f.n_positions, f.composition_status,
                           h.cusip, h.ticker, h.issuer, h.title_of_class, h.value_usd,
                           h.shares, h.weight
                    FROM latest_filings lf
-                   JOIN filings f ON f.accession=lf.accession
-                   JOIN holdings h ON h.accession=lf.accession AND h.put_call=''
+                   JOIN portfolio_filings f ON f.accession=lf.accession
+                   JOIN portfolio_holdings h ON h.accession=lf.accession AND h.put_call=''
                    JOIN funds fn ON fn.cik=lf.cik
                    WHERE lf.report_date=? AND UPPER(h.ticker)=? {active_sql}
                    ORDER BY h.value_usd DESC""",
@@ -1825,7 +1831,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 if curr_pos is None and prev_pos is None:
                     continue
                 move = _stock_move(prev_pos, curr_pos)
-                filing = filing_row_for(s, cik, latest) if curr_pos is not None else None
+                filing = filing_row_for(s, cik, latest) if curr is not None else None
                 movements.append({
                     "cik": cik,
                     "label": labels.get(cik, cik),
@@ -1853,9 +1859,31 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
 
             quality = data_quality_report(s, limit=500, active_ciks=active)
             involved_ciks = {r["cik"] for r in rows} | {m["cik"] for m in movements}
+            # Include excluded holders when assessing quality. Otherwise removing an
+            # invalid filing can misleadingly turn its previous signal into 'thin'.
+            excluded_ciks = set(gate.get("excluded_ciks") or [])
+            if excluded_ciks:
+                affected = {r["cik"] for r in s.conn.execute(
+                    """SELECT DISTINCT lf.cik FROM latest_filings lf
+                       JOIN portfolio_holdings h ON h.accession=lf.accession
+                       WHERE UPPER(h.ticker)=? AND h.put_call=''
+                         AND (lf.report_date=? OR lf.report_date=(
+                             SELECT MAX(report_date) FROM latest_filings WHERE report_date<?))""",
+                    (t, latest, latest),
+                )} & excluded_ciks
+                involved_ciks |= affected
+            else:
+                affected = set()
             quality_flags: list[dict] = []
-            for bucket in ("warnings", "freshness_warnings"):
+            for decision in gate.get("funds", []):
+                if decision["cik"] in affected:
+                    quality_flags.append({"type": "excluded_holder", "fund": {
+                        "cik": decision["cik"], "label": decision["label"]},
+                        "reasons": decision["reasons"]})
+            for bucket in ("warnings", "freshness_warnings", "amendment_warnings"):
                 for w in quality.get(bucket, []):
+                    if w.get("affects_current_quarter") is False:
+                        continue
                     if (w.get("fund") or {}).get("cik") in involved_ciks:
                         quality_flags.append(w)
             for w in quality.get("duplicate_label_warnings", []):
@@ -2068,7 +2096,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                        COUNT(DISTINCT lf.cik) AS holder_count,
                        SUM(h.value_usd) AS total_value_usd
                 FROM latest_filings lf
-                JOIN holdings h ON h.accession = lf.accession AND h.put_call = ''
+                JOIN portfolio_holdings h ON h.accession = lf.accession AND h.put_call = ''
                 WHERE lf.report_date = ?
                   AND lf.cik IN ({_placeholders(values)})
                   AND h.ticker IS NOT NULL
@@ -2239,8 +2267,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                            h.cusip, UPPER(TRIM(h.ticker)) AS ticker, h.issuer,
                            h.title_of_class, h.value_usd, h.shares, h.weight
                     FROM latest_filings lf
-                    JOIN filings f ON f.accession = lf.accession
-                    JOIN holdings h ON h.accession = lf.accession AND h.put_call = ''
+                    JOIN portfolio_filings f ON f.accession = lf.accession
+                    JOIN portfolio_holdings h ON h.accession = lf.accession AND h.put_call = ''
                     JOIN funds fn ON fn.cik = lf.cik
                     WHERE lf.report_date = ?
                       AND lf.cik IN ({_placeholders(trusted)})
@@ -2263,8 +2291,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                            h.title_of_class, h.value_usd, h.shares, h.weight
                     FROM previous_latest pl
                     JOIN latest_filings lf ON lf.cik = pl.cik AND lf.report_date = pl.report_date
-                    JOIN filings f ON f.accession = lf.accession
-                    JOIN holdings h ON h.accession = lf.accession AND h.put_call = ''
+                    JOIN portfolio_filings f ON f.accession = lf.accession
+                    JOIN portfolio_holdings h ON h.accession = lf.accession AND h.put_call = ''
                     JOIN funds fn ON fn.cik = lf.cik
                     WHERE UPPER(TRIM(h.ticker)) IN ({_placeholders(tickers)})
                     """,
@@ -2478,6 +2506,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         return {
             "metadata": {
                 "version": "saved_watchlist_signals_v1",
+                **observation_metadata(base["items"], item.get("tickers") or []),
                 "source": "saved_workspace_watchlist",
                 "saved_watchlist_id": item["id"],
                 "saved_watchlist_name": item["name"],
@@ -2495,52 +2524,6 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "blocked": len([i for i in items if i["action"] == "blocked"]),
             },
             "items": items,
-        }
-
-    def _signal_item_delta_basis(payload: dict) -> dict[str, dict]:
-        out = {}
-        for item in (payload or {}).get("items") or []:
-            ticker = str(item.get("ticker") or "").upper().strip()
-            if not ticker:
-                continue
-            out[ticker] = {
-                "action": item.get("action"),
-                "score": float((item.get("score") or {}).get("score") or 0.0),
-            }
-        return out
-
-    def _saved_watchlist_signal_delta(current: dict, previous_snapshot: dict | None) -> dict:
-        previous_signals = (previous_snapshot or {}).get("signals") or {}
-        current_by_ticker = _signal_item_delta_basis(current)
-        previous_by_ticker = _signal_item_delta_basis(previous_signals)
-        current_tickers = set(current_by_ticker)
-        previous_tickers = set(previous_by_ticker)
-        shared = sorted(current_tickers & previous_tickers)
-        changed_actions = []
-        changed_scores = []
-        for ticker in shared:
-            prev = previous_by_ticker[ticker]
-            curr = current_by_ticker[ticker]
-            if prev.get("action") != curr.get("action"):
-                changed_actions.append({
-                    "ticker": ticker,
-                    "from": prev.get("action"),
-                    "to": curr.get("action"),
-                })
-            if abs(float(curr.get("score") or 0.0) - float(prev.get("score") or 0.0)) >= 0.1:
-                changed_scores.append({
-                    "ticker": ticker,
-                    "from": round(float(prev.get("score") or 0.0), 2),
-                    "to": round(float(curr.get("score") or 0.0), 2),
-                })
-        return {
-            "baseline_snapshot_id": (previous_snapshot or {}).get("id"),
-            "previous_count": len(previous_tickers),
-            "current_count": len(current_tickers),
-            "added_tickers": sorted(current_tickers - previous_tickers),
-            "removed_tickers": sorted(previous_tickers - current_tickers),
-            "changed_actions": changed_actions,
-            "changed_scores": changed_scores,
         }
 
     def _workspace_export_payload(ps: ProAPIStore, key_id: str, *, include_signals: bool) -> dict:
@@ -2637,6 +2620,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             "open": len([a for a in alerts if a.get("status") == "open"]),
             "acknowledged": len([a for a in alerts if a.get("status") == "acknowledged"]),
             "dismissed": len([a for a in alerts if a.get("status") == "dismissed"]),
+            "resolved": len([a for a in alerts if a.get("status") == "resolved"]),
+            "invalidated": len([a for a in alerts if a.get("status") == "invalidated"]),
             "total": len(alerts),
         }
 
@@ -2689,7 +2674,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             )
             latest = history[0] if history else None
             previous = history[1] if len(history) > 1 else None
-            delta = _saved_watchlist_signal_delta((latest or {}).get("signals") or {}, previous) if latest else {
+            delta = signal_delta((latest or {}).get("signals") or {}, previous) if latest else {
                 "baseline_snapshot_id": None,
                 "previous_count": 0,
                 "current_count": 0,
@@ -2704,7 +2689,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                str(a.get("last_seen_at") or ""), str(a.get("ticker") or "")),
             )
             status_counts = _alert_status_counts(watch_alerts)
-            top_alert = watch_alerts[0] if watch_alerts else None
+            active_alerts = [a for a in watch_alerts if a["status"] in {"open", "acknowledged"}]
+            top_alert = active_alerts[0] if active_alerts else None
             sentences = []
             if latest:
                 sentences.append(
@@ -2729,7 +2715,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "previous_snapshot": _snapshot_without_signals(previous),
                 "delta": delta,
                 "alert_counts": status_counts,
-                "top_alerts": watch_alerts[:5],
+                "top_alerts": active_alerts[:5],
                 "top_signals": _workspace_signal_digest(latest, limit=5),
                 "summary_lines": sentences,
             })
@@ -2778,6 +2764,8 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         from werkzeug.exceptions import BadRequest
         value = str(raw or "open").strip().lower()
         allowed = {"open", "acknowledged", "dismissed"}
+        if allow_all:
+            allowed |= {"resolved", "invalidated"}
         if allow_all and value == "all":
             return None
         if value not in allowed:
@@ -3701,6 +3689,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                     w for w in quality["warnings"] if w["fund"]["cik"] == cik
                 ]
                 fund_warnings.extend(
+                    w for w in quality.get("amendment_warnings", []) if w["fund"]["cik"] == cik
+                )
+                fund_warnings.extend(
                     w for w in quality.get("freshness_warnings", [])
                     if w["fund"]["cik"] == cik
                 )
@@ -3748,6 +3739,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                         "positions": [position_payload(p) for p in positions[:limit_positions]],
                     },
                     "moves": {
+                        "status": diff.status,
                         "previous_report_date": prev_q,
                         "current_report_date": pf.report_date,
                         "counts": counts,
@@ -3933,7 +3925,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             payload = request.get_json(silent=True) or {}
             status = _clean_workspace_alert_status(payload.get("status"))
             with ProAPIStore(pro_db_path) as ps:
-                alert = ps.update_workspace_alert_status(key.key_id, alert_id, status)
+                try:
+                    alert = ps.update_workspace_alert_status(key.key_id, alert_id, status)
+                except ValueError as exc:
+                    return jsonify({"error": "inactive_alert", "detail": str(exc)}), 409
                 if alert is not None:
                     event_type = "alert.reopened" if status == "open" else f"alert.{status}"
                     ps.record_workspace_activity(
@@ -4157,7 +4152,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 alerts = ps.upsert_workspace_alerts(
                     key.key_id, watchlist_id, snapshot["id"], signals,
                 )
-                delta = _saved_watchlist_signal_delta(signals, previous)
+                delta = signal_delta(signals, previous)
                 ps.record_workspace_activity(
                     key.key_id,
                     "signals.snapshot",
@@ -4663,7 +4658,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             accession_rows = s.conn.execute(
                 f"""SELECT f.accession, f.cik, fn.label, f.form, f.report_date, f.filing_date
                    FROM latest_filings lf
-                   JOIN filings f ON f.accession=lf.accession
+                   JOIN portfolio_filings f ON f.accession=lf.accession
                    LEFT JOIN funds fn ON fn.cik=f.cik
                    {accession_filter}
                    ORDER BY f.report_date DESC, f.filing_date DESC, f.accession DESC
@@ -6691,10 +6686,12 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                COUNT(DISTINCT f.cik) AS fund_count,
                                SUM(COALESCE(h.value_usd, 0)) AS value_usd,
                                COUNT(*) AS position_count
-                        FROM holdings h
-                        JOIN filings f ON f.accession = h.accession
+                        FROM latest_filings lf
+                        JOIN portfolio_holdings h ON h.accession = lf.accession
+                        JOIN portfolio_filings f ON f.accession = lf.accession
                         JOIN latest l ON l.cik = f.cik AND l.report_date = f.report_date
-                        WHERE COALESCE(NULLIF(h.ticker, ''), h.cusip) IS NOT NULL
+                        WHERE f.composition_status = 'complete'
+                          AND COALESCE(NULLIF(h.ticker, ''), h.cusip) IS NOT NULL
                         GROUP BY symbol
                         ORDER BY value_usd DESC, fund_count DESC, symbol ASC
                         LIMIT 250
@@ -6708,7 +6705,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 "generated_at": _now_iso(),
                 "git_sha": _git_sha(),
                 "artifact_type": "trust_layer_not_alpha",
-                "scope": "latest public 13F holdings aggregated by symbol across tracked active funds",
+                "scope": "latest complete public 13F portfolios aggregated by symbol across tracked active funds",
                 "ticker_count": len(rows),
                 "sample_limit": 250,
                 "larger_than_legacy_25_ticker_validation_sample": len(rows) > 25,
@@ -7251,7 +7248,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                 f"""SELECT UPPER(h.ticker) ticker, MAX(h.issuer) issuer,
                           COUNT(DISTINCT lf.cik) holders, SUM(h.value_usd) value_usd
                    FROM latest_filings lf
-                   JOIN holdings h ON h.accession=lf.accession AND h.put_call=''
+                   JOIN portfolio_holdings h ON h.accession=lf.accession AND h.put_call=''
                    WHERE lf.report_date=? AND h.ticker IS NOT NULL AND h.ticker<>''
                    {active_sql}
                    GROUP BY UPPER(h.ticker)
@@ -8191,12 +8188,12 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
         <div id="workspaceSignals" class="workspace-table"><p class="workspace-empty">Select a watchlist.</p></div>
       </section>
       <section class="workspace-panel">
-        <h2>Workspace Report</h2>
+        <h2>Changes between snapshots</h2>
         <div id="workspaceReport" class="workspace-list"><p class="workspace-empty">No report loaded.</p></div>
       </section>
       <section class="workspace-panel">
         <div class="workspace-toolbar"><h2>Alerts</h2><div class="workspace-actions">
-          <select id="workspaceAlertStatus"><option value="open">Open</option><option value="acknowledged">Ack</option><option value="dismissed">Dismissed</option><option value="all">All</option></select>
+          <select id="workspaceAlertStatus" aria-label="Alert status"><option value="open">Open</option><option value="acknowledged">Ack</option><option value="dismissed">Dismissed</option><option value="resolved">Resolved</option><option value="invalidated">Invalidated</option><option value="all">All</option></select>
           <input id="workspaceAlertTicker" type="search" inputmode="search" maxlength="12" placeholder="Ticker" aria-label="Ticker filter">
           <input id="workspaceAlertMinSeverity" type="number" inputmode="numeric" min="0" max="100" placeholder="Priority" aria-label="Minimum priority">
           <input id="workspaceAlertMinScore" type="number" inputmode="decimal" min="0" max="100" placeholder="Score" aria-label="Minimum score">
@@ -8350,9 +8347,10 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
       <td><a href="/stocks/${esc(a.ticker)}">${esc(a.ticker)}</a></td><td class="num">${esc(a.severity)}</td><td class="num">${esc(alertScoreLabel(a))}</td><td><span class="pill">${esc(a.status)}</span></td><td>${esc(a.action)}</td><td class="workspace-mini">${esc(a.last_seen_at)}</td>
       <td><div class="workspace-actions">
         <button class="workspace-button primary" type="button" data-alert-detail="${esc(a.id)}">Details</button>
+        ${["resolved", "invalidated"].includes(a.status) ? "" : `
         <button class="workspace-button" type="button" data-alert="${esc(a.id)}" data-status="acknowledged">Ack</button>
         <button class="workspace-button warn" type="button" data-alert="${esc(a.id)}" data-status="dismissed">Dismiss</button>
-        <button class="workspace-button" type="button" data-alert="${esc(a.id)}" data-status="open">Reopen</button>
+        <button class="workspace-button" type="button" data-alert="${esc(a.id)}" data-status="open">Reopen</button>`}
       </div></td>
     </tr>`).join("")}</tbody></table>`;
     renderAlertDetail(state.alerts.find((a) => a.id === state.selectedAlertId) || visible[0]);
@@ -8363,6 +8361,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
       return;
     }
     const reason = alert.reason || {};
+    const lifecycle = reason.lifecycle || {};
     const summary = reason.movement_summary || {};
     const triggers = reason.triggers || [];
     const moves = reason.movement_codes || [];
@@ -8372,6 +8371,9 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
       <div><b>${esc(alert.severity)}</b><span>Priority</span></div>
       <div><b>${esc(reason.confidence || "-")}</b><span>Confidence</span></div>
     </div>
+    <p><span class="pill">${esc(lifecycle.state || "active")}</span> ${esc(lifecycle.detail || "")}</p>
+    ${lifecycle.changed_at ? `<p class="workspace-mini">Updated ${esc(lifecycle.changed_at)}</p>` : ""}
+    <p>${sourceLinks(reason.sources || [])}</p>
     <p>${moves.map((x) => `<span class="pill">${esc(x)}</span>`).join("") || '<span class="pill">no move code</span>'}</p>
     <p class="workspace-mini">holders=${esc(number(summary.holder_count))} buyers=${esc(number(summary.buyers_count))} sellers=${esc(number(summary.sellers_count))} new=${esc(number(summary.new_positions))} exits=${esc(number(summary.exits))}</p>
     <div class="workspace-list">${triggers.length ? triggers.map((t) => `<article class="workspace-row"><h3>${esc(t.code || t.severity || "trigger")}</h3><p>${esc(t.detail || "")}</p><p><span class="pill">${esc(t.severity || "-")}</span></p></article>`).join("") : '<p class="workspace-empty">No trigger detail.</p>'}</div>
@@ -8393,6 +8395,18 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
       return `<tr><td class="workspace-mini">${esc(s.created_at)}</td><td>${esc((s.tickers || []).join(", "))}</td><td class="num">${esc(number(summary.alerts))}</td><td class="num">${esc(number(summary.watch))}</td></tr>`;
     }).join("")}</tbody></table>`;
   }
+  function sourceLinks(sources=[]) {
+    return sources.filter((source) => /^[0-9]{1,10}$/.test(String(source.cik || "")) && /^[0-9]{10}-[0-9]{2}-[0-9]{6}$/.test(String(source.accession || ""))).map((source) => {
+      const url = `https://www.sec.gov/Archives/edgar/data/${Number(source.cik)}/${source.accession.replaceAll("-", "")}/`;
+      return `<a href="${url}" target="_blank" rel="noopener noreferrer">SEC ${esc(source.accession)}</a>`;
+    }).join(" · ");
+  }
+  function snapshotTime(value) {
+    const date = new Date(value);
+    if (!value || !Number.isFinite(date.getTime())) return "Unavailable";
+    const label = date.toLocaleString(undefined, {year:"numeric", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit", timeZoneName:"short"});
+    return `<time datetime="${esc(value)}" title="${esc(value)}">${esc(label)}</time>`;
+  }
   function renderWorkspaceReport(payload={}) {
     const reports = payload.watchlists || [];
     if (!reports.length) {
@@ -8406,9 +8420,24 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
       const lines = (entry.summary_lines || []).map((line) => `<p>${esc(line)}</p>`).join("");
       const alerts = (entry.top_alerts || []).slice(0, 3).map((a) => `<span class="pill">${esc(a.ticker)} ${esc(a.action)} p${esc(a.severity)}</span>`).join("") || '<span class="pill">no alert</span>';
       const signals = (entry.top_signals || []).slice(0, 5).map((s) => `<span class="pill">${esc(s.ticker)} ${esc(s.action)} ${esc(s.score ?? "-")}</span>`).join("") || '<span class="pill">no signal</span>';
+      const events = delta.events || [];
+      const changes = events.map((event) => {
+        const before = event.before;
+        const after = event.after;
+        const describe = (value) => value ? `${esc(value.action || "Unavailable")} · score ${esc(value.score ?? "Unavailable")}` : (event.state === "baseline" ? "No earlier snapshot" : event.state === "unavailable" ? "No comparable observation" : "Outside filtered list");
+        return `<article class="workspace-row">
+          <h4>${esc(event.ticker)} <span class="pill">${esc(event.state)}</span></h4>
+          <p>${describe(before)} → ${describe(after)}</p>
+          ${(event.reasons || []).map((reason) => `<p>${esc(reason)}</p>`).join("")}
+          ${(event.sources_before || []).length ? `<p class="workspace-mini">Previous sources: ${sourceLinks(event.sources_before)}</p>` : ""}
+          ${(event.sources_after || []).length ? `<p class="workspace-mini">Current sources: ${sourceLinks(event.sources_after)}</p>` : ""}
+        </article>`;
+      }).join("");
       return `<article class="workspace-row">
         <div class="workspace-row-top"><h3>${esc(watchlist.name || "Watchlist")}</h3><span class="workspace-mini">${esc((watchlist.tickers || []).length)} tickers</span></div>
         ${lines}
+        <p class="workspace-mini">${delta.baseline_created_at ? `Compared with ${snapshotTime(delta.baseline_created_at)}` : "First snapshot establishes the baseline"}${entry.latest_snapshot ? ` · latest ${snapshotTime(entry.latest_snapshot.created_at)}` : ""}</p>
+        ${changes ? `<details open><summary>${esc(events.length)} observed change(s)</summary>${changes}</details>` : `<p>${entry.previous_snapshot ? "No observed change between the saved snapshots." : "Save two snapshots to compare changes."}</p>`}
         <p><span class="pill">added:${esc((delta.added_tickers || []).length)}</span><span class="pill">removed:${esc((delta.removed_tickers || []).length)}</span><span class="pill">action changes:${esc((delta.changed_actions || []).length)}</span></p>
         <p>${alerts}</p>
         <p>${signals}</p>
@@ -8588,7 +8617,7 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
   $("workspaceAlertMinScore").addEventListener("input", refreshAlertFilters);
   $("workspaceAlertSort").addEventListener("change", refreshAlertFilters);
   async function updateVisibleAlerts(status) {
-    const ids = state.alerts.map((a) => a.id).filter(Boolean).slice(0, 50);
+    const ids = state.alerts.filter((a) => !["resolved", "invalidated"].includes(a.status)).map((a) => a.id).filter(Boolean).slice(0, 50);
     if (!ids.length) return;
     setStatus(`Updating ${ids.length} alert(s)...`);
     for (const id of ids) {

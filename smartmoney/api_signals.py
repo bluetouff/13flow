@@ -73,7 +73,7 @@ def default_methodology_metadata() -> dict:
         "effective_universe": {
             "institutional": (
                 "Tracked 13F managers stored in the market database; latest_filings selects "
-                "one complete-enough filing per manager and report date."
+                "the latest revision per manager and report date; explicit amendments are composed and incomplete chains are excluded from signals."
             ),
             "insider": (
                 "Production Confluence scans Form 4 only for tickers with meaningful "

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass
@@ -50,6 +51,8 @@ class Filing:
     filing_date: str        # YYYY-MM-DD (date filed)
     report_date: str        # YYYY-MM-DD (period of report = quarter end)
     primary_doc: str        # primary_doc.xml (cover page), not the holdings table
+    amendment_type: str | None = None
+    amendment_number: int | None = None
 
     @property
     def accession_nodash(self) -> str:
@@ -196,4 +199,18 @@ class EdgarClient:
         raise FileNotFoundError(
             f"No information table found in {filing.accession} (form {filing.form}). "
             "Some 13F-NT / confidential-treatment filings legitimately omit it."
+        )
+
+    def fetch_amendment_metadata(self, filing: Filing) -> None:
+        """Read the declared amendment type from the filing's raw cover XML."""
+        from .parser import parse_amendment_metadata
+        if not re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", filing.accession):
+            raise ValueError("invalid SEC accession")
+        # EDGAR may give an XSL-rendered path; request only the raw XML basename.
+        name = filing.primary_doc.rsplit("/", 1)[-1]
+        if not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*\.xml", name):
+            raise ValueError("invalid SEC cover document")
+        base = f"{WWW_HOST}/Archives/edgar/data/{int(filing.cik)}/{filing.accession_nodash}"
+        filing.amendment_type, filing.amendment_number = parse_amendment_metadata(
+            self.get_text(f"{base}/{name}")
         )

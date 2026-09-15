@@ -17,6 +17,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+from .workspace_changes import score, signal_state, filing_sources
 
 KEY_PREFIX = "13flow_live"
 KEY_HASH_HMAC_PREFIX = "hmac-sha256:"
@@ -1432,21 +1433,27 @@ class ProAPIStore:
     ) -> dict:
         now = _now().isoformat(timespec="microseconds")
         candidates = []
+        items = {i["ticker"]: i for i in (signals or {}).get("items") or []}
+        metadata = signals.get("metadata") or {}
         severity_by_action = {"alert": 3, "watch": 2}
-        for item in (signals or {}).get("items") or []:
+        for item in items.values():
             action = str(item.get("action") or "").lower()
             if action not in severity_by_action:
                 continue
             ticker = str(item.get("ticker") or "").upper().strip()
             if not ticker:
                 continue
+            if signal_state(item, metadata, ticker)[0] != "active":
+                continue
             reason = {
-                "score": (item.get("score") or {}).get("score"),
+                "score": score(item),
                 "confidence": (item.get("confidence") or {}).get("status"),
                 "movement_codes": list(item.get("movement_codes") or []),
                 "movement_summary": item.get("movement_summary") or {},
                 "triggers": item.get("triggers") or [],
                 "latest_13f_quarter": item.get("latest_13f_quarter"),
+                "sources": filing_sources(item),
+                "lifecycle": {"state": "active", "detail": "The signal meets the watchlist conditions."},
             }
             candidates.append({
                 "id": secrets.token_hex(8),
@@ -1456,7 +1463,42 @@ class ProAPIStore:
                 "reason": reason,
             })
         with self.conn:
+            # Serialize read/modify/write and ignore a snapshot superseded by another worker.
+            self.conn.execute("BEGIN IMMEDIATE")
+            latest = self.list_signal_snapshots(key_id, watchlist_id, limit=1)
+            if not latest or latest[0]["id"] != snapshot_id:
+                return {"candidates": 0, "skipped": "superseded_snapshot"}
+            existing = [self._workspace_alert_row(r) for r in self.conn.execute(
+                "SELECT * FROM saved_workspace_alerts WHERE key_id=? AND watchlist_id=?",
+                (key_id, watchlist_id),
+            )]
+            by_identity = {(a["ticker"], a["action"]): a for a in existing}
+            for old in existing:
+                item = items.get(old["ticker"])
+                state, detail = signal_state(item, metadata, old["ticker"])
+                if state == "active" and item["action"] != old["action"]:
+                    state, detail = "resolved", "Alert level changed; follow the current alert for this ticker."
+                if state not in {"resolved", "invalidated"} or old["status"] == state:
+                    continue
+                reason = dict(old["reason"])
+                reason["lifecycle"] = {"state": state, "detail": detail, "changed_at": now}
+                self.conn.execute(
+                    """UPDATE saved_workspace_alerts SET status=?, reason_json=?, snapshot_id=?
+                       WHERE key_id=? AND watchlist_id=? AND id=?""",
+                    (state, _json_compact(reason), snapshot_id, key_id, watchlist_id, old["id"]),
+                )
             for alert in candidates:
+                old = by_identity.get((alert["ticker"], alert["action"]))
+                old_score = (old or {}).get("reason", {}).get("score")
+                new_score = alert["reason"]["score"]
+                lifecycle = alert["reason"]["lifecycle"]
+                if old and old["status"] in {"resolved", "invalidated"}:
+                    lifecycle.update(state="reactivated", detail="The signal meets the watchlist conditions again.", changed_at=now)
+                elif old_score is not None and new_score is not None and abs(new_score - old_score) >= .1 - 1e-9:
+                    lifecycle.update(state="strengthened" if new_score > old_score else "weakened",
+                                     detail=f"Screening score: {old_score:g} to {new_score:g}.", changed_at=now)
+                elif old and old["reason"].get("lifecycle"):
+                    alert["reason"]["lifecycle"] = old["reason"]["lifecycle"]
                 self.conn.execute(
                     """INSERT INTO saved_workspace_alerts(
                            id,key_id,watchlist_id,snapshot_id,ticker,action,severity,
@@ -1466,7 +1508,13 @@ class ProAPIStore:
                            snapshot_id=excluded.snapshot_id,
                            severity=excluded.severity,
                            reason_json=excluded.reason_json,
-                           last_seen_at=excluded.last_seen_at""",
+                           last_seen_at=excluded.last_seen_at,
+                           status=CASE WHEN saved_workspace_alerts.status IN ('resolved','invalidated')
+                                       THEN 'open' ELSE saved_workspace_alerts.status END,
+                           acknowledged_at=CASE WHEN saved_workspace_alerts.status IN ('resolved','invalidated')
+                                                THEN NULL ELSE saved_workspace_alerts.acknowledged_at END,
+                           dismissed_at=CASE WHEN saved_workspace_alerts.status IN ('resolved','invalidated')
+                                             THEN NULL ELSE saved_workspace_alerts.dismissed_at END""",
                     (
                         alert["id"], key_id, watchlist_id, snapshot_id, alert["ticker"],
                         alert["action"], alert["severity"], "open",
@@ -1479,6 +1527,8 @@ class ProAPIStore:
             "open": counts["by_status"].get("open", 0),
             "acknowledged": counts["by_status"].get("acknowledged", 0),
             "dismissed": counts["by_status"].get("dismissed", 0),
+            "resolved": counts["by_status"].get("resolved", 0),
+            "invalidated": counts["by_status"].get("invalidated", 0),
         }
 
     def list_workspace_alerts(
@@ -1514,6 +1564,13 @@ class ProAPIStore:
         status: str,
     ) -> Optional[dict]:
         now = _now().isoformat(timespec="microseconds")
+        if status not in {"open", "acknowledged", "dismissed"}:
+            raise ValueError("invalid alert status")
+        current = self.conn.execute(
+            "SELECT status FROM saved_workspace_alerts WHERE key_id=? AND id=?", (key_id, alert_id),
+        ).fetchone()
+        if current and current["status"] in {"resolved", "invalidated"}:
+            raise ValueError("inactive signal; create a fresh snapshot to reassess it")
         if status == "open":
             acknowledged_at = None
             dismissed_at = None
@@ -1531,7 +1588,7 @@ class ProAPIStore:
             cur = self.conn.execute(
                 """UPDATE saved_workspace_alerts
                    SET status=?, acknowledged_at=?, dismissed_at=?
-                   WHERE key_id=? AND id=?""",
+                   WHERE key_id=? AND id=? AND status NOT IN ('resolved','invalidated')""",
                 (status, acknowledged_at, dismissed_at, key_id, alert_id),
             )
         if cur.rowcount == 0:
@@ -1556,6 +1613,8 @@ class ProAPIStore:
                 "open": by_status.get("open", 0),
                 "acknowledged": by_status.get("acknowledged", 0),
                 "dismissed": by_status.get("dismissed", 0),
+                "resolved": by_status.get("resolved", 0),
+                "invalidated": by_status.get("invalidated", 0),
             },
         }
 

@@ -69,6 +69,8 @@ class Tracker:
         return resolved
 
     def portfolio_for_filing(self, fund: Fund, filing: Filing) -> Portfolio:
+        if filing.form == "13F-HR/A":
+            self.client.fetch_amendment_metadata(filing)
         xml = self.client.fetch_info_table_xml(filing)
         raw = parse_info_table(xml)
         pf = build_portfolio(
@@ -100,33 +102,6 @@ class Tracker:
         prev = self.portfolio_for_filing(fund, filings[1])
         return diff_portfolios(prev, curr)
 
-    @staticmethod
-    def _preferred_filings_by_quarter(filings: list[Filing]) -> list[Filing]:
-        """One representative filing per report date, newest quarters first.
-
-        EDGAR can publish partial 13F-HR/A corrections long after the original
-        13F-HR. For bounded backfills, group first by report date and prefer the
-        original 13F-HR so a late one-line amendment does not crowd the full
-        quarter out of the MAXQ window.
-        """
-        by_report_date: dict[str, list[Filing]] = {}
-        for filing in filings:
-            by_report_date.setdefault(filing.report_date, []).append(filing)
-
-        preferred: list[Filing] = []
-        for report_date, candidates in by_report_date.items():
-            candidates.sort(
-                key=lambda f: (
-                    0 if f.form.endswith("/A") else 1,
-                    f.filing_date or "",
-                    f.accession,
-                ),
-                reverse=True,
-            )
-            preferred.append(candidates[0])
-        preferred.sort(key=lambda f: (f.report_date, f.filing_date or "", f.accession), reverse=True)
-        return preferred
-
     def sync_fund(self, store: Store, fund: Fund, max_quarters: int | None = None,
                   force: bool = False, report_date: str | None = None) -> int:
         """
@@ -141,10 +116,15 @@ class Tracker:
         filings = self.client.list_13f_filings(cik, include_amendments=True)
         if report_date is not None:
             filings = [f for f in filings if f.report_date == report_date]
-        filings = self._preferred_filings_by_quarter(filings)
+        quarters = sorted({f.report_date for f in filings}, reverse=True)
         if max_quarters is not None:
-            filings = filings[:max_quarters]
+            quarters = quarters[:max_quarters]
+        filings = sorted(
+            (f for f in filings if f.report_date in quarters),
+            key=lambda f: (f.report_date, f.filing_date or "", f.accession),
+        )
         already = store.stored_accessions(cik) if not force else set()
+        already -= store.unclassified_amendments(cik)
         saved = 0
         for filing in filings:
             if filing.accession in already:

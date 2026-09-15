@@ -116,7 +116,7 @@ db.py (Store, SQLite WAL)  ◄── tracker.py     crosssignal.build_confluence
                                           cache JSON confluence-{30,90,180}.json
 ```
 
-**Côté 13F** : `tracker.sync_fund` liste les dépôts d'un fonds (`edgar`), parse l'info-table (`parser`), résout les CUSIP en tickers (`resolver` + `figi`/OpenFIGI, avec cache), et persiste (`db.Store`). Idempotent : les dépôts déjà stockés sont sautés.
+**Côté 13F** : `tracker.sync_fund` liste les dépôts d'un fonds (`edgar`), parse l'info-table (`parser`), résout les CUSIP en tickers (`resolver` + `figi`/OpenFIGI, avec cache), et persiste (`db.Store`). Chaque trimestre sélectionné conserve tous ses dépôts. Idempotent : les dépôts déjà stockés sont sautés, sauf les anciens amendements dont la couverture SEC reste à lire. Un `RESTATEMENT` remplace le portefeuille ; `NEW HOLDINGS` complète une chaîne connue. Une chaîne incomplète reste visible pour audit et bloque les signaux concernés.
 
 **Côté Form 4** : le provider live (`api._StoreConfluence`) prend les tickers que les fonds **accumulent au dernier trimestre**, mappe ticker → CIK émetteur via `company_tickers.json`, récupère les Form 4 récents et agrège **uniquement les achats open-market** (codes P/S ; les attributions/exercices d'options sont exclus).
 
@@ -133,6 +133,10 @@ holdings(accession→filings ON DELETE CASCADE, cusip, put_call,
          PK(accession, cusip, put_call))                  -- index cusip, ticker
 subscriptions(...)  deliveries(...)                       -- alertes CLI diff, hors navigateur public
 VIEW latest_filings(cik, report_date, accession)          -- dernier accession par trimestre
+filing_revisions(accession PK, amendment_type, amendment_number, status)
+filing_components(accession, source_accession)            -- sources des compléments
+VIEW portfolio_filings                                  -- métadonnées composées
+VIEW portfolio_holdings                                 -- positions composées, brut conservé
 ```
 
 Le mode **WAL** accélère l'ingestion ; mais le tier web ouvre la base en `mode=ro`, ce qui exige de **« publier »** la base après écriture : `PRAGMA wal_checkpoint(TRUNCATE)` **+** `PRAGMA journal_mode=DELETE` (sinon l'ouverture lecture-seule échoue → page Funds cassée). Les scripts `deploy/backfill.sh` et `deploy/refresh-data.sh` le font automatiquement.
@@ -317,7 +321,7 @@ db.py (Store, SQLite WAL) ◄ tracker.py        crosssignal.build_confluence() �
                                           confluence-{30,90,180}.json (cache)
 ```
 
-**13F side:** `tracker.sync_fund` lists a fund's filings (`edgar`), parses the info-table (`parser`), resolves CUSIPs to tickers (`resolver` + `figi`/OpenFIGI, cached), and persists (`db.Store`). Idempotent: stored filings are skipped.
+**13F side:** `tracker.sync_fund` lists a fund's filings (`edgar`), parses the info-table (`parser`), resolves CUSIPs to tickers (`resolver` + `figi`/OpenFIGI, cached), and persists (`db.Store`). Each selected quarter retains every filing. Idempotent: stored filings are skipped, except legacy amendments whose SEC cover metadata has not been fetched. A `RESTATEMENT` replaces the portfolio; `NEW HOLDINGS` supplements a known chain. Incomplete chains remain available for audit and block affected signals.
 
 **Form 4 side:** the live provider (`api._StoreConfluence`) takes tickers funds **accumulated last quarter**, maps ticker → issuer CIK via `company_tickers.json`, fetches recent Form 4s, and aggregates **open-market buys only** (P/S codes; option grants/exercises excluded).
 
@@ -334,6 +338,10 @@ holdings(accession→filings ON DELETE CASCADE, cusip, put_call,
          PK(accession, cusip, put_call))                  -- index cusip, ticker
 subscriptions(...)  deliveries(...)                       -- CLI diff alerts, outside public browser surface
 VIEW latest_filings(cik, report_date, accession)
+filing_revisions(accession PK, amendment_type, amendment_number, status)
+filing_components(accession, source_accession)            -- supplemental sources
+VIEW portfolio_filings                                  -- composed metadata
+VIEW portfolio_holdings                                 -- composed positions; raw retained
 ```
 
 **WAL** speeds ingestion, but the web tier opens the DB `mode=ro`, which requires **"publishing"** the DB after writes: `PRAGMA wal_checkpoint(TRUNCATE)` **+** `PRAGMA journal_mode=DELETE` (otherwise the read-only open fails → broken Funds page). `deploy/backfill.sh` and `deploy/refresh-data.sh` do this automatically.

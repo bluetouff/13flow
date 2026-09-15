@@ -671,7 +671,7 @@ def test_static_research_pages_public_openapi_and_mcp(monkeypatch):
         assert "Edit Watchlist" in pro_workspace_page
         assert "Save changes" in pro_workspace_page
         assert "workspaceCancelEdit" in pro_workspace_page
-        assert "Workspace Report" in pro_workspace_page
+        assert "Changes between snapshots" in pro_workspace_page
         assert "workspaceReportRefresh" in pro_workspace_page
         assert "renderWorkspaceReport" in pro_workspace_page
         assert "/workspace/report?watchlist_id=" in pro_workspace_page

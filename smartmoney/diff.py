@@ -48,6 +48,7 @@ class DiffReport:
     prev_period: str
     curr_period: str
     changes: list[Change]
+    status: str = "available"
 
     def by_move(self, move: Move) -> list[Change]:
         sub = [c for c in self.changes if c.move == move]
@@ -64,6 +65,9 @@ def diff_portfolios(prev: Portfolio, curr: Portfolio, hold_epsilon: float = 0.00
     hold_epsilon: relative share change below which we treat a position as HOLD,
     to swallow rounding noise (e.g. 0.5%).
     """
+    if prev.composition_status != "complete" or curr.composition_status != "complete":
+        return DiffReport(curr.fund_label, prev.report_date, curr.report_date, [],
+                          status="incomplete_amendment_chain")
     keys = set(prev.positions) | set(curr.positions)
     changes: list[Change] = []
 

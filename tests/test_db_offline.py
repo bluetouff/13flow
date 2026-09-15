@@ -22,10 +22,12 @@ from tests.test_offline import _table
 AAPL, KO, NVDA, MSFT = "037833100", "191216100", "67066G104", "594918104"
 
 
-def _save(store, cik, label, manager, accession, form, fdate, rdate, rows):
+def _save(store, cik, label, manager, accession, form, fdate, rdate, rows,
+          amendment_type=None, amendment_number=None):
     pf = build_portfolio(cik, label, rdate, form, parse_info_table(_table(rows)))
     filing = Filing(cik=cik, accession=accession, form=form,
-                    filing_date=fdate, report_date=rdate, primary_doc="primary_doc.xml")
+                    filing_date=fdate, report_date=rdate, primary_doc="primary_doc.xml",
+                    amendment_type=amendment_type, amendment_number=amendment_number)
     store.save_portfolio(pf, filing, manager=manager)
     return pf
 
@@ -49,7 +51,7 @@ def test_round_trip_and_amendment_supersede():
         # Amendment for the SAME quarter, later filing_date, different holdings.
         _save(store, cik, "Fund One", "PM One", "0001-24-000002", "13F-HR/A",
               "2024-03-15", "2024-03-31",
-              [("APPLE INC", AAPL, 1200, 120, "")])  # restated: KO dropped, AAPL up
+              [("APPLE INC", AAPL, 1200, 120, "")], "RESTATEMENT", 1)
 
         pf2 = store.load_portfolio(cik, "2024-03-31")
         assert len(pf2.positions) == 1, "amendment should supersede the original"
@@ -57,7 +59,7 @@ def test_round_trip_and_amendment_supersede():
         assert store.quarters(cik) == ["2024-03-31"]  # still one quarter, two filings
 
 
-def test_partial_amendment_does_not_replace_full_snapshot():
+def test_unknown_amendment_is_explicit_and_restatement_can_be_small():
     with tempfile.TemporaryDirectory() as d:
         store = Store(str(Path(d) / "s.db"))
         cik = "0000000001"
@@ -74,18 +76,16 @@ def test_partial_amendment_does_not_replace_full_snapshot():
               [("APPLE INC", AAPL, 1000, 100, "")])
 
         pf = store.load_portfolio(cik, "2024-09-30")
-        assert len(pf.positions) == 4
-        assert pf.form == "13F-HR"
+        assert pf.composition_status == "unknown_amendment"
+        assert store.get_filing("0001-24-000001")["n_positions"] == 4
 
         _save(store, cik, "Fund One", "PM One", "0001-25-000002", "13F-HR/A",
               "2025-03-01", "2024-09-30",
-              [("APPLE INC", AAPL, 1200, 120, ""),
-               ("COCA COLA", KO, 600, 60, ""),
-               ("NVIDIA", NVDA, 450, 45, ""),
-               ("MICROSOFT", MSFT, 300, 30, "")])
+              [("APPLE INC", AAPL, 1200, 120, "")], "RESTATEMENT", 2)
 
         pf2 = store.load_portfolio(cik, "2024-09-30")
-        assert len(pf2.positions) == 4
+        assert len(pf2.positions) == 1
+        assert pf2.composition_status == "complete"
         assert pf2.form == "13F-HR/A"
         assert pf2.positions[(AAPL, "")].shares == 120
 
@@ -178,7 +178,7 @@ def test_force_sync_replaces_existing_filing():
         assert store.load_portfolio("0000000001").total_value == 2000
 
 
-def test_sync_max_quarters_groups_by_report_date_and_prefers_original_filing():
+def test_sync_max_quarters_keeps_amendments_in_selected_quarter():
     class FakeClient:
         def resolve_cik(self, _):
             return "0000000001"
@@ -205,6 +205,9 @@ def test_sync_max_quarters_groups_by_report_date_and_prefers_original_filing():
             }
             return _table(values[filing.accession])
 
+        def fetch_amendment_metadata(self, filing):
+            filing.amendment_type, filing.amendment_number = "NEW HOLDINGS", 1
+
     with tempfile.TemporaryDirectory() as d:
         store = Store(str(Path(d) / "maxq.db"))
         client = FakeClient()
@@ -215,13 +218,16 @@ def test_sync_max_quarters_groups_by_report_date_and_prefers_original_filing():
         })()
 
         try:
-            assert tracker.sync_fund(store, fund, max_quarters=1) == 1
+            assert tracker.sync_fund(store, fund, max_quarters=1) == 2
             rows = store.conn.execute(
                 "SELECT accession, form, n_positions, total_value FROM filings"
             ).fetchall()
             assert [(r["accession"], r["form"], r["n_positions"], r["total_value"]) for r in rows] == [
                 ("A2", "13F-HR", 2, 1500.0),
+                ("A2A", "13F-HR/A", 1, 17.0),
             ]
+            assert store.load_portfolio("0000000001").total_value == 1517.0
+            assert tracker.sync_fund(store, fund, max_quarters=1) == 0
         finally:
             store.close()
 

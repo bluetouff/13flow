@@ -96,3 +96,23 @@ def parse_info_table(xml: str) -> list[RawHolding]:
             )
         )
     return holdings
+
+
+def parse_amendment_metadata(xml: str) -> tuple[str | None, int | None]:
+    """Unknown or contradictory cover metadata stays unknown, never inferred by size."""
+    root = _parse_xml(xml)
+    _strip_ns(root)
+    cover = root.find(".//coverPage")
+    if cover is None or _text(cover, "isAmendment").lower() not in {"true", "1"}:
+        return None, None
+    kinds = cover.findall(".//amendmentType")
+    numbers = cover.findall(".//amendmentNo")
+    if len(kinds) != 1 or len(numbers) != 1:
+        return None, None
+    kind = (kinds[0].text or "").strip().upper()
+    number = (numbers[0].text or "").strip()
+    if kind not in {"RESTATEMENT", "NEW HOLDINGS"} or not 1 <= len(number) <= 2 or not number.isascii() or not number.isdigit():
+        return None, None
+    if not 1 <= int(number) <= 99:
+        return None, None
+    return kind, int(number)
