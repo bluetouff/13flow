@@ -289,7 +289,7 @@ const manifestVersion = JSON.parse(fs.readFileSync("../server.json", "utf8")).ve
 if (packageVersion !== manifestVersion) throw new Error("MCP package/manifest version mismatch");
 '
 
-echo "==> [5/8] Normalize code permissions without touching preserved runtimes"
+echo "==> [5/8] Normalize code and MCP dependency permissions; preserve the Python runtime"
 find "$APP_DIR" \
   -path "$APP_DIR/.venv" -prune -o \
   -path "$APP_DIR/mcp-server/node_modules" -prune -o \
@@ -306,12 +306,21 @@ find "$APP_DIR/deploy" -maxdepth 1 -name '*.sh' -type f -exec chmod 750 {} +
 # flowmcp can traverse the application root but can only read its own subtree.
 chmod o+x "$APP_DIR"
 chown -R root:"$MCP_GROUP" "$APP_DIR/mcp-server"
-find "$APP_DIR/mcp-server" \
-  -path "$APP_DIR/mcp-server/node_modules" -prune -o \
-  -type d -exec chmod 750 {} +
-find "$APP_DIR/mcp-server" \
-  -path "$APP_DIR/mcp-server/node_modules" -prune -o \
-  -type f -exec chmod 640 {} +
+# npm ci inherits the caller's umask. Explicitly grant flowmcp read/traverse
+# access, including newly installed dependencies, even with a private umask.
+# Preserve package executable bits without granting group write or other access.
+find "$APP_DIR/mcp-server" -type d -exec chmod 750 {} +
+find "$APP_DIR/mcp-server" -type f -exec chmod u=rwX,g=rX,o= {} +
+# A root import would miss service-account permission failures. Load the same
+# dependency entry points as server.mjs without starting a listener or telemetry.
+runuser -u flowmcp -- /usr/bin/node --input-type=module -e '
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
+import { z } from "zod";
+import { AgentTelemetry } from "./telemetry.mjs";
+console.log("MCP runtime imports verified as flowmcp.");
+'
 
 echo "==> [6/8] Install and validate systemd/Apache configuration"
 install -o root -g root -m 644 \
