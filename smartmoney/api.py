@@ -3927,8 +3927,11 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             with ProAPIStore(pro_db_path) as ps:
                 try:
                     alert = ps.update_workspace_alert_status(key.key_id, alert_id, status)
-                except ValueError as exc:
-                    return jsonify({"error": "inactive_alert", "detail": str(exc)}), 409
+                except ValueError:
+                    return jsonify({
+                        "error": "inactive_alert",
+                        "detail": "inactive signal; create a fresh snapshot to reassess it",
+                    }), 409
                 if alert is not None:
                     event_type = "alert.reopened" if status == "open" else f"alert.{status}"
                     ps.record_workspace_activity(

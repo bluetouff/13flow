@@ -143,4 +143,44 @@ def test_api_lists_inactive_alerts_but_cannot_manually_reopen_them(tmp_path, mon
     response = client.patch(f"/api/pro/v1/workspace/alerts/{alert_id}", headers=headers,
                             json={"status": "open"})
     assert response.status_code == 409
-    assert response.get_json()["error"] == "inactive_alert"
+    assert response.get_json() == {
+        "error": "inactive_alert",
+        "detail": "inactive signal; create a fresh snapshot to reassess it",
+    }
+
+
+@pytest.mark.parametrize("internal_detail", [
+    "database unavailable at /private/internal/customer.db",
+    'decode failed: {"credential":"private-test-value"}\\ninternal state',
+])
+def test_alert_update_does_not_expose_exception_details(tmp_path, monkeypatch, internal_detail):
+    from tests.test_pro_api_offline import _client
+
+    client, token, key, pro_path = _client(
+        monkeypatch, tmp_path, scopes=("funds:read", "workspace:write"),
+    )
+    with ProAPIStore(pro_path) as pro:
+        watch = pro.create_watchlist(key.key_id, "Test", ["AAPL"])
+        signals = payload([item()])
+        snapshot = pro.create_signal_snapshot(key.key_id, watch["id"], signals)
+        pro.upsert_workspace_alerts(key.key_id, watch["id"], snapshot["id"], signals)
+        alert_id = pro.list_workspace_alerts(key.key_id)[0]["id"]
+
+    def fail_update(*args, **kwargs):
+        raise ValueError(internal_detail)
+
+    monkeypatch.setattr(ProAPIStore, "update_workspace_alert_status", fail_update)
+    url = f"/api/pro/v1/workspace/alerts/{alert_id}"
+    assert client.patch(url, json={"status": "open"}).status_code == 401
+    headers = {"Authorization": "Bearer " + token}
+    assert client.patch(url, headers=headers, json={"status": "unknown"}).status_code == 400
+    response = client.patch(url, headers=headers, json={"status": "open"})
+    assert response.status_code == 409
+    assert response.get_json() == {
+        "error": "inactive_alert",
+        "detail": "inactive signal; create a fresh snapshot to reassess it",
+    }
+    assert response.headers["Cache-Control"] == "private, no-store, max-age=0"
+    with ProAPIStore(pro_path) as pro:
+        assert pro.list_workspace_alerts(key.key_id)[0]["status"] == "open"
+        assert pro.list_workspace_activity(key.key_id) == []
