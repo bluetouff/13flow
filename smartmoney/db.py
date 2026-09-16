@@ -23,7 +23,7 @@ from typing import Optional
 
 from .edgar import Filing
 from .portfolio import Portfolio, Position
-from . import amendments
+from . import amendments, filing_events
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS funds (
@@ -118,7 +118,7 @@ class Store:
         self.conn.execute("PRAGMA journal_mode = WAL")
         self.conn.executescript(SCHEMA)
         self._migrate()
-        self.conn.executescript("BEGIN IMMEDIATE;\n" + amendments.SCHEMA + "\nCOMMIT;")
+        self.conn.executescript("BEGIN IMMEDIATE;\n" + amendments.SCHEMA + filing_events.SCHEMA + "\nCOMMIT;")
         self.conn.commit()
 
     def _migrate(self) -> None:
@@ -171,6 +171,7 @@ class Store:
         cik = filing.cik.zfill(10)
         self.upsert_fund(cik, pf.fund_label, manager)
         with self.conn:  # transaction
+            filing_events.capture(self.conn, cik, filing.report_date, baseline=True)
             self.conn.execute(
                 """INSERT INTO filings(accession, cik, form, filing_date, report_date,
                                        total_value, n_positions, fetched_at)
@@ -207,6 +208,7 @@ class Store:
                 (filing.accession, filing.amendment_type, filing.amendment_number),
             )
             amendments.rebuild_quarter(self.conn, cik, filing.report_date)
+            filing_events.capture(self.conn, cik, filing.report_date)
 
     # --- read --------------------------------------------------------------
     def _fund_label(self, cik: str) -> str:

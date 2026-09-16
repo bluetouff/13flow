@@ -228,6 +228,32 @@ the boundary), new subscribers are **primed** so they only get future filings, f
 recorded and retried next run, and subscribing is gated to the paid tier. Drive `--alerts-run`
 from cron rather than the in-process `poll()` loop.
 
+## Observed 13F revisions
+
+`GET /api/events/filings?after=0&limit=100` exposes a public, read-only cursor
+journal for tracked funds (optional `cik` filter, maximum page size 200).
+Each event has a stable `id`, `sequence`, `recorded_at`, fund and quarter,
+immutable `before`/`after` states, changed fields and SEC source links.
+Raw declared totals stay separate from composed totals, which are unavailable
+for incomplete amendment chains. An unchanged re-import emits no event.
+
+The existing sync writer records changes in the same transaction as the filing.
+On initialization, it records the latest two stored quarters per tracked fund as
+`baseline` events with the actual observation time. To initialize without an
+EDGAR request, run `python run.py --db <market-db> --record-filing-events` under
+the existing writer account. Back up the database first using the normal release
+procedure; this adds a table but does not rewrite existing market data. No new
+service, timer or dependency is needed. Before initialization, the endpoint
+returns `not_initialized` or `empty` without writing to the database.
+
+Consumers follow `next_cursor` while `has_more` is true. Restart from zero if
+`stream_id` changes or `head` falls below the stored cursor after a restore.
+The journal begins at installation: baselines do not reconstruct prior knowledge,
+filing dates have day precision and are not trade dates, and composition status
+is not a fund quality rating. It excludes private watchlists and ranking changes.
+It retains observed portfolio summaries and fingerprints, not historical
+per-security holdings: it is not a complete point-in-time backtest dataset.
+
 ## Confluence (13FLOW) — where 13F accumulation meets insider buying
 A separate screen ranks tickers where **superinvestor 13F accumulation** and **open-market
 Form 4 insider buying** coincide — a rare, hard-to-fake overlap. It reuses the existing EDGAR

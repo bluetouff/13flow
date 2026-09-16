@@ -670,6 +670,16 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
                                                   "responses": {"200": {"description": "Trust artifact"}}}},
                 "/api/funds": {"get": {"summary": "List tracked funds with AUM series",
                                         "responses": {"200": {"description": "Fund list"}}}},
+                "/api/events/filings": {"get": {
+                    "summary": "Observed 13F revisions with immutable before/after evidence",
+                    "description": "Read-only journal. Existing holdings start as baselines, never backdated observations. Publication dates are not trade dates.",
+                    "parameters": [
+                        {"name": "after", "in": "query", "schema": {"type": "integer", "minimum": 0}},
+                        {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 200, "default": 100}},
+                        {"name": "cik", "in": "query", "schema": {"type": "string", "pattern": "^[0-9]{1,10}$"}},
+                    ],
+                    "responses": {"200": {"description": "Cursor page; not_initialized until the ingest writer has created the journal"}},
+                }},
                 "/api/fund/{cik}": {
                     "get": {
                         "summary": "Fund portfolio, moves and filing metadata",
@@ -1382,6 +1392,23 @@ def create_app(db_path: str = "smartmoney.db", provider=None,
             return jsonify(out)
         finally:
             s.close()
+
+    @app.get("/api/events/filings")
+    def filing_events_ep():
+        from .filing_events import read
+        after = clean_int(request.args.get("after"), 0, 0, 2**63 - 1)
+        limit = clean_int(request.args.get("limit"), 100, 1, 200)
+        cik = clean_cik(request.args["cik"]) if "cik" in request.args else None
+        if cik is not None and (not re.fullmatch(r"[0-9]{10}", cik) or int(cik) == 0):
+            from werkzeug.exceptions import BadRequest
+            raise BadRequest("invalid CIK")
+        # This route must never initialize or append the journal on a GET.
+        with Store(db_path, read_only=True) as s:
+            payload = read(s.conn, after=after, limit=limit, cik=cik,
+                           active_ciks=_public_active_ciks(s))
+        payload["generated_at"] = _now_iso()
+        payload["producer_revision"] = _git_sha()
+        return jsonify(payload)
 
     # ---- fund detail ----------------------------------------------------
     @app.get("/api/fund/<cik>")

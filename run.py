@@ -150,8 +150,11 @@ def _build_resolver(enrich: bool):
 
 def cmd_sync(client, labels, db_path, enrich, max_quarters, force, report_date,
              sleep_between_funds) -> None:
+    from smartmoney.filing_events import capture_baselines
     tracker = Tracker(client, resolver=_build_resolver(enrich))
     with Store(db_path) as store:
+        capture_baselines(store.conn, {fund.cik.zfill(10) for label in labels
+                                      if (fund := by_label(label)) is not None and fund.cik})
         for i, label in enumerate(labels):
             fund = by_label(label)
             if fund is None:
@@ -954,6 +957,8 @@ def main() -> None:
                     help="write the frozen machine-readable Confluence v1 spec to PATH")
     ap.add_argument("--append-signal-history", action="store_true",
                     help="append existing confluence cache JSON files to append-only JSONL history")
+    ap.add_argument("--record-filing-events", action="store_true",
+                    help="record current 13F states as dated baselines without contacting EDGAR")
     ap.add_argument("--signal-history-file", default=None,
                     help="output path for --append-signal-history (default cache_dir/confluence-history.jsonl)")
     ap.add_argument("--cache-dir", default=os.environ.get("SMARTMONEY_CACHE_DIR"),
@@ -1063,6 +1068,15 @@ def main() -> None:
         windows = [int(w) for w in args.confluence_windows.split(",") if w.strip()]
         cache_dir = args.cache_dir or os.path.dirname(os.path.abspath(args.db)) or "."
         return cmd_append_signal_history(cache_dir, windows, args.signal_history_file)
+    if args.record_filing_events:
+        import json
+        from smartmoney.filing_events import capture_baselines, read
+        from smartmoney.registry import active_ciks
+        with Store(args.db) as store:
+            capture_baselines(store.conn, active_ciks())
+            page = read(store.conn, limit=1, active_ciks=active_ciks())
+        print(json.dumps({key: page[key] for key in ("status", "stream_id", "started_at", "head")}))
+        return
     if args.validation_dataset:
         return cmd_validation_dataset(args.validation_dataset, args.validation_horizon,
                                       args.validation_json)
