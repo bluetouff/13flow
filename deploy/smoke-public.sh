@@ -821,6 +821,37 @@ else
   bad "/api/funds fetch" "curl failed"
 fi
 
+# Exercise the API behind each cockpit window, not just the HTML or its redirect.
+# A healthy deployment must serve real cached signals within the proxy budget.
+for window in 30 90 180; do
+  confluence="$tmpdir/confluence-$window.json"
+  if curl -fsS --max-time 10 "$SITE/api/signals/confluence?window=$window" -o "$confluence"; then
+    json_check "Confluence cockpit ${window}d contract" "$confluence" "
+import math
+meta = data.get('metadata') or {}
+kpis = data.get('kpis') or {}
+signals = data.get('signals')
+ok = (
+    not data.get('error')
+    and meta.get('served_from_cache') is True
+    and meta.get('sample_data') is not True
+    and meta.get('demo_mode') is not True
+    and meta.get('provider') != 'sample_confluence'
+    and isinstance(signals, list) and len(signals) > 0
+    and kpis.get('window_days') == $window
+    and kpis.get('n_signals') == len(signals)
+    and all(isinstance(s.get('ticker'), str) and s['ticker'].strip()
+            and type(s.get('score')) in (int, float)
+            and math.isfinite(s['score']) and 0 <= s['score'] <= 100
+            for s in signals)
+)
+msg = 'Cockpit needs non-demo cached signals for the requested window.'
+"
+  else
+    bad "Confluence cockpit ${window}d fetch" "API unavailable or slower than 10s"
+  fi
+done
+
 watchlist_discover="$tmpdir/watchlist-discover.json"
 if fetch "/api/watchlist/discover?limit=10" "$watchlist_discover"; then
   json_check "/api/watchlist/discover contract" "$watchlist_discover" "

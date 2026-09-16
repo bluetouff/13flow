@@ -321,10 +321,58 @@ def _enrich_confluence_cache_payload(db_path: str, payload: dict) -> dict:
     store = Store(db_path, read_only=True)
     enriched = 0
     try:
+        # Keep the latest and previous portfolios in one read snapshot. Reading
+        # portfolio_holdings per ticker used to rebuild the composed view hundreds
+        # of times, exceeding the web worker's timeout even with a cached response.
+        store.conn.execute("BEGIN")
         row = store.conn.execute("SELECT MAX(report_date) d FROM filings").fetchone()
         report_date = row["d"] if row else None
         if not report_date:
             return out
+
+        labels = sorted({str(label) for sig in signals if isinstance(sig, dict)
+                         for label in ((sig.get("institutional") or {}).get("fund_labels") or [])
+                         if str(label).strip()})
+        portfolios = {}
+        if labels:
+            placeholders = ",".join("?" for _ in labels)
+            filings = store.conn.execute(
+                f"""SELECT lf.cik, fn.label, lf.report_date, lf.accession
+                    FROM latest_filings lf JOIN funds fn ON fn.cik=lf.cik
+                    WHERE lf.report_date<=? AND fn.label IN ({placeholders})
+                    ORDER BY lf.cik, lf.report_date DESC""",
+                (report_date, *labels),
+            ).fetchall()
+            selected_per_fund = {}
+            for filing in filings:
+                cik = filing["cik"]
+                selected = selected_per_fund.get(cik, 0)
+                if selected == 0 and filing["report_date"] != report_date:
+                    continue
+                if selected < 2:
+                    portfolios[filing["accession"]] = (cik, filing["label"], selected == 0)
+                    selected_per_fund[cik] = selected + 1
+
+        current_by_ticker = {}
+        previous_holdings = set()
+        if portfolios:
+            placeholders = ",".join("?" for _ in portfolios)
+            rows = store.conn.execute(
+                f"""SELECT accession, UPPER(ticker) AS ticker, value_usd, weight
+                    FROM portfolio_holdings
+                    WHERE accession IN ({placeholders}) AND put_call=''""",
+                tuple(portfolios),
+            ).fetchall()
+            for holding in rows:
+                cik, label, current = portfolios[holding["accession"]]
+                ticker = holding["ticker"]
+                if current:
+                    current_by_ticker.setdefault(ticker, []).append({
+                        "cik": cik, "label": label,
+                        "value_usd": holding["value_usd"], "weight": holding["weight"],
+                    })
+                else:
+                    previous_holdings.add((cik, ticker))
 
         for sig in signals:
             if not isinstance(sig, dict):
@@ -335,16 +383,8 @@ def _enrich_confluence_cache_payload(db_path: str, payload: dict) -> dict:
             if not ticker or not labels:
                 continue
 
-            placeholders = ",".join("?" for _ in labels)
-            rows = store.conn.execute(
-                f"""SELECT fn.label, fn.cik, h.value_usd, h.weight
-                    FROM latest_filings lf
-                    JOIN portfolio_holdings h ON h.accession=lf.accession AND h.put_call=''
-                    JOIN funds fn ON fn.cik=lf.cik
-                    WHERE lf.report_date=? AND UPPER(h.ticker)=?
-                      AND fn.label IN ({placeholders})""",
-                (report_date, ticker, *labels),
-            ).fetchall()
+            rows = [r for r in current_by_ticker.get(ticker, []) if r["label"] in labels]
+            rows.sort(key=lambda r: r["cik"])
             if not rows:
                 continue
 
@@ -353,22 +393,7 @@ def _enrich_confluence_cache_payload(db_path: str, payload: dict) -> dict:
             conviction = 0
             for r in rows:
                 is_large_weight = (r["weight"] or 0.0) >= 0.05
-                prev_date_row = store.conn.execute(
-                    """SELECT MAX(report_date) d FROM latest_filings
-                       WHERE cik=? AND report_date<?""",
-                    (r["cik"], report_date),
-                ).fetchone()
-                prev_date = prev_date_row["d"] if prev_date_row else None
-                was_held = False
-                if prev_date:
-                    was_held = bool(store.conn.execute(
-                        """SELECT 1
-                           FROM latest_filings lf
-                           JOIN portfolio_holdings h ON h.accession=lf.accession AND h.put_call=''
-                           WHERE lf.cik=? AND lf.report_date=? AND UPPER(h.ticker)=?
-                           LIMIT 1""",
-                        (r["cik"], prev_date, ticker),
-                    ).fetchone())
+                was_held = (r["cik"], ticker) in previous_holdings
                 if is_large_weight or not was_held:
                     conviction += 1
 
