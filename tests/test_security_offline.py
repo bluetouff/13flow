@@ -141,16 +141,16 @@ def test_dependency_security_floors_are_pinned():
     )
 
     assert package["overrides"]["@hono/node-server"] == "2.1.0"
-    assert package["overrides"]["fast-uri"] == "3.1.7"
-    assert package["overrides"]["hono"] == "4.13.5"
-    assert package["overrides"]["ip-address"] == "10.4.0"
+    assert package["overrides"]["fast-uri"] == "3.1.8"
+    assert package["overrides"]["hono"] == "4.13.7"
+    assert package["overrides"]["ip-address"] == "10.7.1"
     assert package["overrides"]["qs"] == "6.16.0"
     assert (
         package_lock["packages"]["node_modules/@hono/node-server"]["version"] == "2.1.0"
     )
-    assert package_lock["packages"]["node_modules/fast-uri"]["version"] == "3.1.7"
-    assert package_lock["packages"]["node_modules/hono"]["version"] == "4.13.5"
-    assert package_lock["packages"]["node_modules/ip-address"]["version"] == "10.4.0"
+    assert package_lock["packages"]["node_modules/fast-uri"]["version"] == "3.1.8"
+    assert package_lock["packages"]["node_modules/hono"]["version"] == "4.13.7"
+    assert package_lock["packages"]["node_modules/ip-address"]["version"] == "10.7.1"
     assert package_lock["packages"]["node_modules/qs"]["version"] == "6.16.0"
     assert '"pip>=26.2.1"' in install_guide
 

@@ -1,8 +1,68 @@
 import http from 'node:http';
+import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { Address4, Address6, AddressError } from 'ip-address';
+import { ipKeyGenerator } from 'express-rate-limit';
+import uri from 'fast-uri';
+import { jsx, Suspense, createContext } from 'hono/jsx';
+import { renderToString, renderToReadableStream } from 'hono/jsx/dom/server';
+
+// Dependency regressions: NAT64/link-local classification and cross-family subnets.
+for (const address of ['64:ff9b:1::', '64:ff9b:1:7f00:0:100::', '64:ff9b:1::7f00:1', '64:ff9b:1:ffff:ffff:ffff:ffff:ffff']) {
+  assert.equal(new Address6(address).isPrivate(), true, address);
+}
+for (const address of ['64:ff9b:2::', '2606:4700:4700::1111']) {
+  assert.equal(new Address6(address).isPrivate(), false, address);
+}
+for (const address of ['fe80::1', 'fe90::1', 'febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff']) {
+  assert.equal(new Address6(address).isLinkLocal(), true, address);
+}
+assert.equal(new Address6('fec0::1').isLinkLocal(), false);
+for (const method of ['isInSubnet', 'isHostInSubnet']) {
+  assert.equal(new Address6('a00::1')[method](new Address4('10.0.0.0/8')), false);
+  assert.equal(new Address4('32.1.13.184')[method](new Address6('2001:db8::/32')), false);
+  assert.equal(new Address6('2001:db8::1')[method](new Address6('2001:db8::/32')), true);
+  assert.equal(new Address4('10.0.0.1')[method](new Address4('10.0.0.0/8')), true);
+}
+// Small invalid inputs exercise the length guard without stressing the process.
+for (const address of ['!'.repeat(1024), 'fffff:'.repeat(180)]) {
+  assert.equal(Address6.isValid(address), false);
+  assert.throws(() => new Address6(address), (error) => (
+    error instanceof AddressError && !error.parseMessage && error.message.length < 256
+  ));
+}
+assert.equal(Address6.isValid('ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255'), true);
+assert.equal(Address6.isValid('fe80::1%eth0/64'), true);
+// Preserve the actual consumer's rate-limit keys, including mapped IPv4.
+assert.equal(ipKeyGenerator('192.0.2.1'), '192.0.2.1');
+assert.equal(ipKeyGenerator('::ffff:192.0.2.1'), '192.0.2.1');
+assert.equal(ipKeyGenerator('2001:db8:abcd:12::1'), '2001:db8:abcd::/56');
+console.log('ip-address classification, bounded parsing and rate-limit compatibility: passed');
+
+// Scheme-relative hosts must canonicalize encoded uppercase letters too.
+for (const encoded of ['//%41.com', '//%61.%43OM']) {
+  assert.equal(uri.parse(encoded).host, 'a.com');
+  assert.equal(uri.equal(encoded, '//a.com'), true);
+}
+assert.equal(uri.equal('//A.com', '//a.com'), true);
+assert.equal(uri.equal('//a.com', '//b.com'), false);
+assert.equal(uri.resolve('https://example.org/schema/root.json', '../item.json'), 'https://example.org/item.json');
+console.log('fast-uri host canonicalization and reference resolution: passed');
+
+// Untrusted strings remain text at JSX boundaries and at the SSR root.
+const markup = '<img src=x onerror=alert(1)>';
+const escapedMarkup = '&lt;img src=x onerror=alert(1)&gt;';
+const Context = createContext(null);
+assert.equal(renderToString(markup), escapedMarkup);
+assert.equal(await new Response(await renderToReadableStream(markup)).text(), escapedMarkup);
+assert.equal(String(await jsx(Suspense, { fallback: 'loading' }, markup).toString()), escapedMarkup);
+assert.equal(String(await jsx(Context.Provider, { value: null }, markup).toString()), escapedMarkup);
+assert.equal(renderToString(jsx('p', null, markup)), `<p>${escapedMarkup}</p>`);
+assert.equal(renderToString('ordinary text'), 'ordinary text');
+console.log('Hono JSX boundary escaping and normal rendering: passed');
 
 const mcpPort = Number(process.env.SECURITY_TEST_PORT || 18851);
 const serverPath = fileURLToPath(new URL('./server.mjs', import.meta.url));
