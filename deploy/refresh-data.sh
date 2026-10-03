@@ -16,7 +16,7 @@ export FORCE=${FORCE:-0} # FORCE=1 re-fetches/replaces stored filings after data
 export REPORT_DATE=${REPORT_DATE:-}
 export SMARTMONEY_EDGAR_RATE_PER_SEC=${SMARTMONEY_EDGAR_RATE_PER_SEC:-1.0}
 export SMARTMONEY_SYNC_SLEEP_SEC=${SMARTMONEY_SYNC_SLEEP_SEC:-30}
-export SKIP_CONFLUENCE=${SKIP_CONFLUENCE:-1}
+export SKIP_CONFLUENCE=${SKIP_CONFLUENCE:-0}
 force_arg=""
 [[ "$FORCE" == "1" || "$FORCE" == "true" || "$FORCE" == "yes" ]] && force_arg="--force"
 report_arg=""
@@ -42,14 +42,15 @@ PY
 chmod 640 "$DB" 2>/dev/null || true
 
 # Precompute the Confluence screen (13F accumulation x live Form 4) into cache JSON so the
-# public tier serves it instantly and never hits EDGAR per request. Non-fatal on failure.
+# public tier serves it instantly and never hits EDGAR per request.
 if [[ "$SKIP_CONFLUENCE" == "1" || "$SKIP_CONFLUENCE" == "true" || "$SKIP_CONFLUENCE" == "yes" ]]; then
   echo "  (confluence precompute skipped; set SKIP_CONFLUENCE=0 to refresh it)"
 else
   if timeout 3600 "$VENV/bin/python" run.py --db "$DB" --confluence; then
     chmod 640 "$SMARTMONEY_CACHE_DIR"/confluence-*.json 2>/dev/null || true
   else
-    echo "  (confluence precompute skipped/failed — screen falls back to live/sample)"
+    echo "  (confluence precompute failed; previous caches preserved)" >&2
+    exit 1
   fi
 fi
 echo "refresh complete: $DB"

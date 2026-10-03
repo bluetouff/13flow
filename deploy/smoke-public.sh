@@ -847,6 +847,23 @@ ok = (
 )
 msg = 'Cockpit needs non-demo cached signals for the requested window.'
 "
+    json_check "Confluence cockpit ${window}d EDGAR freshness" "$confluence" "
+from datetime import datetime, timezone
+meta = data.get('metadata') or {}
+receipt = meta.get('edgar_refresh') or {}
+generated = datetime.fromisoformat(str(data.get('generated_at')).replace('Z', '+00:00'))
+age = (datetime.now(timezone.utc) - generated).total_seconds()
+ok = (
+    meta.get('cache_status') == 'fresh'
+    and meta.get('edgar_refresh_verified') is True
+    and 0 <= age <= 26 * 3600
+    and receipt.get('issuers_checked', 0) > 0
+    and receipt.get('issuers_checked') == receipt.get('issuers_requested')
+    and receipt.get('issuer_failures') == 0
+    and receipt.get('completed_at') == data.get('generated_at')
+)
+msg = 'Confluence needs a dated, complete EDGAR refresh within the daily cache budget.'
+"
   else
     bad "Confluence cockpit ${window}d fetch" "API unavailable or slower than 10s"
   fi

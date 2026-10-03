@@ -321,6 +321,9 @@ minimale qui ne contient ni identifiant Basic Auth, ni query string, ni referrer
 ```bash
 sudo cp deploy/13flow-refresh.service /etc/systemd/system/
 sudo cp deploy/13flow-refresh.timer   /etc/systemd/system/
+sudo install -d -m 755 /etc/systemd/system/13flow-refresh.service.d
+sudo install -m 644 deploy/13flow-refresh-confluence.conf /etc/systemd/system/13flow-refresh.service.d/zz-confluence.conf
+sudo install -m 644 deploy/13flow-confluence.env /etc/13flow/13flow-confluence.env
 sudo systemctl daemon-reload
 sudo systemctl enable --now 13flow-refresh.timer
 sudo systemctl start 13flow-refresh.service          # une passe maintenant
@@ -330,6 +333,16 @@ journalctl -u 13flow-refresh.service --no-pager      # vérifier l'ingestion
 `refresh-data.sh` ingère puis fait un `PRAGMA wal_checkpoint(TRUNCATE)` : la base servie est un
 fichier autonome, lisible en `mode=ro`. Les workers prennent les nouvelles données à la
 connexion suivante (`sudo systemctl reload 13flow` optionnel).
+
+La même passe recalcule les caches Confluence 30/90/180 jours, avec une limite d'une
+heure et les limites de débit EDGAR existantes. L'unité autorise deux heures pour la
+passe complète. `SKIP_CONFLUENCE=1` permet un saut explicite ; la valeur par défaut est
+`0`. Le complément `zz-confluence.conf` préserve les réglages privés existants et charge
+`13flow-confluence.env` en dernier pour activer le calcul quotidien. Modifier ce dernier
+fichier permet un saut explicite. Une erreur EDGAR conserve les anciens caches et fait échouer le service pour que
+l'opérateur voie le défaut. Une lecture HTTP conserve la date de calcul, sans la
+remplacer par l'heure de consultation. L'API expose l'âge du cache et retire
+l'attestation `edgar_refresh_verified` après 26 heures.
 
 ## 12. (Option) protection anti-flood
 

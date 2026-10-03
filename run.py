@@ -518,8 +518,9 @@ def cmd_confluence(db_path: str, ua: str, windows) -> None:
     cache file per window into SMARTMONEY_CACHE_DIR (or next to the DB). The web tier serves
     these instantly, so visitors never trigger EDGAR fetches."""
     import json
+    import tempfile
     from smartmoney.api import _StoreConfluence
-    from smartmoney.api_signals import confluence_payload
+    from smartmoney.api_signals import ConfluenceUnavailable, confluence_payload
     from smartmoney.research import HISTORY_FILENAME, append_signal_history, current_git_sha
     outdir = os.environ.get("SMARTMONEY_CACHE_DIR") or os.path.dirname(os.path.abspath(db_path)) or "."
     prov = _StoreConfluence(db_path, ua)
@@ -527,11 +528,29 @@ def cmd_confluence(db_path: str, ua: str, windows) -> None:
     for w in windows:
         signals = prov.confluence(w)
         metadata = getattr(prov, "confluence_metadata", lambda: {})()
+        if metadata.get("edgar_refresh_verified") is not True:
+            raise ConfluenceUnavailable(
+                f"Incomplete EDGAR refresh for the {w}d window; existing caches preserved."
+            )
         payload = confluence_payload(signals, w, metadata=metadata)
         path = os.path.join(outdir, f"confluence-{w}.json")
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh)
         history_payloads.append((w, path, payload))
+    # Build every window before publication; failed fetches preserve the last good cache.
+    for w, path, payload in history_payloads:
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=outdir,
+                                             prefix=".confluence-", delete=False) as fh:
+                temporary = fh.name
+                json.dump(payload, fh)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.chmod(temporary, 0o640)
+            os.replace(temporary, path)
+            temporary = None
+        finally:
+            if temporary is not None:
+                os.unlink(temporary)
         k = payload["kpis"]
         print(f"  confluence[{w}d]: {k['n_signals']} signals, {k['n_conviction']} conviction "
               f"-> {path}")

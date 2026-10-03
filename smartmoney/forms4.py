@@ -410,10 +410,11 @@ class Form4Client:
         *,
         window_days: int = 90,
         max_filings: int = 60,
+        strict: bool = False,
     ) -> list[Form4]:
         """
-        High-level: every Form 4 for an issuer within the trailing `window_days`,
-        parsed. This is the unit the confluence engine consumes.
+        Parse up to `max_filings` recent Form 4/4A filings within `window_days`.
+        `strict=True` reports a failed filing instead of silently omitting it.
         """
         since = date.today() - timedelta(days=window_days)
         metas = self.list_form4_accessions(issuer_cik, since=since, limit=max_filings)
@@ -424,6 +425,8 @@ class Form4Client:
                 f = parse_form4(xml, accession=m["accession"], filing_date=m["filing_date"])
                 out.append(f)
             except Exception:
+                if strict:
+                    raise
                 # one malformed filing must never sink the batch
                 continue
         return out

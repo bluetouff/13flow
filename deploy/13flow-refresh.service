@@ -8,6 +8,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+TimeoutStartSec=2h
 User=flowingest
 Group=flowapp
 EnvironmentFile=/etc/13flow/13flow.env

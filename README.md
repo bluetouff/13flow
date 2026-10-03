@@ -393,6 +393,13 @@ quarter (default 3). Trim/exits are computed more broadly, but insider-only, dis
 and divergent categories are therefore not exhaustive in this production path. This is
 exposed in `/api/signals/confluence` under `metadata.effective_universe`.
 
+Precomputed Confluence responses retain their UTC calculation date in `generated_at`.
+`metadata.edgar_refresh_verified` attests completed SEC lookups in that bounded universe;
+it does not imply exhaustive coverage or validation of the score. Cache reads retain that
+date and expose `cache_status` and `cache_age_seconds`. A cache older than 26 hours, with
+an invalid date, or without a calculation date is no longer attested as fresh. Failed
+issuer or filing lookups abort precomputation and preserve the previous cache files.
+
 The screen lives as a fifth dashboard tab. Production must use either a precomputed
 `confluence-<window>.json` cache or the live provider. The live provider needs EDGAR access
 for Form 4s:

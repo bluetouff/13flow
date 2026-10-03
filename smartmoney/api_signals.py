@@ -18,6 +18,7 @@ must not silently fall back to sample data.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Protocol
 
 from flask import Blueprint, jsonify, request
@@ -159,7 +160,35 @@ def confluence_payload(signals, window: int, min_score: float = 0.0,
     meta = default_methodology_metadata()
     if metadata:
         meta.update(metadata)
-    return {"metadata": meta, "kpis": kpis, "signals": payload}
+    result = {"metadata": meta, "kpis": kpis, "signals": payload}
+    if meta.get("generated_at"):
+        result["generated_at"] = meta["generated_at"]
+    return result
+
+
+def confluence_cache_metadata(payload: dict, *, now: datetime | None = None) -> dict:
+    """Keep the producer's calculation time; a cache read is not an EDGAR refresh."""
+    now = now or datetime.now(timezone.utc)
+    generated = payload.get("generated_at")
+    age = None
+    try:
+        parsed = datetime.fromisoformat(str(generated).replace("Z", "+00:00"))
+        if parsed.tzinfo is not None:
+            elapsed = (now - parsed).total_seconds()
+            if elapsed >= 0:
+                age = int(elapsed)
+    except (TypeError, ValueError):
+        pass
+    status = "unknown" if age is None else "stale" if age > 26 * 3600 else "fresh"
+    recorded = payload.get("metadata")
+    recorded = recorded if isinstance(recorded, dict) else {}
+    return {
+        "served_from_cache": True,
+        "cache_status": status,
+        "cache_age_seconds": age,
+        "cache_stale_after": "PT26H",
+        "edgar_refresh_verified": status == "fresh" and recorded.get("edgar_refresh_verified") is True,
+    }
 
 
 def merge_methodology_metadata(payload: dict, provider_metadata: dict | None = None) -> dict:
@@ -200,7 +229,7 @@ def make_signals_blueprint(provider: ConfluenceProvider, cache_dir=None, cache_e
                     if cache_enricher:
                         payload = cache_enricher(payload)
                     return jsonify(merge_methodology_metadata(
-                        payload, {"served_from_cache": True}
+                        payload, confluence_cache_metadata(payload)
                     ))
             except (FileNotFoundError, OSError, ValueError):
                 pass  # no/invalid cache -> fall back to the provider

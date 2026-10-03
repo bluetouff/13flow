@@ -35,6 +35,7 @@ import json
 import os
 import re
 import struct
+import threading
 import time
 from datetime import datetime, timezone
 from html import escape as html_escape
@@ -170,6 +171,7 @@ class _StoreConfluence:
         self._db_path = db_path
         self._ua = user_agent
         self._issuer_ciks = None    # lazy {TICKER: zero-padded CIK}
+        self._edgar_refresh = threading.local()
 
     def _issuer_index(self):
         if self._issuer_ciks is None:
@@ -259,11 +261,21 @@ class _StoreConfluence:
     def confluence_metadata(self) -> dict:
         import os as _os
         scan_min = int(_os.environ.get("SMARTMONEY_CONFLUENCE_SCAN_MIN_FUNDS", "3"))
+        refresh = getattr(self._edgar_refresh, "result", None)
         return {
             "provider": "live_store_confluence",
+            "generated_at": (refresh or {}).get("completed_at"),
+            "edgar_refresh_verified": bool(
+                refresh
+                and refresh["issuers_checked"] > 0
+                and refresh["issuers_checked"] == refresh["issuers_requested"]
+                and refresh["issuer_failures"] == 0
+            ),
+            "edgar_refresh": refresh,
             "effective_universe": (
                 "Form 4 scans are limited to tickers with at least "
                 f"{scan_min} tracked fund(s) opening or adding in the latest 13F quarter. "
+                "At most 60 recent Form 4/4A filings are checked per issuer. "
                 "Trim/exits are computed across the broader tracked universe, but insider-only, "
                 "distribution, and divergent categories are not exhaustive in this production path."
             ),
@@ -279,6 +291,7 @@ class _StoreConfluence:
         from .crosssignal import aggregate_insider_activity, build_confluence
         from .forms4 import Form4Client
         from .api_signals import ConfluenceUnavailable
+        self._edgar_refresh.result = None
         try:
             inst = self._institutional()
         except Exception as exc:
@@ -292,18 +305,36 @@ class _StoreConfluence:
         if not idx:
             raise ConfluenceUnavailable("SEC issuer index is unavailable; cannot map tickers to issuer CIKs.")
         f4 = Form4Client(user_agent=self._ua)
+        refresh = {
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "completed_at": None,
+            "issuers_requested": len(inst),
+            "issuers_checked": 0,
+            "issuer_failures": 0,
+        }
         insiders = {}
         for ticker in inst:
             cik = idx.get(ticker)
             if not cik:
+                refresh["issuer_failures"] += 1
+                __import__("logging").getLogger("smartmoney.api").warning(
+                    "SEC issuer mapping unavailable for %s", ticker)
                 continue
             try:
-                forms = f4.insider_filings(cik, window_days=window_days)
+                forms = f4.insider_filings(cik, window_days=window_days, strict=True)
                 insiders[ticker] = aggregate_insider_activity(ticker, forms, window_days=window_days)
-            except Exception as exc:   # pragma: no cover - network; one bad issuer won't sink it
+                refresh["issuers_checked"] += 1
+            except Exception as exc:   # pragma: no cover - network
+                refresh["issuer_failures"] += 1
                 __import__("logging").getLogger("smartmoney.api").warning(
                     "Form 4 fetch failed for %s (%s)", ticker, type(exc).__name__)
-        return build_confluence(inst, insiders)
+        if refresh["issuer_failures"]:
+            self._edgar_refresh.result = refresh
+            raise ConfluenceUnavailable("EDGAR checks are incomplete; no Confluence calculation published.")
+        signals = build_confluence(inst, insiders)
+        refresh["completed_at"] = datetime.now(timezone.utc).isoformat()
+        self._edgar_refresh.result = refresh
+        return signals
 
 
 def _enrich_confluence_cache_payload(db_path: str, payload: dict) -> dict:
