@@ -4,6 +4,8 @@ import hashlib
 
 from smartmoney import api
 from smartmoney.db import Store
+from smartmoney.analytics import ConsensusMove
+from smartmoney.diff import Move
 from tests.test_db_offline import _save, AAPL, MSFT
 
 
@@ -84,4 +86,45 @@ def test_many_cached_signals_do_not_rescan_all_portfolios_per_ticker(tmp_path, m
     assert len(result['signals']) == 80
     assert all(signal['institutional']['total_value_usd'] == 2400 for signal in result['signals'])
     assert all(signal['institutional']['conviction_funds'] == 0 for signal in result['signals'])
+    assert steps <= 6_000_000
+
+
+def test_precompute_enrichment_has_a_bounded_database_work_budget(tmp_path, monkeypatch):
+    path = tmp_path / 'precompute.db'
+    labels = [f'Fixture fund {n}' for n in range(24)]
+    quarters = ['2024-12-31', '2025-03-31', '2025-06-30', '2025-09-30', '2025-12-31', '2026-03-31']
+    with Store(str(path)) as store:
+        for fund, label in enumerate(labels):
+            cik = f'{fund + 1:010d}'
+            store.conn.execute('INSERT INTO funds(cik,label) VALUES (?,?)', (cik, label))
+            for quarter, day in enumerate(quarters):
+                accession = f'{cik}-26-{quarter:06d}'
+                store.conn.execute('INSERT INTO filings(accession,cik,form,report_date,filing_date,total_value,n_positions) '
+                                   'VALUES (?,?,\'13F-HR\',?,?,8000,80)', (accession, cik, day, day))
+                store.conn.executemany('INSERT INTO holdings(accession,cusip,ticker,value_usd,shares,weight) '
+                                       'VALUES (?,?,?,100,10,0.0125)',
+                                       [(accession, f'{ticker:09d}', f'T{ticker}') for ticker in range(80)])
+    # Isolate enrichment cost, leaving consensus and quality semantics to their own tests.
+    moves = [ConsensusMove(f'{n:09d}', f'T{n}', 'Fixture', 24, labels, ['ADD'] * 24) for n in range(80)]
+    monkeypatch.setattr(api, '_trusted_active_ciks', lambda store: (set(), {}))
+    monkeypatch.setattr(api, 'consensus_moves', lambda *args, kinds, **kwargs: moves if Move.ADD in kinds else [])
+    steps = 0
+
+    def budget_store(*args, **kwargs):
+        store = Store(*args, **kwargs)
+
+        def progress():
+            nonlocal steps
+            steps += 1000
+            return steps > 6_000_000
+
+        store.conn.set_progress_handler(progress, 1000)
+        return store
+
+    monkeypatch.setattr(api, 'Store', budget_store)
+    provider = api._StoreConfluence(str(path), '13flow-tests test@example.com')
+    result = provider._institutional(issuer_index={f'T{n}': f'{n + 1:010d}' for n in range(80)})
+    assert len(result) == 80
+    assert all(signal.total_value_usd == 2400 for signal in result.values())
+    assert all(signal.conviction_funds == 0 for signal in result.values())
     assert steps <= 6_000_000

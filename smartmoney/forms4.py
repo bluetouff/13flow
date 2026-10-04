@@ -28,8 +28,13 @@ import threading
 import time
 import os
 import re
+import hashlib
+import json
+import tempfile
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from email.utils import parsedate_to_datetime
 from typing import Iterable, Optional
 
 import requests
@@ -293,8 +298,18 @@ class Form4Client:
         client=None,
         rate_per_sec: float = 2.0,
         timeout: int = 30,
+        cache_dir=None,
+        progress=None,
     ):
         self._timeout = timeout
+        self._cache_dir = Path(cache_dir) if cache_dir is not None else None
+        self._progress = progress or (lambda message: None)
+        self.filings_downloaded = 0
+        self.filings_cached = 0
+        if self._cache_dir is not None:
+            if self._cache_dir.is_symlink():
+                raise ValueError("Form 4 cache directory must not be a symlink")
+            self._cache_dir.mkdir(mode=0o750, parents=True, exist_ok=True)
         if client is not None:
             # Ride the existing EdgarClient: reuse its session/limiter if exposed.
             self._session = getattr(client, "_session", None) or getattr(client, "session", None) or requests.Session()
@@ -322,10 +337,17 @@ class Form4Client:
                 try:
                     delay = float(ra) if ra else 2.0 * (2 ** attempt)
                 except ValueError:
-                    delay = 2.0 * (2 ** attempt)
-                delay = min(delay, 30.0)
-                last_exc = requests.HTTPError(f"{r.status_code} for {url}")
-                time.sleep(delay)
+                    try:
+                        delay = (parsedate_to_datetime(ra) - datetime.now(timezone.utc)).total_seconds()
+                    except (TypeError, ValueError):
+                        raise requests.HTTPError("Invalid SEC Retry-After; refresh stopped", response=r)
+                last_exc = requests.HTTPError(f"{r.status_code} for {url}", response=r)
+                if not 0 <= delay <= 30:
+                    # Stop resumably instead of retrying before a long server delay.
+                    raise last_exc
+                if attempt + 1 < _max_tries:
+                    self._progress(f"  SEC HTTP {r.status_code}: retry {attempt + 1}/{_max_tries}, waiting {delay:g}s.")
+                    time.sleep(delay)
                 continue
             r.raise_for_status()
             return r
@@ -417,6 +439,60 @@ class Form4Client:
                 return self._get(f"{base}/{it['name']}").text
         raise LookupError(f"No ownership XML found in {accession}")
 
+    def _filing_cache_path(self, issuer_cik: str, accession: str):
+        if self._cache_dir is None:
+            return None
+        cik = str(issuer_cik).zfill(10)
+        if (not re.fullmatch(r"[0-9]{10}", cik)
+                or not re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", accession)):
+            raise ValueError("Invalid Form 4 cache identity")
+        path = self._cache_dir / f"{cik}-{accession}.json"
+        if path.is_symlink():
+            raise ValueError("Form 4 cache entry must not be a symlink")
+        return path
+
+    def _read_filing_cache(self, path):
+        if path is None:
+            return None
+        try:
+            # JSON escaping can expand the already bounded XML by up to six times.
+            with path.open("rb") as source:
+                raw = source.read(6 * _MAX_XML_BYTES + 4097)
+            if len(raw) > 6 * _MAX_XML_BYTES + 4096:
+                return None
+            record = json.loads(raw)
+            retrieved = datetime.fromisoformat(record["retrieved_at"])
+            xml = record["xml"]
+            if (record["version"] != 1 or record["identity"] != path.stem or retrieved.tzinfo is None
+                    or retrieved > datetime.now(timezone.utc)
+                    or record["sha256"] != hashlib.sha256(xml.encode("utf-8")).hexdigest()):
+                return None
+            return xml
+        except FileNotFoundError:
+            return None
+        except (ValueError, KeyError, TypeError, AttributeError, UnicodeError):
+            return None
+
+    def _write_filing_cache(self, path, xml):
+        if path is None:
+            return
+        record = {"version": 1, "identity": path.stem, "retrieved_at": datetime.now(timezone.utc).isoformat(),
+                  "sha256": hashlib.sha256(xml.encode("utf-8")).hexdigest(), "xml": xml}
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                             prefix=".form4-", delete=False) as output:
+                temporary = output.name
+                json.dump(record, output)
+                output.flush()
+                os.fsync(output.fileno())
+            os.chmod(temporary, 0o640)
+            os.replace(temporary, path)
+            temporary = None
+        finally:
+            if temporary is not None:
+                os.unlink(temporary)
+
     def insider_filings(
         self,
         issuer_cik: str,
@@ -431,15 +507,38 @@ class Form4Client:
         silently omitting it, and verifies that the XML belongs to the issuer.
         """
         since = date.today() - timedelta(days=window_days)
+        self._progress(f"  SEC issuer {issuer_cik}: checking current filing list.")
         metas = self.list_form4_accessions(issuer_cik, since=since, limit=max_filings, strict=strict)
+        self._progress(f"  SEC issuer {issuer_cik}: {len(metas)} filings to read.")
         out: list[Form4] = []
-        for m in metas:
+        for number, m in enumerate(metas, 1):
             try:
-                xml = self.fetch_ownership_xml(m["accession"], issuer_cik)
-                f = parse_form4(xml, accession=m["accession"], filing_date=m["filing_date"])
-                if strict and f.issuer_cik != str(issuer_cik).lstrip("0").zfill(10):
+                path = self._filing_cache_path(issuer_cik, m["accession"])
+                xml = self._read_filing_cache(path)
+                if xml is not None:
+                    try:
+                        cached = parse_form4(xml, accession=m["accession"], filing_date=m["filing_date"])
+                        if cached.issuer_cik != str(issuer_cik).zfill(10):
+                            xml = None
+                    except Exception:
+                        xml = None  # Corruption must be repaired from SEC, never scored.
+                from_cache = xml is not None
+                if xml is None:
+                    xml = self.fetch_ownership_xml(m["accession"], issuer_cik)
+                f = cached if from_cache else parse_form4(xml, accession=m["accession"], filing_date=m["filing_date"])
+                if (strict or path is not None) and f.issuer_cik != str(issuer_cik).zfill(10):
                     raise ValueError("Form 4 XML issuer does not match the requested issuer")
+                if from_cache:
+                    self.filings_cached += 1
+                else:
+                    # Save each validated filing immediately. Failed runs retain only
+                    # reusable source documents, never a partially published score.
+                    self._write_filing_cache(path, xml)
+                    self.filings_downloaded += 1
                 out.append(f)
+                if number == 1 or number % 10 == 0 or number == len(metas):
+                    self._progress(f"  SEC issuer {issuer_cik}: filing {number}/{len(metas)} "
+                                   f"({'cache' if from_cache else 'downloaded'}).")
             except Exception:
                 if strict:
                     raise

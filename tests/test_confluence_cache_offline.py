@@ -177,9 +177,9 @@ def test_unmapped_securities_are_disclosed_without_scoring_or_mutating_holdings(
     enriched = []
     enrich = provider._institutional_enrichment
 
-    def capture_enrichment(store, ticker, *args):
-        enriched.append(ticker)
-        return enrich(store, ticker, *args)
+    def capture_enrichment(rows, *args):
+        enriched.extend({row["ticker"] for row in rows})
+        return enrich(rows, *args)
 
     monkeypatch.setattr(provider, "_institutional_enrichment", capture_enrichment)
 
@@ -309,3 +309,28 @@ def test_strict_form4_accepts_an_empty_valid_feed_and_rejects_another_xml_issuer
     monkeypatch.setattr(client, "fetch_ownership_xml", lambda *args: CEO_BUY_XML)
     with pytest.raises(ValueError, match="issuer"):
         client.insider_filings("0000000001", strict=True)
+
+
+def test_upstream_failure_stops_before_requesting_other_issuers(monkeypatch):
+    import requests
+    provider = _StoreConfluence("unused-fixture.db", "13flow-tests test@example.com")
+    monkeypatch.setattr(provider, "_institutional", lambda **kwargs: {
+        ticker: InstitutionalSignal(ticker=ticker, funds_accumulating=3) for ticker in ("FIRST", "LATER")
+    })
+    monkeypatch.setattr(provider, "_issuer_index", lambda: {"FIRST": "0000000001", "LATER": "0000000002"})
+    checked = []
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        def insider_filings(self, cik, **kwargs):
+            checked.append(cik)
+            raise requests.HTTPError("private upstream detail", response=SimpleNamespace(status_code=403))
+
+    monkeypatch.setattr("smartmoney.forms4.Form4Client", Client)
+    with pytest.raises(ConfluenceUnavailable, match="HTTP 403") as failure:
+        provider.confluence(180)
+    assert "private upstream detail" not in str(failure.value)
+    assert checked == ["0000000001"]
+    assert provider.confluence_metadata()["edgar_refresh_verified"] is False

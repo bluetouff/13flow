@@ -513,7 +513,7 @@ def cmd_alerts(client, db_path, dispatch_only) -> None:
     print(f"Dispatched: {sent} sent, {failed} failed, {len(results)} total.")
 
 
-def cmd_confluence(db_path: str, ua: str, windows) -> None:
+def cmd_confluence(db_path: str, ua: str, windows, *, filing_cache_dir=None) -> None:
     """Precompute the Confluence screen (13F accumulation x live Form 4 buys) and write one
     cache file per window into SMARTMONEY_CACHE_DIR (or next to the DB). The web tier serves
     these instantly, so visitors never trigger EDGAR fetches."""
@@ -523,7 +523,10 @@ def cmd_confluence(db_path: str, ua: str, windows) -> None:
     from smartmoney.api_signals import ConfluenceUnavailable, confluence_payload
     from smartmoney.research import HISTORY_FILENAME, append_signal_history, current_git_sha
     outdir = os.environ.get("SMARTMONEY_CACHE_DIR") or os.path.dirname(os.path.abspath(db_path)) or "."
-    prov = _StoreConfluence(db_path, ua, precompute=True)
+    # Source documents survive failed releases and candidate output directories.
+    filing_cache_dir = filing_cache_dir or os.path.join(os.path.dirname(os.path.abspath(db_path)), "form4-filings")
+    prov = _StoreConfluence(db_path, ua, precompute=True, filing_cache_dir=filing_cache_dir,
+                           progress=lambda message: print(message, flush=True))
     history_payloads = []
     # Fetch the widest filing window once, then derive narrower windows by filing date.
     for w in sorted(set(windows), reverse=True):
@@ -973,6 +976,8 @@ def main() -> None:
                     help="precompute the Confluence screen (13F x live Form 4) into cache JSON")
     ap.add_argument("--confluence-windows", default="30,90,180",
                     help="comma-separated day windows to precompute (default 30,90,180)")
+    ap.add_argument("--form4-cache-dir", default=None,
+                    help="validated filing XML cache for --confluence (default: form4-filings next to the DB)")
     ap.add_argument("--freeze-confluence-v1", metavar="PATH",
                     help="write the frozen machine-readable Confluence v1 spec to PATH")
     ap.add_argument("--append-signal-history", action="store_true",
@@ -1171,7 +1176,7 @@ def main() -> None:
     elif args.confluence:
         windows = [int(w) for w in args.confluence_windows.split(",") if w.strip()]
         print("Precomputing confluence windows:", windows)
-        cmd_confluence(args.db, ua, windows)
+        cmd_confluence(args.db, ua, windows, filing_cache_dir=args.form4_cache_dir)
     else:
         ap.print_help()
 

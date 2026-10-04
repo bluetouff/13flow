@@ -180,7 +180,8 @@ class _StoreConfluence:
     Form 4s via EDGAR. Issuer ticker->CIK comes from SEC's company_tickers.json. Any failure
     raises a structured 503 instead of falling back to sample data."""
 
-    def __init__(self, db_path: str, user_agent: str, *, precompute: bool = False):
+    def __init__(self, db_path: str, user_agent: str, *, precompute: bool = False,
+                 filing_cache_dir=None, progress=None):
         self._db_path = db_path
         self._ua = user_agent
         self._issuer_ciks = None    # lazy {TICKER: zero-padded CIK}
@@ -189,6 +190,8 @@ class _StoreConfluence:
         self._precompute = precompute
         self._prepared_institutional = None
         self._prepared_filings = {}
+        self._filing_cache_dir = filing_cache_dir
+        self._progress = progress or (lambda message: None)
 
     def _issuer_index(self):
         if self._issuer_ciks is None:
@@ -221,6 +224,7 @@ class _StoreConfluence:
         from .crosssignal import InstitutionalSignal
         s = Store(self._db_path, read_only=True)
         try:
+            s.conn.execute("BEGIN")
             row = s.conn.execute("SELECT MAX(report_date) d FROM filings").fetchone()
             rd = row["d"] if row else None
             if not rd:
@@ -240,6 +244,7 @@ class _StoreConfluence:
             excluded = {}
             aliases = {}
             candidate_tickers = {m.ticker.upper() for m in adds if m.ticker}
+            eligible = []
             for m in adds:
                 if not m.ticker:
                     continue
@@ -251,7 +256,28 @@ class _StoreConfluence:
                         continue
                     if symbol != t:
                         aliases[t] = symbol
-                enrich = self._institutional_enrichment(s, t, tuple(m.funds), rd, tuple(m.moves))
+                eligible.append(m)
+            # Materialize the composed holdings once, rather than rebuilding the
+            # portfolio view for every ticker. Keep the same per-fund calculation.
+            labels = sorted({label for m in eligible for label in m.funds})
+            holdings_by_ticker = {}
+            if labels:
+                rows = s.conn.execute(
+                    f"""SELECT fn.label, UPPER(h.ticker) AS ticker, h.value_usd, h.weight
+                        FROM latest_filings lf
+                        JOIN portfolio_holdings h ON h.accession=lf.accession AND h.put_call=''
+                        JOIN funds fn ON fn.cik=lf.cik
+                        WHERE lf.report_date=? AND fn.label IN ({_placeholders(labels)})""",
+                    (rd, *labels),
+                )
+                eligible_tickers = {m.ticker.upper() for m in eligible}
+                for row in rows:
+                    if row["ticker"] in eligible_tickers:
+                        holdings_by_ticker.setdefault(row["ticker"], []).append(row)
+            for m in eligible:
+                t = m.ticker.upper()
+                enrich = self._institutional_enrichment(
+                    holdings_by_ticker.get(t, ()), tuple(m.funds), tuple(m.moves))
                 out[t] = InstitutionalSignal(
                     ticker=t,
                     funds_accumulating=m.n_funds,
@@ -274,19 +300,10 @@ class _StoreConfluence:
         finally:
             s.close()
 
-    def _institutional_enrichment(self, store: Store, ticker: str, fund_labels: tuple[str, ...],
-                                  report_date: str, moves: tuple[str, ...]) -> dict:
-        if not fund_labels:
-            return {"total_value_usd": 0.0, "avg_weight_pct": 0.0, "conviction_funds": 0}
-        placeholders = ",".join("?" for _ in fund_labels)
-        rows = store.conn.execute(
-            f"""SELECT fn.label, h.value_usd, h.weight
-                FROM latest_filings lf
-                JOIN portfolio_holdings h ON h.accession=lf.accession AND h.put_call=''
-                JOIN funds fn ON fn.cik=lf.cik
-                WHERE lf.report_date=? AND UPPER(h.ticker)=? AND fn.label IN ({placeholders})""",
-            (report_date, ticker.upper(), *fund_labels),
-        ).fetchall()
+    def _institutional_enrichment(self, holdings, fund_labels: tuple[str, ...],
+                                  moves: tuple[str, ...]) -> dict:
+        labels = set(fund_labels)
+        rows = [row for row in holdings if row["label"] in labels]
         total_value = sum((r["value_usd"] or 0.0) for r in rows)
         weights = [(r["weight"] or 0.0) for r in rows]
         avg_weight_pct = (sum(weights) / len(weights) * 100.0) if weights else 0.0
@@ -324,6 +341,8 @@ class _StoreConfluence:
                 "Only tickers mapped to the SEC company index enter the score; unmatched "
                 "securities are disclosed in universe_coverage and receive no insider score. "
                 "At most 60 recent Form 4/4A filings are checked per issuer. "
+                "SEC filing lists are fetched on each refresh; previously validated filing XML "
+                "may be reused by accession, with its original retrieval date retained on disk. "
                 "Trim/exits are computed across the broader tracked universe, but insider-only, "
                 "distribution, and divergent categories are not exhaustive in this production path."
             ),
@@ -342,6 +361,7 @@ class _StoreConfluence:
         self._edgar_refresh.result = None
         self._edgar_refresh.scope = None
         refresh_started_at = datetime.now(timezone.utc).isoformat()
+        self._progress(f"Confluence {window_days}d: loading SEC index and 13F universe.")
         idx = self._issuer_index()
         if not idx:
             raise ConfluenceUnavailable("SEC issuer index is unavailable; cannot map tickers to issuer CIKs.")
@@ -360,7 +380,7 @@ class _StoreConfluence:
             raise ConfluenceUnavailable("Institutional Confluence build failed.") from exc
         if not inst:
             raise ConfluenceUnavailable("No SEC-mapped institutional accumulation candidates for Confluence.")
-        f4 = Form4Client(user_agent=self._ua)
+        f4 = Form4Client(user_agent=self._ua, cache_dir=self._filing_cache_dir, progress=self._progress)
         refresh = {
             "started_at": refresh_started_at,
             "completed_at": None,
@@ -368,16 +388,23 @@ class _StoreConfluence:
             "issuers_checked": 0,
             "issuer_failures": 0,
             "issuers_reused": 0,
+            "filings_downloaded": 0,
+            "filings_cached": 0,
         }
+        scope = getattr(self._edgar_refresh, "scope", None) or {}
+        self._progress(f"Confluence {window_days}d: {len(inst)} eligible tickers, "
+                       f"{len(scope.get('excluded_tickers', []))} unmapped tickers excluded.")
         insiders = {}
-        for ticker in inst:
+        for number, ticker in enumerate(inst, 1):
+            self._progress(f"Confluence {window_days}d: issuer {number}/{len(inst)} {ticker!r}.")
             symbol = _sec_issuer_symbol(ticker, idx)
             cik = idx.get(symbol) if symbol else None
             if not cik:
                 refresh["issuer_failures"] += 1
                 __import__("logging").getLogger("smartmoney.api").warning(
                     "SEC issuer mapping unavailable for %s", ticker)
-                continue
+                self._edgar_refresh.result = refresh
+                raise ConfluenceUnavailable("SEC issuer mapping changed; no Confluence calculation published.")
             try:
                 cached = self._prepared_filings.get(ticker) if self._precompute else None
                 if cached and cached[0] >= window_days:
@@ -394,16 +421,26 @@ class _StoreConfluence:
                         self._prepared_filings[ticker] = (window_days, forms, refresh_started_at)
                 insiders[ticker] = aggregate_insider_activity(ticker, forms, window_days=window_days)
                 refresh["issuers_checked"] += 1
+                refresh["filings_downloaded"] = getattr(f4, "filings_downloaded", 0)
+                refresh["filings_cached"] = getattr(f4, "filings_cached", 0)
             except Exception as exc:   # pragma: no cover - network
                 refresh["issuer_failures"] += 1
+                self._edgar_refresh.result = refresh
+                status = getattr(getattr(exc, "response", None), "status_code", None)
+                failure = f"HTTP {status}" if isinstance(status, int) else type(exc).__name__
                 __import__("logging").getLogger("smartmoney.api").warning(
-                    "Form 4 fetch failed for %s (%s)", ticker, type(exc).__name__)
-        if refresh["issuer_failures"]:
-            self._edgar_refresh.result = refresh
-            raise ConfluenceUnavailable("EDGAR checks are incomplete; no Confluence calculation published.")
+                    "Form 4 fetch failed for %r (%s)", ticker, failure)
+                # Continuing after an upstream failure cannot produce a publishable
+                # result, and can waste hours or compound SEC throttling.
+                raise ConfluenceUnavailable(
+                    f"EDGAR check failed for {ticker!r} ({failure}); previous caches preserved."
+                ) from exc
         signals = build_confluence(inst, insiders)
         refresh["completed_at"] = datetime.now(timezone.utc).isoformat()
         self._edgar_refresh.result = refresh
+        self._progress(f"Confluence {window_days}d complete: {len(signals)} signals; "
+                       f"{refresh['filings_downloaded']} filings downloaded, "
+                       f"{refresh['filings_cached']} reused from disk.")
         return signals
 
 

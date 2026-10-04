@@ -410,6 +410,32 @@ institutional snapshot and those filings only within that refresh. The receipt r
 `issuers_reused` and retains the earliest lookup start; HTTP live requests do not reuse
 these batch snapshots.
 
+CLI refreshes keep validated Form 4 XML in `form4-filings/` next to the market DB
+(`--form4-cache-dir` overrides this directory). Each document is saved atomically after
+parsing and issuer validation, with its content hash and original UTC retrieval date.
+Every run fetches the current SEC filing lists again, so new accessions are included;
+the receipt distinguishes downloaded documents from reused documents. An interrupted
+run can reuse completed downloads. This source cache is separate from the three public
+signal files, which are published only after all windows have completed.
+
+Progress reports the current issuer and filing counts. The first failed issuer stops
+the refresh with a bounded HTTP diagnostic, preserving the prior published signals.
+The existing SEC request rate is retained; a long `Retry-After` stops the run rather
+than retrying earlier than the server permits.
+
+For a Confluence release on Zen, use the versioned activation entrypoint from the exact
+release checkout, with the SHA currently served by `/api/version` as `--previous-sha`:
+
+```bash
+sudo python3 -I deploy/activate-confluence.py --sha <release-sha> --previous-sha <served-sha>
+```
+
+It streams the refresh journal, qualifies candidate caches before publication, delegates
+code deployment to `deploy-code-safe.sh`, runs public smoke checks, and restores the
+previous release on failure. It reuses the installed ingest unit and its security
+settings, refuses overlapping activation/ingestion, and preserves downloaded Form 4
+documents after a failed attempt. No per-release Python script editing is needed.
+
 The screen lives as a fifth dashboard tab. Production must use either a precomputed
 `confluence-<window>.json` cache or the live provider. The live provider needs EDGAR access
 for Form 4s:
