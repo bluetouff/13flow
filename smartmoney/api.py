@@ -341,6 +341,9 @@ class _StoreConfluence:
                 "Only tickers mapped to the SEC company index enter the score; unmatched "
                 "securities are disclosed in universe_coverage and receive no insider score. "
                 "At most 60 recent Form 4/4A filings are checked per issuer. "
+                "Filings for another issuer are excluded only when the requested company is "
+                "identified as a reporting owner in the XML; these exclusions are disclosed "
+                "in edgar_refresh.non_issuer_filings. "
                 "SEC filing lists are fetched on each refresh; previously validated filing XML "
                 "may be reused by accession, with its original retrieval date retained on disk. "
                 "Trim/exits are computed across the broader tracked universe, but insider-only, "
@@ -390,11 +393,13 @@ class _StoreConfluence:
             "issuers_reused": 0,
             "filings_downloaded": 0,
             "filings_cached": 0,
+            "non_issuer_filings": [],
         }
         scope = getattr(self._edgar_refresh, "scope", None) or {}
         self._progress(f"Confluence {window_days}d: {len(inst)} eligible tickers, "
                        f"{len(scope.get('excluded_tickers', []))} unmapped tickers excluded.")
         insiders = {}
+        non_issuer_filings = {}
         for number, ticker in enumerate(inst, 1):
             self._progress(f"Confluence {window_days}d: issuer {number}/{len(inst)} {ticker!r}.")
             symbol = _sec_issuer_symbol(ticker, idx)
@@ -406,19 +411,25 @@ class _StoreConfluence:
                 self._edgar_refresh.result = refresh
                 raise ConfluenceUnavailable("SEC issuer mapping changed; no Confluence calculation published.")
             try:
-                cached = self._prepared_filings.get(ticker) if self._precompute else None
+                cached = self._prepared_filings.get(cik) if self._precompute else None
                 if cached and cached[0] >= window_days:
                     since = date.today() - timedelta(days=window_days)
                     forms = [form for form in cached[1] if date.fromisoformat(form.filing_date) >= since]
+                    excluded = [entry for entry in cached[3] if date.fromisoformat(entry["filing_date"]) >= since]
                     refresh["started_at"] = min(refresh["started_at"], cached[2])
                     refresh["issuers_reused"] += 1
                 else:
                     forms = f4.insider_filings(cik, window_days=window_days, strict=True)
+                    excluded = [entry for entry in getattr(f4, "non_issuer_filings", [])
+                                if entry["requested_cik"] == cik]
                     if self._precompute:
                         # A valid filing date is needed to derive the narrower windows.
                         for form in forms:
                             date.fromisoformat(form.filing_date)
-                        self._prepared_filings[ticker] = (window_days, forms, refresh_started_at)
+                        self._prepared_filings[cik] = (window_days, forms, refresh_started_at, excluded)
+                for entry in excluded:
+                    non_issuer_filings[(entry["requested_cik"], entry["accession"])] = entry
+                refresh["non_issuer_filings"] = list(non_issuer_filings.values())
                 insiders[ticker] = aggregate_insider_activity(ticker, forms, window_days=window_days)
                 refresh["issuers_checked"] += 1
                 refresh["filings_downloaded"] = getattr(f4, "filings_downloaded", 0)

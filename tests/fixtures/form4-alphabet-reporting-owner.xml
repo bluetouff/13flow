@@ -1,0 +1,55 @@
+<!-- Identity-only excerpt of SEC accession 0001168404-26-000041, retrieved 2026-10-04.
+https://www.sec.gov/Archives/edgar/data/1652044/000116840426000041/form4-07292026_110704.xml
+Transactions, addresses and relationships omitted; this fixture tests issuer classification only. -->
+<ownershipDocument>
+  <documentType>4</documentType>
+  <periodOfReport>2026-07-27</periodOfReport>
+  <issuer>
+    <issuerCik>0001788451</issuerCik>
+    <issuerName>Ethos Technologies Inc.</issuerName>
+    <issuerTradingSymbol>LIFE</issuerTradingSymbol>
+    <issuerForeignTradingSymbol />
+  </issuer>
+  <reportingOwner>
+    <reportingOwnerId>
+      <rptOwnerCik>0001845038</rptOwnerCik>
+      <rptOwnerName>GV 2019 GP, L.L.C.</rptOwnerName>
+    </reportingOwnerId>
+  </reportingOwner>
+  <reportingOwner>
+    <reportingOwnerId>
+      <rptOwnerCik>0001845039</rptOwnerCik>
+      <rptOwnerName>GV 2019 GP, L.P.</rptOwnerName>
+    </reportingOwnerId>
+  </reportingOwner>
+  <reportingOwner>
+    <reportingOwnerId>
+      <rptOwnerCik>0001845041</rptOwnerCik>
+      <rptOwnerName>GV 2019, L.P.</rptOwnerName>
+    </reportingOwnerId>
+  </reportingOwner>
+  <reportingOwner>
+    <reportingOwnerId>
+      <rptOwnerCik>0001861206</rptOwnerCik>
+      <rptOwnerName>GV 2021 GP, L.L.C.</rptOwnerName>
+    </reportingOwnerId>
+  </reportingOwner>
+  <reportingOwner>
+    <reportingOwnerId>
+      <rptOwnerCik>0001861216</rptOwnerCik>
+      <rptOwnerName>GV 2021 GP, L.P.</rptOwnerName>
+    </reportingOwnerId>
+  </reportingOwner>
+  <reportingOwner>
+    <reportingOwnerId>
+      <rptOwnerCik>0001861202</rptOwnerCik>
+      <rptOwnerName>GV 2021, L.P.</rptOwnerName>
+    </reportingOwnerId>
+  </reportingOwner>
+  <reportingOwner>
+    <reportingOwnerId>
+      <rptOwnerCik>0001652044</rptOwnerCik>
+      <rptOwnerName>Alphabet Inc.</rptOwnerName>
+    </reportingOwnerId>
+  </reportingOwner>
+</ownershipDocument>

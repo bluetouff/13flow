@@ -68,7 +68,7 @@ def precompute_with_progress():
     try:
         run(["systemctl", "start", "13flow-refresh.service"])
     except subprocess.CalledProcessError:
-        run(["journalctl", "--unit=13flow-refresh.service", "--lines=15",
+        run(["journalctl", "--unit=13flow-refresh.service", "--lines=60",
              "--no-pager", "--output=cat"])
         raise
     finally:

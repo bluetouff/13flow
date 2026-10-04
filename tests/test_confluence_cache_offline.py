@@ -334,3 +334,32 @@ def test_upstream_failure_stops_before_requesting_other_issuers(monkeypatch):
     assert "private upstream detail" not in str(failure.value)
     assert checked == ["0000000001"]
     assert provider.confluence_metadata()["edgar_refresh_verified"] is False
+
+
+def test_share_classes_reuse_one_issuer_lookup_and_preserve_windowed_exclusions(monkeypatch):
+    provider = _StoreConfluence("unused-fixture.db", "fixture test@example.com", precompute=True)
+    monkeypatch.setattr(provider, "_institutional", lambda **kwargs: {
+        ticker: InstitutionalSignal(ticker=ticker, funds_accumulating=3) for ticker in ("GOOG", "GOOGL")})
+    monkeypatch.setattr(provider, "_issuer_index", lambda: {"GOOG": "0001652044", "GOOGL": "0001652044"})
+    excluded = {"accession": "0001168404-26-000041", "filing_date": (NOW.date() - timedelta(days=45)).isoformat(),
+                "issuer_cik": "0001788451", "requested_cik": "0001652044",
+                "reason": "requested_company_is_reporting_owner_only"}
+    checked = []
+
+    class Client:
+        def __init__(self, **kwargs):
+            self.non_issuer_filings = []
+
+        def insider_filings(self, cik, **kwargs):
+            checked.append(cik)
+            self.non_issuer_filings.append(excluded)
+            return []
+
+    monkeypatch.setattr("smartmoney.forms4.Form4Client", Client)
+    for window in (180, 90, 30):
+        signals = provider.confluence(window)
+        assert {signal.ticker for signal in signals} == {"GOOG", "GOOGL"}
+        receipt = provider.confluence_metadata()["edgar_refresh"]
+        assert receipt["issuers_checked"] == receipt["issuers_requested"] == 2
+        assert receipt["non_issuer_filings"] == ([excluded] if window >= 45 else [])
+    assert checked == ["0001652044"]

@@ -133,6 +133,7 @@ class Form4:
     is_ten_percent_owner: bool
     officer_title: str
     transactions: tuple[Form4Transaction, ...] = ()
+    reporting_owner_ciks: tuple[str, ...] = ()
 
     # --- role helpers used by the confluence scorer -----------------------------
     @property
@@ -203,6 +204,9 @@ def parse_form4(xml_text: str, *, accession: str = "", filing_date: str = "") ->
     rather than raising, because EDGAR filings vary in completeness.
     """
     root = _safe_xml(xml_text)
+    if (root.tag.rsplit("}", 1)[-1] != "ownershipDocument"
+            or _txt(root, "documentType") not in {"4", "4/A"}):
+        raise ValueError("Expected a Form 4 ownership document")
 
     # --- issuer ---------------------------------------------------------------
     issuer_cik = _txt(root, "issuerCik")
@@ -264,6 +268,12 @@ def parse_form4(xml_text: str, *, accession: str = "", filing_date: str = "") ->
         is_ten_percent_owner=is_ten_pct,
         officer_title=officer_title,
         transactions=tuple(txns),
+        reporting_owner_ciks=tuple(
+            _txt(owner, "rptOwnerCik").zfill(10)
+            for owner in root
+            if owner.tag.rsplit("}", 1)[-1] == "reportingOwner"
+            and re.fullmatch(r"[0-9]{1,10}", _txt(owner, "rptOwnerCik"))
+        ),
     )
 
 
@@ -306,6 +316,7 @@ class Form4Client:
         self._progress = progress or (lambda message: None)
         self.filings_downloaded = 0
         self.filings_cached = 0
+        self.non_issuer_filings = []
         if self._cache_dir is not None:
             if self._cache_dir.is_symlink():
                 raise ValueError("Form 4 cache directory must not be a symlink")
@@ -372,9 +383,8 @@ class Form4Client:
         the result. Strict mode requires a complete, valid recent-filings block.
         """
         # Modern data.sec.gov submissions API (JSON), not the legacy browse-edgar
-        # Atom feed which is aggressively rate-limited. The issuer's submissions list
-        # includes its Form 4s; the `recent` block holds ~1000 latest filings, plenty
-        # for a trailing-window insider scan.
+        # Atom feed. A company's list can also contain filings in which it is a
+        # reporting owner of another issuer. Classify that role from the XML.
         cik10 = str(issuer_cik).lstrip("0").zfill(10)
         data = self._get(f"{DATA_HOST}/submissions/CIK{cik10}.json").json()
         if strict:
@@ -383,6 +393,9 @@ class Form4Client:
             if (not all(isinstance(column, list) for column in columns)
                     or len({len(column) for column in columns}) != 1):
                 raise ValueError("Invalid SEC recent-filings columns")
+            if "primaryDocument" in rec and (not isinstance(rec["primaryDocument"], list)
+                    or len(rec["primaryDocument"]) != len(rec["form"])):
+                raise ValueError("Invalid SEC primary-document column")
         else:
             rec = data.get("filings", {}).get("recent", {})
         forms = rec.get("form", [])
@@ -402,7 +415,12 @@ class Form4Client:
                 continue
             if since and fdate and _parse_date(fdate) < since:
                 continue
-            out.append({"accession": acc, "filing_date": fdate, "href": ""})
+            meta = {"accession": acc, "filing_date": fdate, "href": ""}
+            if "primaryDocument" in rec:
+                meta["primary_document"] = rec["primaryDocument"][i]
+                if strict:
+                    self._ownership_filename(meta["primary_document"])
+            out.append(meta)
             if len(out) >= limit:
                 break
         return out
@@ -413,31 +431,55 @@ class Form4Client:
         url = f"{WWW_HOST}/Archives/edgar/data/{cik}/{nodash}/index.json"
         return self._get(url).json()
 
-    def fetch_ownership_xml(self, accession: str, cik: str) -> str:
+    @staticmethod
+    def _ownership_filename(document: str) -> str:
+        # SEC primaryDocument may include its presentation stylesheet directory.
+        # Fetch the raw XML, accepting no URLs, traversal, escapes or other paths.
+        if not isinstance(document, str) or not re.fullmatch(
+                r"(?:xslF345X[0-9]+/)?[A-Za-z0-9_][A-Za-z0-9_.-]*\.xml", document):
+            raise ValueError("Invalid SEC ownership document name")
+        return document.rsplit("/", 1)[-1]
+
+    def fetch_ownership_xml(self, accession: str, cik: str, *, primary_document=None) -> str:
         """
         Locate the ownership XML inside a filing package and return its text.
-        Prefers the document whose `type` is '4'; falls back to the first '.xml'
-        that is not a rendering stylesheet.
+        Use the SEC submissions document name when present, avoiding a directory
+        request. Older callers use the directory, rejecting ambiguous XML choices.
         """
-        idx = self._index_json(accession, cik)
-        items = idx.get("directory", {}).get("item", [])
+        if (not re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", accession)
+                or not re.fullmatch(r"[0-9]{1,10}", str(cik)) or int(cik) == 0):
+            raise ValueError("Invalid SEC filing identity")
         nodash = accession.replace("-", "")
         cik_clean = str(cik).lstrip("0")
         base = f"{WWW_HOST}/Archives/edgar/data/{cik_clean}/{nodash}"
+        if primary_document is not None:
+            name = self._ownership_filename(primary_document)
+        else:
+            items = self._index_json(accession, cik).get("directory", {}).get("item", [])
+            candidates = [it for it in items if isinstance(it.get("name"), str)
+                          and it["name"].endswith(".xml") and not it["name"].endswith("-index.xml")]
+            typed = [it for it in candidates if it.get("type") in {"4", "4/A"}]
+            candidates = typed or candidates
+            if len(candidates) != 1:
+                raise LookupError(f"Expected one ownership XML in {accession}")
+            name = self._ownership_filename(candidates[0]["name"])
+        return self._get(f"{base}/{name}").text
 
-        def _is_ownership(name: str) -> bool:
-            n = name.lower()
-            return n.endswith(".xml") and not n.endswith((".xsl", "-index.xml"))
-
-        # 1) document explicitly typed "4"
-        for it in items:
-            if it.get("type") == "4" and _is_ownership(it.get("name", "")):
-                return self._get(f"{base}/{it['name']}").text
-        # 2) any plausible ownership .xml
-        for it in items:
-            if _is_ownership(it.get("name", "")):
-                return self._get(f"{base}/{it['name']}").text
-        raise LookupError(f"No ownership XML found in {accession}")
+    @staticmethod
+    def _is_issuer_filing(filing: Form4, cik: str) -> bool:
+        expected = str(cik).zfill(10)
+        if not re.fullmatch(r"[0-9]{10}", expected) or int(expected) == 0:
+            raise ValueError("Invalid requested SEC issuer CIK")
+        if re.fullmatch(r"[0-9]{10}", filing.issuer_cik) and int(filing.issuer_cik) > 0:
+            if filing.issuer_cik == expected:
+                return True
+            if expected in filing.reporting_owner_ciks:
+                return False
+        # Only validated public identifiers appear in diagnostics, never XML text.
+        actual = filing.issuer_cik if re.fullmatch(r"[0-9]{10}", filing.issuer_cik) else "invalid"
+        accession = filing.accession if re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", filing.accession) else "invalid"
+        raise ValueError(f"Form 4 {accession}: XML issuer {actual} does not match "
+                         f"requested issuer {expected}; reporting-owner role not established")
 
     def _filing_cache_path(self, issuer_cik: str, accession: str):
         if self._cache_dir is None:
@@ -504,7 +546,8 @@ class Form4Client:
         """
         Parse up to `max_filings` recent Form 4/4A filings within `window_days`.
         `strict=True` reports invalid submissions or a failed filing instead of
-        silently omitting it, and verifies that the XML belongs to the issuer.
+        silently omitting it. Verified reporting-owner-only filings are disclosed
+        separately and never enter this issuer's transactions.
         """
         since = date.today() - timedelta(days=window_days)
         self._progress(f"  SEC issuer {issuer_cik}: checking current filing list.")
@@ -518,16 +561,15 @@ class Form4Client:
                 if xml is not None:
                     try:
                         cached = parse_form4(xml, accession=m["accession"], filing_date=m["filing_date"])
-                        if cached.issuer_cik != str(issuer_cik).zfill(10):
-                            xml = None
+                        self._is_issuer_filing(cached, issuer_cik)
                     except Exception:
                         xml = None  # Corruption must be repaired from SEC, never scored.
                 from_cache = xml is not None
                 if xml is None:
-                    xml = self.fetch_ownership_xml(m["accession"], issuer_cik)
+                    kwargs = {"primary_document": m["primary_document"]} if "primary_document" in m else {}
+                    xml = self.fetch_ownership_xml(m["accession"], issuer_cik, **kwargs)
                 f = cached if from_cache else parse_form4(xml, accession=m["accession"], filing_date=m["filing_date"])
-                if (strict or path is not None) and f.issuer_cik != str(issuer_cik).zfill(10):
-                    raise ValueError("Form 4 XML issuer does not match the requested issuer")
+                is_issuer = self._is_issuer_filing(f, issuer_cik)
                 if from_cache:
                     self.filings_cached += 1
                 else:
@@ -535,7 +577,14 @@ class Form4Client:
                     # reusable source documents, never a partially published score.
                     self._write_filing_cache(path, xml)
                     self.filings_downloaded += 1
-                out.append(f)
+                if is_issuer:
+                    out.append(f)
+                else:
+                    self.non_issuer_filings.append({"accession": f.accession, "filing_date": f.filing_date,
+                        "requested_cik": str(issuer_cik).zfill(10), "issuer_cik": f.issuer_cik,
+                        "reason": "requested_company_is_reporting_owner_only"})
+                    self._progress(f"  SEC filing {f.accession}: issuer {f.issuer_cik}; "
+                                   f"{issuer_cik} is a reporting owner only, excluded from its score.")
                 if number == 1 or number % 10 == 0 or number == len(metas):
                     self._progress(f"  SEC issuer {issuer_cik}: filing {number}/{len(metas)} "
                                    f"({'cache' if from_cache else 'downloaded'}).")

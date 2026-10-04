@@ -408,7 +408,15 @@ One CLI refresh fetches the widest requested filing window first, with the exist
 of 60 filings per issuer, then derives narrower windows by filing date. It reuses the
 institutional snapshot and those filings only within that refresh. The receipt records
 `issuers_reused` and retains the earliest lookup start; HTTP live requests do not reuse
-these batch snapshots.
+these batch snapshots. Share classes mapped to the same SEC CIK reuse one issuer lookup
+within the CLI refresh; each ticker retains its own institutional signal.
+
+SEC submissions can list a company as a reporting owner of another issuer. Such Form 4s
+are excluded from its score only when the ownership XML explicitly identifies that company
+among the reporting owners. They are cached and disclosed by accession, actual issuer,
+requested CIK and filing date in `metadata.edgar_refresh.non_issuer_filings`. Unknown
+issuer mismatches still abort the refresh. The 60-document bound includes these inspected
+reporting-owner filings; it does not promise 60 issuer-only filings or exhaustive coverage.
 
 CLI refreshes keep validated Form 4 XML in `form4-filings/` next to the market DB
 (`--form4-cache-dir` overrides this directory). Each document is saved atomically after
@@ -417,6 +425,10 @@ Every run fetches the current SEC filing lists again, so new accessions are incl
 the receipt distinguishes downloaded documents from reused documents. An interrupted
 run can reuse completed downloads. This source cache is separate from the three public
 signal files, which are published only after all windows have completed.
+The SEC `primaryDocument` selects the raw XML directly, saving one directory request per
+uncached document. The full institutional universe is retained: cold collection may still
+take several runs within the existing service timeout. Re-running the same activation
+reuses validated documents without increasing the SEC request rate or publishing partial scores.
 
 Progress reports the current issuer and filing counts. The first failed issuer stops
 the refresh with a bounded HTTP diagnostic, preserving the prior published signals.
