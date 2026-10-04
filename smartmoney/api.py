@@ -37,7 +37,7 @@ import re
 import struct
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from html import escape as html_escape
 from types import SimpleNamespace
 from typing import Optional
@@ -162,16 +162,33 @@ def _iso_due(value: Optional[str]) -> bool:
     return parsed <= datetime.now(timezone.utc)
 
 
+def _sec_issuer_symbol(ticker: str, index: dict) -> str | None:
+    """Resolve exact SEC symbols, then confirmed share-class delimiter aliases."""
+    symbol = ticker.upper().strip()
+    if symbol in index:
+        return symbol
+    match = re.fullmatch(r"([A-Z]{1,6})[/.]([A-Z]{1,2})", symbol)
+    if match:
+        alias = f"{match[1]}-{match[2]}"
+        if alias in index:
+            return alias
+    return None
+
+
 class _StoreConfluence:
     """Live Confluence provider: institutional side from the 13F store, insider side from
     Form 4s via EDGAR. Issuer ticker->CIK comes from SEC's company_tickers.json. Any failure
     raises a structured 503 instead of falling back to sample data."""
 
-    def __init__(self, db_path: str, user_agent: str):
+    def __init__(self, db_path: str, user_agent: str, *, precompute: bool = False):
         self._db_path = db_path
         self._ua = user_agent
         self._issuer_ciks = None    # lazy {TICKER: zero-padded CIK}
         self._edgar_refresh = threading.local()
+        # Only a single CLI refresh reuses these snapshots; HTTP providers stay live.
+        self._precompute = precompute
+        self._prepared_institutional = None
+        self._prepared_filings = {}
 
     def _issuer_index(self):
         if self._issuer_ciks is None:
@@ -181,16 +198,26 @@ class _StoreConfluence:
                 r = requests.get("https://www.sec.gov/files/company_tickers.json",
                                  headers={"User-Agent": self._ua}, timeout=30)
                 r.raise_for_status()
-                for row in r.json().values():
-                    t = str(row.get("ticker", "")).upper()
-                    if t:
-                        self._issuer_ciks[t] = str(row.get("cik_str", "")).zfill(10)
+                rows = r.json()
+                if not isinstance(rows, dict) or not rows:
+                    raise ValueError("Invalid SEC company index")
+                index = {}
+                for row in rows.values():
+                    t = row["ticker"].strip().upper()
+                    cik = str(row["cik_str"])
+                    if not t or not re.fullmatch(r"[0-9]{1,10}", cik) or int(cik) == 0:
+                        raise ValueError("Invalid SEC company entry")
+                    if t in index and index[t] != cik.zfill(10):
+                        raise ValueError("Ambiguous SEC company symbol")
+                    index[t] = cik.zfill(10)
+                # A malformed response must not leave a partially accepted index.
+                self._issuer_ciks = index
             except Exception as e:   # pragma: no cover - network
                 app_logger = __import__("logging").getLogger("smartmoney.api")
                 app_logger.warning("SEC issuer index fetch failed: %s", e)
         return self._issuer_ciks
 
-    def _institutional(self):
+    def _institutional(self, issuer_index: dict | None = None):
         from .crosssignal import InstitutionalSignal
         s = Store(self._db_path, read_only=True)
         try:
@@ -210,10 +237,20 @@ class _StoreConfluence:
             trims = consensus_moves(s, ciks, rd, kinds=(Move.EXIT, Move.TRIM), min_funds=1)
             trim_by_ticker = {m.ticker.upper(): m.n_funds for m in trims if m.ticker}
             out = {}
+            excluded = {}
+            aliases = {}
+            candidate_tickers = {m.ticker.upper() for m in adds if m.ticker}
             for m in adds:
                 if not m.ticker:
                     continue
                 t = m.ticker.upper()
+                if issuer_index is not None:
+                    symbol = _sec_issuer_symbol(t, issuer_index)
+                    if symbol is None:
+                        excluded[t] = {"ticker": t, "reason": "not_mapped_to_sec_company_index"}
+                        continue
+                    if symbol != t:
+                        aliases[t] = symbol
                 enrich = self._institutional_enrichment(s, t, tuple(m.funds), rd, tuple(m.moves))
                 out[t] = InstitutionalSignal(
                     ticker=t,
@@ -225,6 +262,14 @@ class _StoreConfluence:
                     avg_weight_pct=enrich["avg_weight_pct"],
                     quarters_ago=0,
                 )
+            if issuer_index is not None:
+                self._edgar_refresh.scope = {
+                    "candidate_tickers": len(candidate_tickers),
+                    "eligible_tickers": len(out),
+                    "excluded_tickers": sorted(excluded.values(), key=lambda item: item["ticker"]),
+                    "ticker_aliases": aliases,
+                    "exclusion_boundary": "No matching SEC company symbol; security type is not inferred.",
+                }
             return out
         finally:
             s.close()
@@ -272,9 +317,12 @@ class _StoreConfluence:
                 and refresh["issuer_failures"] == 0
             ),
             "edgar_refresh": refresh,
+            "universe_coverage": getattr(self._edgar_refresh, "scope", None),
             "effective_universe": (
                 "Form 4 scans are limited to tickers with at least "
                 f"{scan_min} tracked fund(s) opening or adding in the latest 13F quarter. "
+                "Only tickers mapped to the SEC company index enter the score; unmatched "
+                "securities are disclosed in universe_coverage and receive no insider score. "
                 "At most 60 recent Form 4/4A filings are checked per issuer. "
                 "Trim/exits are computed across the broader tracked universe, but insider-only, "
                 "distribution, and divergent categories are not exhaustive in this production path."
@@ -292,36 +340,58 @@ class _StoreConfluence:
         from .forms4 import Form4Client
         from .api_signals import ConfluenceUnavailable
         self._edgar_refresh.result = None
+        self._edgar_refresh.scope = None
+        refresh_started_at = datetime.now(timezone.utc).isoformat()
+        idx = self._issuer_index()
+        if not idx:
+            raise ConfluenceUnavailable("SEC issuer index is unavailable; cannot map tickers to issuer CIKs.")
         try:
-            inst = self._institutional()
+            if self._precompute and self._prepared_institutional is not None:
+                inst, scope = self._prepared_institutional
+                self._edgar_refresh.scope = scope
+            else:
+                inst = self._institutional(issuer_index=idx)
+                if self._precompute:
+                    self._prepared_institutional = (inst, getattr(self._edgar_refresh, "scope", None))
         except Exception as exc:
             __import__("logging").getLogger("smartmoney.api").warning(
                 "institutional Confluence build failed (%s)", type(exc).__name__
             )
             raise ConfluenceUnavailable("Institutional Confluence build failed.") from exc
         if not inst:
-            raise ConfluenceUnavailable("No institutional accumulation candidates for Confluence.")
-        idx = self._issuer_index()
-        if not idx:
-            raise ConfluenceUnavailable("SEC issuer index is unavailable; cannot map tickers to issuer CIKs.")
+            raise ConfluenceUnavailable("No SEC-mapped institutional accumulation candidates for Confluence.")
         f4 = Form4Client(user_agent=self._ua)
         refresh = {
-            "started_at": datetime.now(timezone.utc).isoformat(),
+            "started_at": refresh_started_at,
             "completed_at": None,
             "issuers_requested": len(inst),
             "issuers_checked": 0,
             "issuer_failures": 0,
+            "issuers_reused": 0,
         }
         insiders = {}
         for ticker in inst:
-            cik = idx.get(ticker)
+            symbol = _sec_issuer_symbol(ticker, idx)
+            cik = idx.get(symbol) if symbol else None
             if not cik:
                 refresh["issuer_failures"] += 1
                 __import__("logging").getLogger("smartmoney.api").warning(
                     "SEC issuer mapping unavailable for %s", ticker)
                 continue
             try:
-                forms = f4.insider_filings(cik, window_days=window_days, strict=True)
+                cached = self._prepared_filings.get(ticker) if self._precompute else None
+                if cached and cached[0] >= window_days:
+                    since = date.today() - timedelta(days=window_days)
+                    forms = [form for form in cached[1] if date.fromisoformat(form.filing_date) >= since]
+                    refresh["started_at"] = min(refresh["started_at"], cached[2])
+                    refresh["issuers_reused"] += 1
+                else:
+                    forms = f4.insider_filings(cik, window_days=window_days, strict=True)
+                    if self._precompute:
+                        # A valid filing date is needed to derive the narrower windows.
+                        for form in forms:
+                            date.fromisoformat(form.filing_date)
+                        self._prepared_filings[ticker] = (window_days, forms, refresh_started_at)
                 insiders[ticker] = aggregate_insider_activity(ticker, forms, window_days=window_days)
                 refresh["issuers_checked"] += 1
             except Exception as exc:   # pragma: no cover - network

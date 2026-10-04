@@ -391,7 +391,12 @@ off abusive Form 4 fan-out, it scans insider filings only for tickers with at le
 `SMARTMONEY_CONFLUENCE_SCAN_MIN_FUNDS` tracked funds opening or adding in the latest 13F
 quarter (default 3). Trim/exits are computed more broadly, but insider-only, distribution,
 and divergent categories are therefore not exhaustive in this production path. This is
-exposed in `/api/signals/confluence` under `metadata.effective_universe`.
+exposed in `/api/signals/confluence` under `metadata.effective_universe`. Only symbols
+matched to the SEC company index enter the score. Share-class delimiters such as `BRK/B`
+or `BRK.B` resolve to `BRK-B` only when that symbol exists in the index. Unmatched
+securities are listed in `metadata.universe_coverage.excluded_tickers`; their security
+type is not inferred and no insider score is assigned to them. Raw 13F holdings remain
+unchanged.
 
 Precomputed Confluence responses retain their UTC calculation date in `generated_at`.
 `metadata.edgar_refresh_verified` attests completed SEC lookups in that bounded universe;
@@ -399,6 +404,11 @@ it does not imply exhaustive coverage or validation of the score. Cache reads re
 date and expose `cache_status` and `cache_age_seconds`. A cache older than 26 hours, with
 an invalid date, or without a calculation date is no longer attested as fresh. Failed
 issuer or filing lookups abort precomputation and preserve the previous cache files.
+One CLI refresh fetches the widest requested filing window first, with the existing cap
+of 60 filings per issuer, then derives narrower windows by filing date. It reuses the
+institutional snapshot and those filings only within that refresh. The receipt records
+`issuers_reused` and retains the earliest lookup start; HTTP live requests do not reuse
+these batch snapshots.
 
 The screen lives as a fifth dashboard tab. Production must use either a precomputed
 `confluence-<window>.json` cache or the live provider. The live provider needs EDGAR access

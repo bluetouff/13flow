@@ -523,9 +523,10 @@ def cmd_confluence(db_path: str, ua: str, windows) -> None:
     from smartmoney.api_signals import ConfluenceUnavailable, confluence_payload
     from smartmoney.research import HISTORY_FILENAME, append_signal_history, current_git_sha
     outdir = os.environ.get("SMARTMONEY_CACHE_DIR") or os.path.dirname(os.path.abspath(db_path)) or "."
-    prov = _StoreConfluence(db_path, ua)
+    prov = _StoreConfluence(db_path, ua, precompute=True)
     history_payloads = []
-    for w in windows:
+    # Fetch the widest filing window once, then derive narrower windows by filing date.
+    for w in sorted(set(windows), reverse=True):
         signals = prov.confluence(w)
         metadata = getattr(prov, "confluence_metadata", lambda: {})()
         if metadata.get("edgar_refresh_verified") is not True:

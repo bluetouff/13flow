@@ -27,6 +27,7 @@ from __future__ import annotations
 import threading
 import time
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Iterable, Optional
@@ -339,13 +340,14 @@ class Form4Client:
         *,
         since: Optional[date] = None,
         limit: int = 100,
+        strict: bool = False,
     ) -> list[dict]:
         """
         Return recent Form 4 filings for an issuer as
         [{'accession': '0001...-24-000123', 'filing_date': 'YYYY-MM-DD', 'href': ...}].
 
-        Uses browse-edgar's Atom feed, which indexes ownership forms under the issuer CIK.
-        `since` filters client-side by filing date; `limit` caps the feed size.
+        Uses the SEC submissions API. `since` filters by filing date; `limit` caps
+        the result. Strict mode requires a complete, valid recent-filings block.
         """
         # Modern data.sec.gov submissions API (JSON), not the legacy browse-edgar
         # Atom feed which is aggressively rate-limited. The issuer's submissions list
@@ -353,7 +355,14 @@ class Form4Client:
         # for a trailing-window insider scan.
         cik10 = str(issuer_cik).lstrip("0").zfill(10)
         data = self._get(f"{DATA_HOST}/submissions/CIK{cik10}.json").json()
-        rec = data.get("filings", {}).get("recent", {})
+        if strict:
+            rec = data["filings"]["recent"]
+            columns = [rec[key] for key in ("form", "accessionNumber", "filingDate")]
+            if (not all(isinstance(column, list) for column in columns)
+                    or len({len(column) for column in columns}) != 1):
+                raise ValueError("Invalid SEC recent-filings columns")
+        else:
+            rec = data.get("filings", {}).get("recent", {})
         forms = rec.get("form", [])
         accns = rec.get("accessionNumber", [])
         fdates = rec.get("filingDate", [])
@@ -363,6 +372,10 @@ class Form4Client:
                 continue
             acc = accns[i] if i < len(accns) else ""
             fdate = fdates[i] if i < len(fdates) else ""
+            if strict:
+                if not isinstance(acc, str) or not re.fullmatch(r"[0-9]{10}-[0-9]{2}-[0-9]{6}", acc):
+                    raise ValueError("Invalid SEC Form 4 accession")
+                date.fromisoformat(fdate)
             if not acc:
                 continue
             if since and fdate and _parse_date(fdate) < since:
@@ -414,15 +427,18 @@ class Form4Client:
     ) -> list[Form4]:
         """
         Parse up to `max_filings` recent Form 4/4A filings within `window_days`.
-        `strict=True` reports a failed filing instead of silently omitting it.
+        `strict=True` reports invalid submissions or a failed filing instead of
+        silently omitting it, and verifies that the XML belongs to the issuer.
         """
         since = date.today() - timedelta(days=window_days)
-        metas = self.list_form4_accessions(issuer_cik, since=since, limit=max_filings)
+        metas = self.list_form4_accessions(issuer_cik, since=since, limit=max_filings, strict=strict)
         out: list[Form4] = []
         for m in metas:
             try:
                 xml = self.fetch_ownership_xml(m["accession"], issuer_cik)
                 f = parse_form4(xml, accession=m["accession"], filing_date=m["filing_date"])
+                if strict and f.issuer_cik != str(issuer_cik).lstrip("0").zfill(10):
+                    raise ValueError("Form 4 XML issuer does not match the requested issuer")
                 out.append(f)
             except Exception:
                 if strict:
