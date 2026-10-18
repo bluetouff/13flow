@@ -4,11 +4,95 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
+import proxyaddr from 'proxy-addr';
 import { Address4, Address6, AddressError } from 'ip-address';
 import { ipKeyGenerator } from 'express-rate-limit';
 import uri from 'fast-uri';
 import { jsx, Suspense, createContext } from 'hono/jsx';
 import { renderToString, renderToReadableStream } from 'hono/jsx/dom/server';
+
+// Exercise OAuth issuer isolation entirely in memory, using synthetic credentials.
+const oauthIssuer = 'https://auth.example';
+const oauthResource = 'https://resource.example/mcp';
+function oauthFixture(discoveredIssuer, storedIssuer = oauthIssuer) {
+  const requests = [];
+  const savedTokens = [];
+  const redirects = [];
+  const provider = {
+    redirectUrl: undefined,
+    clientMetadata: { redirect_uris: [], grant_types: ['client_credentials'] },
+    clientInformation: () => ({
+      client_id: 'test-client', client_secret: 'test-only-secret', issuer: storedIssuer,
+    }),
+    tokens: () => undefined,
+    saveTokens: (tokens) => { savedTokens.push(tokens); },
+    prepareTokenRequest: () => new URLSearchParams({ grant_type: 'client_credentials' }),
+    saveCodeVerifier: () => {},
+    redirectToAuthorization: (url) => { redirects.push(url); },
+    discoveryState: () => ({
+      authorizationServerUrl: discoveredIssuer,
+      resourceMetadata: { resource: oauthResource, authorization_servers: [discoveredIssuer] },
+      authorizationServerMetadata: {
+        issuer: discoveredIssuer,
+        authorization_endpoint: `${discoveredIssuer}/authorize`,
+        token_endpoint: `${discoveredIssuer}/token`,
+        response_types_supported: ['code'],
+        token_endpoint_auth_methods_supported: ['client_secret_post'],
+      },
+    }),
+  };
+  const options = {
+    serverUrl: oauthResource,
+    fetchFn: async (url, init) => {
+      assert.equal(String(url), `${discoveredIssuer}/token`);
+      requests.push({ url: String(url), body: new URLSearchParams(init.body) });
+      return Response.json({ access_token: 'test-only-token', token_type: 'Bearer' });
+    },
+  };
+  return { provider, options, requests, savedTokens, redirects };
+}
+
+for (const otherIssuer of ['https://other-auth.example', `${oauthIssuer}/other-tenant`]) {
+  const fixture = oauthFixture(otherIssuer);
+  await assert.rejects(auth(fixture.provider, fixture.options), /bound to authorization server/);
+  assert.equal(fixture.requests.length, 0, 'issuer mismatch must stop before token submission');
+  assert.equal(fixture.savedTokens.length, 0);
+}
+for (const storedIssuer of [oauthIssuer, 'HTTPS://AUTH.EXAMPLE:443/']) {
+  const fixture = oauthFixture(oauthIssuer, storedIssuer);
+  assert.equal(await auth(fixture.provider, fixture.options), 'AUTHORIZED');
+  assert.equal(fixture.requests.length, 1);
+  assert.equal(fixture.requests[0].body.get('client_id'), 'test-client');
+  assert.equal(fixture.requests[0].body.get('client_secret'), 'test-only-secret');
+  assert.equal(fixture.savedTokens[0].issuer, oauthIssuer);
+}
+const refreshFixture = oauthFixture(oauthIssuer);
+refreshFixture.provider.redirectUrl = 'https://client.example/callback';
+refreshFixture.provider.tokens = () => ({
+  access_token: 'test-only-expired-token', token_type: 'Bearer',
+  refresh_token: 'test-only-refresh-token', issuer: 'https://other-auth.example',
+});
+assert.equal(await auth(refreshFixture.provider, refreshFixture.options), 'REDIRECT');
+assert.equal(refreshFixture.requests.length, 0, 'refresh tokens must remain bound to their issuer');
+assert.equal(refreshFixture.redirects.length, 1);
+assert.equal(refreshFixture.savedTokens.length, 0);
+console.log('OAuth issuer isolation and same-issuer authorization: passed');
+
+// A native IPv6 range must not trust IPv4 addresses through mapped notation.
+for (const subnets of [['::/8'], ['::/8', '2001:db8::/32']]) {
+  const trust = proxyaddr.compile(subnets);
+  assert.equal(trust('192.0.2.1'), false);
+  assert.equal(trust('::ffff:192.0.2.1'), false);
+}
+for (const subnets of [['::ffff:192.0.2.0/120'], ['::ffff:192.0.2.0/120', '2001:db8::/32']]) {
+  const trust = proxyaddr.compile(subnets);
+  assert.equal(trust('192.0.2.1'), true);
+  assert.equal(trust('::ffff:192.0.2.1'), true);
+  assert.equal(trust('198.51.100.1'), false);
+  assert.equal(trust('::ffff:198.51.100.1'), false);
+}
+console.log('proxy-addr IPv4-mapped trust isolation and valid subnets: passed');
 
 // Dependency regressions: NAT64/link-local classification and cross-family subnets.
 for (const address of ['64:ff9b:1::', '64:ff9b:1:7f00:0:100::', '64:ff9b:1::7f00:1', '64:ff9b:1:ffff:ffff:ffff:ffff:ffff']) {

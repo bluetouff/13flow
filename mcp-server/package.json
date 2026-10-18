@@ -17,7 +17,7 @@
     "registry:verify": "node verify-registry.mjs"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.0",
+    "@modelcontextprotocol/sdk": "1.31.0",
     "zod": "3.25.76"
   },
   "overrides": {
@@ -25,6 +25,7 @@
     "fast-uri": "3.1.8",
     "hono": "4.13.7",
     "ip-address": "10.7.1",
+    "proxy-addr": "2.0.8",
     "qs": "6.16.0"
   }
 }
