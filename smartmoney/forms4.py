@@ -310,10 +310,13 @@ class Form4Client:
         timeout: int = 30,
         cache_dir=None,
         progress=None,
+        check_budget=None,
     ):
         self._timeout = timeout
         self._cache_dir = Path(cache_dir) if cache_dir is not None else None
         self._progress = progress or (lambda message: None)
+        self._check_budget = check_budget or (lambda: None)
+        self.last_listing = None
         self.filings_downloaded = 0
         self.filings_cached = 0
         self.non_issuer_filings = []
@@ -341,6 +344,7 @@ class Form4Client:
     def _get(self, url: str, _max_tries: int = 4) -> requests.Response:
         last_exc = None
         for attempt in range(_max_tries):
+            self._check_budget()
             self._limiter.wait()
             r = self._session.get(url, timeout=self._timeout)
             if r.status_code in (429, 503):
@@ -542,6 +546,7 @@ class Form4Client:
         window_days: int = 90,
         max_filings: int = 60,
         strict: bool = False,
+        as_of: Optional[date] = None,
     ) -> list[Form4]:
         """
         Parse up to `max_filings` recent Form 4/4A filings within `window_days`.
@@ -549,12 +554,19 @@ class Form4Client:
         silently omitting it. Verified reporting-owner-only filings are disclosed
         separately and never enter this issuer's transactions.
         """
-        since = date.today() - timedelta(days=window_days)
+        since = (as_of or date.today()) - timedelta(days=window_days)
+        self._check_budget()
+        checked_at = datetime.now(timezone.utc).isoformat()
         self._progress(f"  SEC issuer {issuer_cik}: checking current filing list.")
         metas = self.list_form4_accessions(issuer_cik, since=since, limit=max_filings, strict=strict)
+        self.last_listing = {"checked_at": checked_at, "since": since.isoformat(), "filings": metas}
+        return self._parse_filings(issuer_cik, metas, strict=strict)
+
+    def _parse_filings(self, issuer_cik, metas, *, strict, cached_only=False):
         self._progress(f"  SEC issuer {issuer_cik}: {len(metas)} filings to read.")
         out: list[Form4] = []
         for number, m in enumerate(metas, 1):
+            self._check_budget()
             try:
                 path = self._filing_cache_path(issuer_cik, m["accession"])
                 xml = self._read_filing_cache(path)
@@ -566,6 +578,8 @@ class Form4Client:
                         xml = None  # Corruption must be repaired from SEC, never scored.
                 from_cache = xml is not None
                 if xml is None:
+                    if cached_only:
+                        raise ValueError("Incomplete or invalid issuer document checkpoint")
                     kwargs = {"primary_document": m["primary_document"]} if "primary_document" in m else {}
                     xml = self.fetch_ownership_xml(m["accession"], issuer_cik, **kwargs)
                 f = cached if from_cache else parse_form4(xml, accession=m["accession"], filing_date=m["filing_date"])

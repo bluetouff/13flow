@@ -24,6 +24,8 @@ DB = DATA / "13flow.db"
 DROPINS = Path("/etc/systemd/system/13flow-refresh.service.d")
 TEMP_UNIT = DROPINS / "zzz-release-precompute.conf"
 TARGETS = [DROPINS / "zz-confluence.conf", Path("/etc/13flow/13flow-confluence.env")]
+CONFLUENCE_UNITS = [Path("/etc/systemd/system") / f"13flow-confluence.{kind}" for kind in ("service", "timer")]
+WORKER_ENV = Path("/etc/13flow/13flow-confluence-worker.env")
 STAMPED_FILES = [Path("/etc/systemd/system/13flow.service.d/version.conf"),
                  Path("/etc/systemd/system/13flow-pro.service.d/version.conf"),
                  Path("/etc/13flow/13flow-mcp.env")]
@@ -67,6 +69,11 @@ def precompute_with_progress():
                                 "--lines=0", "--no-pager", "--output=cat"])
     try:
         run(["systemctl", "start", "13flow-refresh.service"])
+        status = int(subprocess.check_output(
+            ["systemctl", "show", "13flow-refresh.service", "-p", "ExecMainStatus", "--value"], text=True).strip())
+        if status not in (0, 75):
+            raise RuntimeError(f"Unexpected precompute exit status: {status}")
+        return status
     except subprocess.CalledProcessError:
         run(["journalctl", "--unit=13flow-refresh.service", "--lines=60",
              "--no-pager", "--output=cat"])
@@ -80,6 +87,16 @@ def precompute_with_progress():
             journal.wait()
 
 
+def precompute_slices():
+    # 75 is a planned yield, NEVER an upstream failure or a killed process.
+    # A failed start propagates immediately without retrying provider errors.
+    for number in range(1, 25):
+        print(f"Confluence work slice {number}/24 (50 minute budget).", flush=True)
+        if precompute_with_progress() != 75:
+            return
+    raise RuntimeError("Confluence remains incomplete after 24 slices; checkpoints retained.")
+
+
 def activate(args):
     SHA, PREVIOUS_SHA = args.sha, args.previous_sha
     CHECKOUT = args.source.resolve()
@@ -87,10 +104,11 @@ def activate(args):
         raise SystemExit("Run this activation personally with sudo.")
     if TEMP_UNIT.exists() or TEMP_UNIT.is_symlink():
         raise SystemExit("A temporary refresh override already exists; no changes made.")
-    if active("13flow-refresh.service"):
+    if active("13flow-refresh.service") or active("13flow-confluence.service"):
         raise SystemExit("Ingestion is already running; no changes made.")
     if public("/api/version").get("git_sha") != PREVIOUS_SHA:
         raise SystemExit("Unexpected production revision; no changes made.")
+    run(["flock", "--version"], stdout=subprocess.DEVNULL)
     work = Path(tempfile.mkdtemp(prefix=f"13flow-cache-{SHA[:7]}-", dir=DATA))
     gid = grp.getgrnam("flowapp").gr_gid
     uid = pwd.getpwnam("flowingest").pw_uid
@@ -115,7 +133,8 @@ def activate(args):
     candidate.mkdir(mode=0o750)
     os.chown(candidate, uid, gid)
     existing = {}
-    for index, target in enumerate([*(DATA / name for name in CACHES), *TARGETS, *STAMPED_FILES]):
+    for index, target in enumerate([*(DATA / name for name in CACHES), *TARGETS, *STAMPED_FILES,
+                                    *CONFLUENCE_UNITS, WORKER_ENV]):
         if target.is_symlink():
             raise SystemExit("Unexpected target symlink; no changes made.")
         backup = saved / str(index)
@@ -155,35 +174,41 @@ def activate(args):
         'export SMARTMONEY_EDGAR_RATE_PER_SEC=${SMARTMONEY_EDGAR_RATE_PER_SEC:-1.0}\n'
         f"cd {shlex.quote(str(source))}\n"
         f"{APP}/.venv/bin/python {preflight}\n"
-        f"exec {APP}/.venv/bin/python -u run.py --db {DB} --confluence\n"
+        f"exec {APP}/.venv/bin/python -u run.py --db {DB} --confluence --confluence-budget-seconds 3000\n"
     )
     os.chown(driver, 0, gid)
     driver.chmod(0o750)
     timer_was_active = active("13flow-refresh.timer")
+    confluence_timer_was_active = active("13flow-confluence.timer")
     changed = False
     deployed = False
     attempted_deploy = False
     phase = "precompute"
     try:
         run(["systemctl", "stop", "13flow-refresh.timer"])
-        if active("13flow-refresh.service"):
+        if confluence_timer_was_active:
+            run(["systemctl", "stop", "13flow-confluence.timer"])
+        if active("13flow-refresh.service") or active("13flow-confluence.service"):
             raise RuntimeError("Ingestion started during preparation; refusing to overlap it.")
         TEMP_UNIT.write_text(
-            "[Service]\nTimeoutStartSec=2h\nExecStart=\n"
+            "[Service]\nTimeoutStartSec=2h\nSuccessExitStatus=75\nExecStart=\n"
             f"ExecStart=/bin/bash {driver}\n"
         )
         TEMP_UNIT.chmod(0o644)
         run(["systemctl", "daemon-reload"])
         print("Precomputing complete SEC caches; existing production caches stay served.", flush=True)
-        precompute_with_progress()
+        precompute_slices()
         for window in (30, 90, 180):
             payload = json.loads((candidate / f"confluence-{window}.json").read_text())
             meta = payload.get("metadata") or {}
             receipt = meta.get("edgar_refresh") or {}
             generated = datetime.fromisoformat(payload["generated_at"])
             age = (datetime.now(timezone.utc) - generated).total_seconds()
+            oldest = datetime.fromisoformat(receipt["oldest_source_checked_at"])
+            source_age = (datetime.now(timezone.utc) - oldest).total_seconds()
             signals = payload.get("signals") or []
             assert 0 <= age <= 26 * 3600
+            assert age <= source_age <= 26 * 3600
             assert meta.get("edgar_refresh_verified") is True
             assert receipt.get("issuers_checked", 0) > 0
             assert receipt.get("issuers_checked") == receipt.get("issuers_requested")
@@ -195,6 +220,18 @@ def activate(args):
                               "unmapped_tickers": len((meta.get("universe_coverage") or {}).get("excluded_tickers", [])),
                               "generated_at": payload["generated_at"]}), flush=True)
         print("All three cache windows qualified.", flush=True)
+        # Preserve the actual candidate's scan threshold and SEC cadence, including
+        # settings inherited from host-specific refresh-service drop-ins.
+        policy = meta["collection_policy"]
+        scan_min, rate = policy["scan_min_funds"], policy["sec_rate_per_sec"]
+        assert type(scan_min) is int and scan_min >= 1
+        assert type(rate) in (int, float) and math.isfinite(rate) and 0 < rate <= 10
+        worker_env = work / "confluence-worker.env"
+        worker_env.write_text(f"SMARTMONEY_CONFLUENCE_SCAN_MIN_FUNDS={scan_min}\n"
+                              f"SMARTMONEY_EDGAR_RATE_PER_SEC={rate}\n"
+                              f"SMARTMONEY_GIT_SHA={SHA}\n"
+                              f"SMARTMONEY_CACHE_DIR={DATA}\n")
+        worker_env.chmod(0o600)
         phase = "publication"
         changed = True
         for name in CACHES:
@@ -210,6 +247,10 @@ def activate(args):
         deployed = True
         install(source / "deploy/13flow-refresh-confluence.conf", TARGETS[0])
         install(source / "deploy/13flow-confluence.env", TARGETS[1])
+        install(worker_env, WORKER_ENV, mode=0o600)
+        for unit in CONFLUENCE_UNITS:
+            install(source / "deploy" / unit.name, unit)
+        run(["systemd-analyze", "verify", *CONFLUENCE_UNITS])
         TEMP_UNIT.unlink()
         run(["systemctl", "daemon-reload"])
         budget = subprocess.check_output(
@@ -250,13 +291,17 @@ def activate(args):
                 run(["systemctl", "restart", "13flow", "13flow-pro", "13flow-mcp"])
         print(f"Activation failed during {phase}; previous caches retained/restored. Logs: {work}", file=sys.stderr)
         if phase == "precompute":
-            print("Validated Form 4 documents remain cached. Fix the reported cause, then rerun this same command.", file=sys.stderr)
+            print("Completed issuer checkpoints and validated Form 4 documents remain cached. "
+                  "Fix the reported cause before resuming this activation.", file=sys.stderr)
         raise
     finally:
         TEMP_UNIT.unlink(missing_ok=True)
         run(["systemctl", "daemon-reload"])
         if timer_was_active:
             run(["systemctl", "start", "13flow-refresh.timer"])
+        if confluence_timer_was_active:
+            run(["systemctl", "start", "13flow-confluence.timer"])
+    run(["systemctl", "enable", "--now", "13flow-confluence.timer"])
     # Reuse the existing aggregator job; unrelated producer warnings do not undo 13FLOW.
     result = subprocess.run(["systemctl", "start", "l0g-risk.service"])
     print(json.dumps({"l0g_refresh_exit_status": result.returncode}), flush=True)

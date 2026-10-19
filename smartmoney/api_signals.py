@@ -182,10 +182,24 @@ def confluence_cache_metadata(payload: dict, *, now: datetime | None = None) -> 
     status = "unknown" if age is None else "stale" if age > 26 * 3600 else "fresh"
     recorded = payload.get("metadata")
     recorded = recorded if isinstance(recorded, dict) else {}
+    receipt = recorded.get("edgar_refresh") or {}
+    source_age = None
+    if "oldest_source_checked_at" in receipt:
+        try:
+            checked = datetime.fromisoformat(receipt["oldest_source_checked_at"])
+            if checked.tzinfo is not None and 0 <= (now - checked).total_seconds():
+                source_age = int((now - checked).total_seconds())
+        except (ValueError, TypeError):
+            pass
+        if source_age is None or age is None or source_age < age:
+            status = "unknown"
+        elif source_age > 26 * 3600:
+            status = "stale"
     return {
         "served_from_cache": True,
         "cache_status": status,
         "cache_age_seconds": age,
+        "source_age_seconds": source_age,
         "cache_stale_after": "PT26H",
         "edgar_refresh_verified": status == "fresh" and recorded.get("edgar_refresh_verified") is True,
     }

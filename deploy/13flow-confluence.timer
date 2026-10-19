@@ -1,0 +1,10 @@
+[Unit]
+Description=Continue pending 13FLOW Confluence collection and refresh aged sources
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=15min
+Unit=13flow-confluence.service
+
+[Install]
+WantedBy=timers.target

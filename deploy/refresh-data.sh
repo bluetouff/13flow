@@ -24,6 +24,13 @@ report_arg=""
 
 cd "$APP_DIR"
 
+# Serialize SEC collectors. A Confluence slice yields within 50 minutes; allow
+# it to finish before the daily 13F job, without running both request streams.
+ingest_lock="$(dirname "$DB")/edgar-ingest.lock"
+[[ ! -L "$ingest_lock" ]] || exit 3
+exec 9>>"$ingest_lock"
+flock --wait 3300 9
+
 # Pull every tracked superinvestor; --enrich resolves CUSIP -> ticker via OpenFIGI.
 # Use --max-quarters to bound history, or --sync "Fund Name" for a single fund.
 "$VENV/bin/python" run.py --db "$DB" --sync-all --enrich ${MAXQ:+--max-quarters $MAXQ} \
@@ -40,15 +47,21 @@ PY
 
 # Let the web group read the fresh snapshot (group = flowapp); owner stays the ingest user.
 chmod 640 "$DB" 2>/dev/null || true
+flock --unlock 9
 
 # Precompute the Confluence screen (13F accumulation x live Form 4) into cache JSON so the
 # public tier serves it instantly and never hits EDGAR per request.
 if [[ "$SKIP_CONFLUENCE" == "1" || "$SKIP_CONFLUENCE" == "true" || "$SKIP_CONFLUENCE" == "yes" ]]; then
-  echo "  (confluence precompute skipped; set SKIP_CONFLUENCE=0 to refresh it)"
+  echo "  (inline confluence skipped; handled by 13flow-confluence.service when installed)"
 else
-  if timeout 3600 "$VENV/bin/python" run.py --db "$DB" --confluence; then
+  if "$VENV/bin/python" run.py --db "$DB" --confluence --confluence-budget-seconds 3000; then
     chmod 640 "$SMARTMONEY_CACHE_DIR"/confluence-*.json 2>/dev/null || true
   else
+    status=$?
+    if [[ "$status" == "75" ]]; then
+      echo "  (confluence work slice saved; resume with the Confluence service)"
+      exit 75
+    fi
     echo "  (confluence precompute failed; previous caches preserved)" >&2
     exit 1
   fi

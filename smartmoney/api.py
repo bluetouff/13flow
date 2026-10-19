@@ -181,7 +181,7 @@ class _StoreConfluence:
     raises a structured 503 instead of falling back to sample data."""
 
     def __init__(self, db_path: str, user_agent: str, *, precompute: bool = False,
-                 filing_cache_dir=None, progress=None):
+                 filing_cache_dir=None, progress=None, checkpoint=None):
         self._db_path = db_path
         self._ua = user_agent
         self._issuer_ciks = None    # lazy {TICKER: zero-padded CIK}
@@ -192,6 +192,8 @@ class _StoreConfluence:
         self._prepared_filings = {}
         self._filing_cache_dir = filing_cache_dir
         self._progress = progress or (lambda message: None)
+        self._checkpoint = checkpoint if precompute else None
+        self._as_of = datetime.now(timezone.utc).date() if checkpoint else None
 
     def _issuer_index(self):
         if self._issuer_ciks is None:
@@ -230,7 +232,7 @@ class _StoreConfluence:
             if not rd:
                 return {}
             trusted, _gate = _trusted_active_ciks(s)
-            ciks = list(trusted)
+            ciks = sorted(trusted)
             # Only scan Form 4s for tickers with meaningful institutional accumulation.
             # min_funds=1 means "any single fund bought" -> ~1000 tickers -> hours of Form 4
             # fetches. The conviction quadrant needs multiple funds anyway, so gate here.
@@ -290,6 +292,7 @@ class _StoreConfluence:
                 )
             if issuer_index is not None:
                 self._edgar_refresh.scope = {
+                    "report_date": rd,
                     "candidate_tickers": len(candidate_tickers),
                     "eligible_tickers": len(out),
                     "excluded_tickers": sorted(excluded.values(), key=lambda item: item["ticker"]),
@@ -326,6 +329,10 @@ class _StoreConfluence:
         refresh = getattr(self._edgar_refresh, "result", None)
         return {
             "provider": "live_store_confluence",
+            "collection_policy": {
+                "scan_min_funds": scan_min,
+                "sec_rate_per_sec": float(_os.environ.get("SMARTMONEY_EDGAR_RATE_PER_SEC", "2.0")),
+            },
             "generated_at": (refresh or {}).get("completed_at"),
             "edgar_refresh_verified": bool(
                 refresh
@@ -344,7 +351,9 @@ class _StoreConfluence:
                 "Filings for another issuer are excluded only when the requested company is "
                 "identified as a reporting owner in the XML; these exclusions are disclosed "
                 "in edgar_refresh.non_issuer_filings. "
-                "SEC filing lists are fetched on each refresh; previously validated filing XML "
+                "An unfinished CLI refresh can resume verified issuer lists for up to 24 hours; "
+                "edgar_refresh.oldest_source_checked_at records their actual oldest check. "
+                "A completed refresh starts new SEC listing checks next time. Validated filing XML "
                 "may be reused by accession, with its original retrieval date retained on disk. "
                 "Trim/exits are computed across the broader tracked universe, but insider-only, "
                 "distribution, and divergent categories are not exhaustive in this production path."
@@ -361,6 +370,7 @@ class _StoreConfluence:
         from .crosssignal import aggregate_insider_activity, build_confluence
         from .forms4 import Form4Client
         from .api_signals import ConfluenceUnavailable
+        from .confluence_checkpoint import ConfluencePending
         self._edgar_refresh.result = None
         self._edgar_refresh.scope = None
         refresh_started_at = datetime.now(timezone.utc).isoformat()
@@ -383,7 +393,24 @@ class _StoreConfluence:
             raise ConfluenceUnavailable("Institutional Confluence build failed.") from exc
         if not inst:
             raise ConfluenceUnavailable("No SEC-mapped institutional accumulation candidates for Confluence.")
-        f4 = Form4Client(user_agent=self._ua, cache_dir=self._filing_cache_dir, progress=self._progress)
+        if self._checkpoint and self._checkpoint.state is None:
+            from dataclasses import asdict
+            from .research import current_git_sha, confluence_v1_spec
+            code_hash = hashlib.sha256()
+            for name in ("api.py", "forms4.py", "crosssignal.py", "confluence_checkpoint.py", "research.py"):
+                with open(os.path.join(HERE, name), "rb") as source:
+                    code_hash.update(source.read())
+            self._checkpoint.prepare({
+                "version": 1, "db": os.path.realpath(self._db_path),
+                "code_sha256": code_hash.hexdigest(),
+                "methodology": confluence_v1_spec(current_git_sha()), "window": window_days,
+                "institutional": {t: asdict(value) for t, value in inst.items()},
+                "mapping": {t: idx.get(_sec_issuer_symbol(t, idx)) for t in inst},
+                "scope": getattr(self._edgar_refresh, "scope", None),
+            })
+        client_options = {"check_budget": self._checkpoint.check_budget} if self._checkpoint else {}
+        f4 = Form4Client(user_agent=self._ua, cache_dir=self._filing_cache_dir,
+                        progress=self._progress, **client_options)
         refresh = {
             "started_at": refresh_started_at,
             "completed_at": None,
@@ -394,6 +421,8 @@ class _StoreConfluence:
             "filings_downloaded": 0,
             "filings_cached": 0,
             "non_issuer_filings": [],
+            "oldest_source_checked_at": refresh_started_at,
+            "as_of_date": (self._as_of or date.today()).isoformat(),
         }
         scope = getattr(self._edgar_refresh, "scope", None) or {}
         self._progress(f"Confluence {window_days}d: {len(inst)} eligible tickers, "
@@ -411,29 +440,46 @@ class _StoreConfluence:
                 self._edgar_refresh.result = refresh
                 raise ConfluenceUnavailable("SEC issuer mapping changed; no Confluence calculation published.")
             try:
+                if self._checkpoint:
+                    self._checkpoint.check_budget()
                 cached = self._prepared_filings.get(cik) if self._precompute else None
                 if cached and cached[0] >= window_days:
-                    since = date.today() - timedelta(days=window_days)
+                    since = (self._as_of or date.today()) - timedelta(days=window_days)
                     forms = [form for form in cached[1] if date.fromisoformat(form.filing_date) >= since]
                     excluded = [entry for entry in cached[3] if date.fromisoformat(entry["filing_date"]) >= since]
-                    refresh["started_at"] = min(refresh["started_at"], cached[2])
+                    checked_at = cached[2]
                     refresh["issuers_reused"] += 1
                 else:
-                    forms = f4.insider_filings(cik, window_days=window_days, strict=True)
+                    resumed = self._checkpoint.load(cik, f4, window_days, self._as_of) if self._checkpoint else None
+                    if resumed is not None:
+                        forms, checked_at = resumed
+                        refresh["issuers_reused"] += 1
+                        self._progress(f"  SEC issuer {cik}: resumed completed checkpoint ({checked_at}).")
+                    else:
+                        options = {"as_of": self._as_of} if self._checkpoint else {}
+                        forms = f4.insider_filings(cik, window_days=window_days, strict=True, **options)
+                        checked_at = (getattr(f4, "last_listing", None) or {}).get("checked_at", refresh_started_at)
+                        if self._checkpoint:
+                            self._checkpoint.save(cik, f4.last_listing)
                     excluded = [entry for entry in getattr(f4, "non_issuer_filings", [])
                                 if entry["requested_cik"] == cik]
                     if self._precompute:
                         # A valid filing date is needed to derive the narrower windows.
                         for form in forms:
                             date.fromisoformat(form.filing_date)
-                        self._prepared_filings[cik] = (window_days, forms, refresh_started_at, excluded)
+                        self._prepared_filings[cik] = (window_days, forms, checked_at, excluded)
+                refresh["started_at"] = min(refresh["started_at"], checked_at)
+                refresh["oldest_source_checked_at"] = min(refresh["oldest_source_checked_at"], checked_at)
                 for entry in excluded:
                     non_issuer_filings[(entry["requested_cik"], entry["accession"])] = entry
                 refresh["non_issuer_filings"] = list(non_issuer_filings.values())
-                insiders[ticker] = aggregate_insider_activity(ticker, forms, window_days=window_days)
+                aggregation_options = {"as_of": self._as_of} if self._checkpoint else {}
+                insiders[ticker] = aggregate_insider_activity(ticker, forms, window_days=window_days, **aggregation_options)
                 refresh["issuers_checked"] += 1
                 refresh["filings_downloaded"] = getattr(f4, "filings_downloaded", 0)
                 refresh["filings_cached"] = getattr(f4, "filings_cached", 0)
+            except ConfluencePending:
+                raise
             except Exception as exc:   # pragma: no cover - network
                 refresh["issuer_failures"] += 1
                 self._edgar_refresh.result = refresh
@@ -448,6 +494,9 @@ class _StoreConfluence:
                 ) from exc
         signals = build_confluence(inst, insiders)
         refresh["completed_at"] = datetime.now(timezone.utc).isoformat()
+        oldest = datetime.fromisoformat(refresh["oldest_source_checked_at"])
+        if not 0 <= (datetime.now(timezone.utc) - oldest).total_seconds() <= 26 * 3600:
+            raise ConfluenceUnavailable("SEC issuer checks expired during calculation; previous caches preserved.")
         self._edgar_refresh.result = refresh
         self._progress(f"Confluence {window_days}d complete: {len(signals)} signals; "
                        f"{refresh['filings_downloaded']} filings downloaded, "

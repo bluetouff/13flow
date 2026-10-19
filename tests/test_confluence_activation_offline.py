@@ -50,6 +50,35 @@ def test_journal_follower_is_reaped_on_a_refresh_failure(release, monkeypatch):
     assert actions == ["diagnostics", "terminate", "wait"]
 
 
+@pytest.mark.parametrize("final", [0, "failure"])
+def test_slices_continue_only_planned_yields_never_failed_ingestion(release, monkeypatch, final):
+    statuses = iter([75, 75, final])
+    calls = []
+
+    def precompute():
+        calls.append(True)
+        status = next(statuses)
+        if status == "failure":
+            raise subprocess.CalledProcessError(1, ["systemctl", "start"])
+        return status
+
+    monkeypatch.setattr(release, "precompute_with_progress", precompute)
+    if final == "failure":
+        with pytest.raises(subprocess.CalledProcessError):
+            release.precompute_slices()
+    else:
+        release.precompute_slices()
+    assert len(calls) == 3
+
+
+def test_pending_slices_have_a_finite_total_budget(release, monkeypatch):
+    calls = []
+    monkeypatch.setattr(release, "precompute_with_progress", lambda: calls.append(True) or 75)
+    with pytest.raises(RuntimeError, match="24 slices"):
+        release.precompute_slices()
+    assert len(calls) == 24
+
+
 @pytest.mark.parametrize("failure_phase", ["precompute", "smoke", None])
 def test_release_restores_caches_and_timer_on_failure_and_retains_source_checkpoints(release, tmp_path, monkeypatch, failure_phase):
     data, app, dropins = (tmp_path / name for name in ("data", "app", "dropins"))
@@ -59,9 +88,12 @@ def test_release_restores_caches_and_timer_on_failure_and_retains_source_checkpo
     stamps = [tmp_path / "version.conf"]
     for name, value in {"DATA": data, "APP": app, "DB": data / "market.db", "DROPINS": dropins,
                         "TEMP_UNIT": dropins / "zzz-release-precompute.conf", "TARGETS": targets,
+                        "CONFLUENCE_UNITS": [tmp_path / f"13flow-confluence.{kind}" for kind in ("service", "timer")],
+                        "WORKER_ENV": tmp_path / "worker.env",
                         "STAMPED_FILES": stamps}.items():
         monkeypatch.setattr(release, name, value)
-    previous_files = [*(data / name for name in release.CACHES), *targets, *stamps]
+    previous_files = [*(data / name for name in release.CACHES), *targets, *stamps,
+                      *release.CONFLUENCE_UNITS, release.WORKER_ENV]
     for path in previous_files:
         path.write_text("previous content")
     monkeypatch.setattr(release.os, "geteuid", lambda: 0)
@@ -77,7 +109,8 @@ def test_release_restores_caches_and_timer_on_failure_and_retains_source_checkpo
         commands.append(args)
         if args[0] == "git":
             with tarfile.open(fileobj=kwargs["stdout"], mode="w") as archive:
-                for name in ("deploy/13flow-refresh-confluence.conf", "deploy/13flow-confluence.env"):
+                for name in ("deploy/13flow-refresh-confluence.conf", "deploy/13flow-confluence.env",
+                             "deploy/13flow-confluence.service", "deploy/13flow-confluence.timer"):
                     body = b"candidate config"
                     entry = tarfile.TarInfo(name)
                     entry.size = len(body)
@@ -107,8 +140,10 @@ def test_release_restores_caches_and_timer_on_failure_and_retains_source_checkpo
         generated = datetime.now(timezone.utc).isoformat()
         for window in (30, 90, 180):
             payload = {"generated_at": generated, "signals": [{"score": 10}], "kpis": {"n_signals": 1},
-                       "metadata": {"edgar_refresh_verified": True, "edgar_refresh": {
-                           "issuers_checked": 1, "issuers_requested": 1, "issuer_failures": 0}}}
+                       "metadata": {"collection_policy": {"scan_min_funds": 1, "sec_rate_per_sec": 1.0},
+                                    "edgar_refresh_verified": True, "edgar_refresh": {
+                           "issuers_checked": 1, "issuers_requested": 1, "issuer_failures": 0,
+                           "oldest_source_checked_at": generated}}}
             (candidate / f"confluence-{window}.json").write_text(json.dumps(payload))
         (candidate / "confluence-history.jsonl").write_text("candidate history")
 
@@ -121,6 +156,9 @@ def test_release_restores_caches_and_timer_on_failure_and_retains_source_checkpo
     else:
         release.activate(args)
         assert json.loads((data / "confluence-90.json").read_text())["kpis"]["n_signals"] == 1
+        assert "SMARTMONEY_CONFLUENCE_SCAN_MIN_FUNDS=1" in release.WORKER_ENV.read_text()
+        assert "SMARTMONEY_EDGAR_RATE_PER_SEC=1.0" in release.WORKER_ENV.read_text()
+        assert f"SMARTMONEY_GIT_SHA={SHA}" in release.WORKER_ENV.read_text()
     assert not release.TEMP_UNIT.exists()
     assert ["systemctl", "start", "13flow-refresh.timer"] in commands
     assert (data / "form4-filings" / "validated-fixture.json").read_text() == "checkpoint retained"

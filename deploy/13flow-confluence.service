@@ -1,0 +1,18 @@
+[Unit]
+Description=13FLOW resumable Confluence SEC collection
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=flowingest
+Group=flowapp
+EnvironmentFile=/etc/13flow/13flow.env
+EnvironmentFile=/etc/13flow/13flow-confluence-worker.env
+WorkingDirectory=/opt/13flow
+ExecStart=/opt/13flow/.venv/bin/python -u run.py --db /var/lib/13flow/13flow.db --confluence --confluence-if-due --confluence-budget-seconds 3000
+SuccessExitStatus=75
+TimeoutStartSec=1h
+ReadWritePaths=/var/lib/13flow
+NoNewPrivileges=yes
+PrivateTmp=yes

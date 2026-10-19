@@ -421,14 +421,30 @@ reporting-owner filings; it does not promise 60 issuer-only filings or exhaustiv
 CLI refreshes keep validated Form 4 XML in `form4-filings/` next to the market DB
 (`--form4-cache-dir` overrides this directory). Each document is saved atomically after
 parsing and issuer validation, with its content hash and original UTC retrieval date.
-Every run fetches the current SEC filing lists again, so new accessions are included;
-the receipt distinguishes downloaded documents from reused documents. An interrupted
-run can reuse completed downloads. This source cache is separate from the three public
-signal files, which are published only after all windows have completed.
+Unfinished CLI runs also save completed issuer lists under `confluence-progress/` next
+to the DB. These checkpoints are bound to the 13F scope, issuer mappings, methodology,
+code revision and widest window; a process interruption resumes completed issuers
+without fetching their lists again. A checkpoint is reused for at most 24 hours and
+its XML is revalidated before scoring. Empty, successfully checked issuer lists are
+saved too. Completing all windows closes the batch, so the next refresh checks new SEC
+accessions. Corrupt, expired or incompatible checkpoints require a fresh issuer check.
+Source documents and checkpoints are separate from the three public signal files,
+which are published only after all requested windows have completed.
 The SEC `primaryDocument` selects the raw XML directly, saving one directory request per
-uncached document. The full institutional universe is retained: cold collection may still
-take several runs within the existing service timeout. Re-running the same activation
-reuses validated documents without increasing the SEC request rate or publishing partial scores.
+uncached document. The full institutional universe and SEC request rate are retained.
+CLI work yields normally after a 50-minute budget (`--confluence-budget-seconds`, exit
+75), preserving progress before the service timeout. An incomplete issuer retains its
+validated XML but must fetch its list again. A shared ingestion lock prevents concurrent
+13F/Confluence SEC requests and database changes during a Confluence work slice.
+`edgar_refresh.oldest_source_checked_at` records the oldest actual listing check used;
+`generated_at` remains the calculation completion time. The API and deployment checks
+reject a freshness attestation once the oldest source exceeds 26 hours.
+
+On Zen, `13flow-confluence.service` runs independently from the daily 13F sync. Its timer
+checks every 15 minutes after completion; `--confluence-if-due` avoids SEC requests while
+published source checks are less than 20 hours old. Pending slices resume automatically.
+This replaces Confluence's inline one-hour `timeout` during 13F ingestion. The activation
+below installs both new units and disables inline Confluence in the 13F job.
 
 Progress reports the current issuer and filing counts. The first failed issuer stops
 the refresh with a bounded HTTP diagnostic, preserving the prior published signals.
@@ -445,8 +461,10 @@ sudo python3 -I deploy/activate-confluence.py --sha <release-sha> --previous-sha
 It streams the refresh journal, qualifies candidate caches before publication, delegates
 code deployment to `deploy-code-safe.sh`, runs public smoke checks, and restores the
 previous release on failure. It reuses the installed ingest unit and its security
-settings, refuses overlapping activation/ingestion, and preserves downloaded Form 4
-documents after a failed attempt. No per-release Python script editing is needed.
+settings, refuses overlapping activation/ingestion, and preserves issuer checkpoints and
+downloaded Form 4 documents after a failed attempt. It continues only planned exit-75
+yields (at most 24 slices); any provider error or killed service stops activation without
+automatic retries. No per-release Python script editing is needed.
 
 The screen lives as a fifth dashboard tab. Production must use either a precomputed
 `confluence-<window>.json` cache or the live provider. The live provider needs EDGAR access

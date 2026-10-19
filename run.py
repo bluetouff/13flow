@@ -513,7 +513,43 @@ def cmd_alerts(client, db_path, dispatch_only) -> None:
     print(f"Dispatched: {sent} sent, {failed} failed, {len(results)} total.")
 
 
-def cmd_confluence(db_path: str, ua: str, windows, *, filing_cache_dir=None) -> None:
+def cmd_confluence(db_path: str, ua: str, windows, *, filing_cache_dir=None,
+                   budget_seconds=3000, if_due=False) -> int:
+    import json
+    from pathlib import Path
+    from smartmoney.api_signals import confluence_cache_metadata
+    from smartmoney.confluence_checkpoint import ConfluenceCheckpoint, ConfluencePending
+    directory = Path(db_path).resolve().parent
+    outdir = Path(os.environ.get("SMARTMONEY_CACHE_DIR") or directory)
+    windows = sorted(set(windows), reverse=True)
+    if not windows or any(window not in (30, 90, 180) for window in windows):
+        raise ValueError("Confluence windows must be 30, 90 or 180 days")
+    checkpoint = ConfluenceCheckpoint(directory / "confluence-progress", budget_seconds)
+    with checkpoint.locked(skip_busy=if_due) as acquired:
+        if not acquired:
+            print("SEC ingestion is busy; Confluence will resume on the next timer tick.")
+            return 0
+        if if_due:
+            try:
+                health = [confluence_cache_metadata(json.loads((outdir / f"confluence-{w}.json").read_text()))
+                          for w in windows]
+                if all(h["edgar_refresh_verified"] and h["source_age_seconds"] is not None
+                       and h["source_age_seconds"] < 20 * 3600 for h in health):
+                    print("Confluence sources are current; no SEC requests needed.")
+                    return 0
+            except (OSError, ValueError, TypeError):
+                pass
+        try:
+            _precompute_confluence(db_path, ua, windows, filing_cache_dir=filing_cache_dir,
+                                   checkpoint=checkpoint)
+        except ConfluencePending as exc:
+            print(str(exc), flush=True)
+            return 75
+        checkpoint.complete()
+    return 0
+
+
+def _precompute_confluence(db_path: str, ua: str, windows, *, filing_cache_dir=None, checkpoint=None) -> None:
     """Precompute the Confluence screen (13F accumulation x live Form 4 buys) and write one
     cache file per window into SMARTMONEY_CACHE_DIR (or next to the DB). The web tier serves
     these instantly, so visitors never trigger EDGAR fetches."""
@@ -526,7 +562,7 @@ def cmd_confluence(db_path: str, ua: str, windows, *, filing_cache_dir=None) -> 
     # Source documents survive failed releases and candidate output directories.
     filing_cache_dir = filing_cache_dir or os.path.join(os.path.dirname(os.path.abspath(db_path)), "form4-filings")
     prov = _StoreConfluence(db_path, ua, precompute=True, filing_cache_dir=filing_cache_dir,
-                           progress=lambda message: print(message, flush=True))
+                           progress=lambda message: print(message, flush=True), checkpoint=checkpoint)
     history_payloads = []
     # Fetch the widest filing window once, then derive narrower windows by filing date.
     for w in sorted(set(windows), reverse=True):
@@ -978,6 +1014,10 @@ def main() -> None:
                     help="comma-separated day windows to precompute (default 30,90,180)")
     ap.add_argument("--form4-cache-dir", default=None,
                     help="validated filing XML cache for --confluence (default: form4-filings next to the DB)")
+    ap.add_argument("--confluence-budget-seconds", type=int, default=3000,
+                    help="bounded work slice (1..6000 seconds); exit 75 means checkpointed work remains")
+    ap.add_argument("--confluence-if-due", action="store_true",
+                    help="skip refresh while all published source checks are less than 20 hours old")
     ap.add_argument("--freeze-confluence-v1", metavar="PATH",
                     help="write the frozen machine-readable Confluence v1 spec to PATH")
     ap.add_argument("--append-signal-history", action="store_true",
@@ -1176,7 +1216,8 @@ def main() -> None:
     elif args.confluence:
         windows = [int(w) for w in args.confluence_windows.split(",") if w.strip()]
         print("Precomputing confluence windows:", windows)
-        cmd_confluence(args.db, ua, windows, filing_cache_dir=args.form4_cache_dir)
+        sys.exit(cmd_confluence(args.db, ua, windows, filing_cache_dir=args.form4_cache_dir,
+                               budget_seconds=args.confluence_budget_seconds, if_due=args.confluence_if_due))
     else:
         ap.print_help()
 

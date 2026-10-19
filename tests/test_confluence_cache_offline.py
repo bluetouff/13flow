@@ -130,11 +130,11 @@ def test_precompute_publishes_complete_windows_atomically_and_preserves_failed_r
     monkeypatch.setattr("smartmoney.api._StoreConfluence", FixtureProvider)
     if fail_second_window:
         with pytest.raises(ConfluenceUnavailable):
-            run.cmd_confluence("unused-fixture.db", "13flow-tests test@example.com", [30, 90])
+            run.cmd_confluence(str(tmp_path / "fixture.db"), "13flow-tests test@example.com", [30, 90])
         assert all(path.read_text() == '{"previous":true}' for path in paths)
         assert not (tmp_path / "confluence-history.jsonl").exists()
     else:
-        run.cmd_confluence("unused-fixture.db", "13flow-tests test@example.com", [30, 90])
+        run.cmd_confluence(str(tmp_path / "fixture.db"), "13flow-tests test@example.com", [30, 90])
         for path in paths:
             payload = json.loads(path.read_text())
             assert payload["generated_at"] == NOW.isoformat()
