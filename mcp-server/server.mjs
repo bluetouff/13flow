@@ -48,6 +48,9 @@ const PRO_API_BASE = (process.env.MCP_13FLOW_PRO_API_BASE || API_BASE).replace(/
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const MCP_VERSION = PACKAGE.version;
 const MAX_BODY = integerEnv('MCP_MAX_BODY', 1024 * 1024, 1024, 4 * 1024 * 1024);
+// Largest supported input: 25 tickers and 3 option keys. Bound validation
+// independently of bytes, including unexpected nested objects and arrays.
+const MAX_TOOL_INPUT_ELEMENTS = 128;
 const MAX_UPSTREAM_BODY = integerEnv('MCP_MAX_UPSTREAM_BODY', 8 * 1024 * 1024, 64 * 1024, 32 * 1024 * 1024);
 const MAX_FACILITATOR_BODY = integerEnv('MCP_MAX_FACILITATOR_BODY', 256 * 1024, 1024, 1024 * 1024);
 const MAX_IN_FLIGHT = integerEnv('MCP_MAX_IN_FLIGHT', 32, 1, 256);
@@ -762,7 +765,7 @@ function buildServer(context = {}) {
     name: '13flow.eu',
     version: MCP_VERSION,
     description: 'Source-linked SEC 13F research, quality checks and watchlist evidence.',
-  });
+  }, { maxToolInputElements: MAX_TOOL_INPUT_ELEMENTS });
   const proHeaders = context.proHeaders || {};
   const paymentGrant = context.paymentGrant || null;
 
@@ -847,8 +850,21 @@ function buildServer(context = {}) {
     const path = `/api/signals/confluence${params.size ? `?${params}` : ''}`;
     const payload = await fetchJson(path);
     const signals = Array.isArray(payload?.signals) ? payload.signals : [];
+    const metadata = { ...(payload?.metadata || {}) };
+    // Full-universe diagnostics remain at source_url. Keep the MCP summary
+    // bounded and explicit about truncation, without changing refresh receipts.
+    for (const [section, key] of [['universe_coverage', 'excluded_tickers'], ['edgar_refresh', 'non_issuer_filings']]) {
+      const entries = metadata[section]?.[key];
+      if (!Array.isArray(entries)) continue;
+      metadata[section] = {
+        ...metadata[section], [key]: entries.slice(0, 10),
+        [`${key}_available`]: entries.length, [`${key}_returned`]: Math.min(entries.length, 10),
+        [`${key}_truncated`]: entries.length > 10,
+      };
+    }
     return withProvenance({
       ...payload,
+      metadata,
       signals: signals.slice(0, limit),
       result_window: {
         signals_returned: Math.min(signals.length, limit),
@@ -929,6 +945,7 @@ function buildServer(context = {}) {
         readOnly: true,
         stateless: true,
         maxBodyBytes: MAX_BODY,
+        maxToolInputElements: MAX_TOOL_INPUT_ELEMENTS,
         maxUpstreamBodyBytes: MAX_UPSTREAM_BODY,
         maxInFlight: MAX_IN_FLIGHT,
         maxConnections: MAX_CONNECTIONS,
@@ -1102,7 +1119,7 @@ function buildServer(context = {}) {
 
   registerInstrumentedTool(server, 'get_confluence_signals', {
     title: 'Get Confluence signals',
-    description: 'Return public cached Confluence v1 signals. Scores are ordinal heuristic ranks, not probabilities.',
+    description: 'Return public cached Confluence v1 signals. Scores are ordinal heuristic ranks, not probabilities. Diagnostics include up to 10 examples per category, with available/returned counts and a source_url for full API details.',
     inputSchema: {
       window: z.number().int().min(7).max(365).default(90).describe('Confluence window in days.'),
       limit: z.number().int().min(1).max(100).default(25).describe('Maximum signals returned by the public API when supported.'),
@@ -1250,6 +1267,7 @@ async function handleMcpRequest(req, res, body) {
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
+    maxRequestBodySize: MAX_BODY,
   });
   res.on('close', () => { transport.close(); server.close(); });
   await server.connect(transport);

@@ -2,6 +2,10 @@ import http from 'node:http';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createRequire } from 'node:module';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { auth } from '@modelcontextprotocol/sdk/client/auth.js';
@@ -11,6 +15,9 @@ import { ipKeyGenerator } from 'express-rate-limit';
 import uri from 'fast-uri';
 import { jsx, Suspense, createContext } from 'hono/jsx';
 import { renderToString, renderToReadableStream } from 'hono/jsx/dom/server';
+import { Hono } from 'hono';
+import { serveStatic as honoStatic } from 'hono/serve-static';
+import { serveStatic as nodeStatic } from '@hono/node-server/serve-static';
 
 // Exercise OAuth issuer isolation entirely in memory, using synthetic credentials.
 const oauthIssuer = 'https://auth.example';
@@ -148,8 +155,69 @@ assert.equal(renderToString(jsx('p', null, markup)), `<p>${escapedMarkup}</p>`);
 assert.equal(renderToString('ordinary text'), 'ordinary text');
 console.log('Hono JSX boundary escaping and normal rendering: passed');
 
+// Both packages contain their own static helper. Check ESM and CommonJS copies
+// with harmless fixture filenames: residual percent encodings must stop before
+// content lookup, while ordinary spaces, Unicode and prefix guards still work.
+const require = createRequire(import.meta.url);
+const staticRoot = await mkdtemp(join(tmpdir(), '13flow-static-security-'));
+try {
+  const files = new Map();
+  await mkdir(join(staticRoot, 'assets'));
+  for (const name of ['plain.txt', 'hello world.txt', '炎.txt', '100%.txt', '100%25.txt']) {
+    const path = join(staticRoot, 'assets', name);
+    const text = `Fixture: ${name}`;
+    files.set(path, text);
+    await writeFile(path, text);
+  }
+  const variants = [
+    ['Hono ESM', honoStatic, true],
+    ['Hono CommonJS', require('hono/serve-static').serveStatic, true],
+    ['Node adapter ESM', nodeStatic, false],
+    ['Node adapter CommonJS', require('@hono/node-server/serve-static').serveStatic, false],
+  ];
+  for (const [label, serveStatic, inMemory] of variants) {
+    const found = [];
+    const lookups = [];
+    const app = new Hono();
+    app.use('/assets/private/*', (c) => c.text('Denied', 401));
+    app.use('/assets/*', serveStatic({
+      root: staticRoot,
+      onFound: (path) => { found.push(path); },
+      ...(inMemory ? { getContent: async (path) => { lookups.push(path); return files.get(path); } } : {}),
+    }));
+    for (const name of ['plain.txt', 'hello world.txt', '炎.txt']) {
+      const response = await app.request(`/assets/${encodeURIComponent(name)}`);
+      assert.equal(response.status, 200, `${label}: ordinary filename`);
+      assert.equal(await response.text(), `Fixture: ${name}`);
+    }
+    assert.equal((await app.request('/assets/private/fixture.txt')).status, 401, `${label}: prefix guard`);
+    for (const name of ['100%.txt', '100%25.txt']) {
+      found.length = 0;
+      lookups.length = 0;
+      const response = await app.request(`/assets/${encodeURIComponent(name)}`);
+      assert.equal(response.status, 404, `${label}: residual encoding must be rejected`);
+      assert.equal(found.length, 0, `${label}: no file served`);
+      assert.equal(lookups.length, 0, `${label}: no content lookup`);
+    }
+  }
+  console.log('Hono and Node static helpers (ESM/CommonJS): encoding isolation and valid filenames passed');
+} finally {
+  await rm(staticRoot, { recursive: true });
+}
+
 const mcpPort = Number(process.env.SECURITY_TEST_PORT || 18851);
 const serverPath = fileURLToPath(new URL('./server.mjs', import.meta.url));
+const confluenceFixture = {
+  generated_at: '2026-10-21T00:00:00+00:00',
+  metadata: {
+    edgar_refresh_verified: true,
+    edgar_refresh: { issuers_checked: 2, issuers_requested: 2, issuer_failures: 0,
+      oldest_source_checked_at: '2026-10-20T23:00:00+00:00',
+      non_issuer_filings: Array.from({ length: 25 }, (_, i) => ({ accession: `fixture-${i}` })) },
+    universe_coverage: { excluded_tickers: Array.from({ length: 25 }, (_, i) => ({ ticker: `FIX${i}` })) },
+  },
+  signals: [{ ticker: 'FIXTURE', score: 0 }],
+};
 
 const fixture = http.createServer((req, res) => {
   res.setHeader('Content-Type', 'application/json');
@@ -163,6 +231,13 @@ const fixture = http.createServer((req, res) => {
   }
   if (req.url === '/api/live-status') {
     return res.end('{"public_state":"LIVE"}');
+  }
+  if (req.url.startsWith('/api/watchlist/preview?')) {
+    const tickers = new URL(req.url, 'http://fixture.example').searchParams.get('tickers').split(',');
+    return res.end(JSON.stringify({ items: [], fixture_tickers: tickers }));
+  }
+  if (req.url.startsWith('/api/signals/confluence?')) {
+    return res.end(JSON.stringify(confluenceFixture));
   }
   res.statusCode = 404;
   return res.end('{"error":"not_found"}');
@@ -180,6 +255,7 @@ const child = spawn(process.execPath, [serverPath], {
     NODE_ENV: 'test',
     MCP_PORT: String(mcpPort),
     MCP_13FLOW_API_BASE: `http://127.0.0.1:${fixturePort}`,
+    MCP_PUBLIC_SITE: 'https://public-fixture.example',
     MCP_MAX_UPSTREAM_BODY: String(64 * 1024),
     MCP_MAX_IN_FLIGHT: '2',
     MCP_RATE_MAX: '100',
@@ -209,6 +285,48 @@ try {
   const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${mcpPort}/mcp`));
   client = new Client({ name: '13flow-security-test', version: '1.0.0' });
   await client.connect(transport);
+
+  // Small inputs exercise the pre-validation budget without stressing memory.
+  for (const arguments_ of [
+    Object.fromEntries(Array.from({ length: 129 }, (_, i) => [`fixture${i}`, 0])),
+    { fixture: { nested: Array(129).fill(0) } },
+  ]) {
+    const bounded = await client.callTool({ name: 'get_live_status', arguments: arguments_ });
+    assert.equal(bounded.isError, true, 'tool arguments must respect the element budget');
+    assert.match(bounded.content[0].text, /element|limit|maximum/i);
+  }
+  const tickers = Array.from({ length: 25 }, (_, i) => `FIX${i}`);
+  const largestWatchlist = await client.callTool({
+    name: 'preview_watchlist', arguments: { tickers, movement_limit: 10, include_quality_details: true },
+  });
+  assert.equal(largestWatchlist.isError, false);
+  assert.deepEqual(largestWatchlist.structuredContent.fixture_tickers, tickers);
+  console.log('MCP pre-validation element budget and full 25-ticker watchlist: passed');
+  const omittedArguments = await client.callTool({ name: 'get_live_status' });
+  assert.equal(omittedArguments.isError, false, 'empty tool arguments remain optional');
+  const atElementLimit = await client.callTool({
+    name: 'get_live_status',
+    arguments: Object.fromEntries(Array.from({ length: 128 }, (_, i) => [`fixture${i}`, 0])),
+  });
+  assert.equal(atElementLimit.isError, false, 'the element limit is inclusive');
+
+  const confluence = await client.callTool({ name: 'get_confluence_signals', arguments: { window: 90, limit: 3 } });
+  assert.equal(confluence.isError, false);
+  const summary = confluence.structuredContent;
+  assert.equal(summary.generated_at, confluenceFixture.generated_at);
+  assert.equal(summary.metadata.edgar_refresh_verified, true);
+  assert.equal(summary.metadata.edgar_refresh.oldest_source_checked_at,
+    confluenceFixture.metadata.edgar_refresh.oldest_source_checked_at);
+  assert.equal(summary.metadata.edgar_refresh.issuers_checked, 2);
+  for (const [section, key] of [['universe_coverage', 'excluded_tickers'], ['edgar_refresh', 'non_issuer_filings']]) {
+    assert.equal(summary.metadata[section][key].length, 10);
+    assert.equal(summary.metadata[section][`${key}_available`], 25);
+    assert.equal(summary.metadata[section][`${key}_returned`], 10);
+    assert.equal(summary.metadata[section][`${key}_truncated`], true);
+    assert.equal(confluenceFixture.metadata[section][key].length, 25, 'source diagnostics remain complete');
+  }
+  assert.equal(summary.source_url, 'https://public-fixture.example/api/signals/confluence?window=90');
+  console.log('Confluence diagnostic summary: bounded, totals and source provenance preserved');
 
   const oversized = await client.callTool({
     name: 'get_data_quality',
