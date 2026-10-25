@@ -14,7 +14,9 @@ SRC=${SRC:-}
 SHA=${SHA:-}
 WEB_GROUP=${WEB_GROUP:-flowapp}
 MCP_GROUP=${MCP_GROUP:-flowmcp}
-BACKUP_DIR=${BACKUP_DIR:-/home/bluetouff}
+backup_dir_is_default=0
+[[ -n "${BACKUP_DIR:-}" ]] || backup_dir_is_default=1
+BACKUP_DIR=${BACKUP_DIR:-/var/backups/13flow-deploy}
 MCP_UNIT=/etc/systemd/system/13flow-mcp.service
 APACHE_VHOST=/etc/apache2/sites-available/13flow.conf
 STATS_APACHE_FRAGMENT=/etc/apache2/13flow-stats.conf
@@ -238,8 +240,36 @@ stamp_sha() {
     > "/etc/systemd/system/$service.d/version.conf"
 }
 
+prepare_default_backup_dir() {
+  # Explicit overrides retain their existing behavior (including the separate
+  # Confluence activation transaction). Only the new default is managed here.
+  (( backup_dir_is_default )) || return 0
+  local anchor owner group mode
+  for anchor in / /var /var/backups "$BACKUP_DIR"; do
+    if [[ "$anchor" == "$BACKUP_DIR" && ! -e "$anchor" && ! -L "$anchor" ]]; then
+      continue
+    fi
+    if [[ -L "$anchor" || ! -d "$anchor" ]]; then
+      echo "Refusing deploy: default backup anchor is not a real directory: $anchor" >&2
+      return 1
+    fi
+    read -r owner group mode < <(stat -c '%u %g %a' -- "$anchor")
+    if [[ "$owner:$group" != "0:0" ]] || (( (8#$mode & 0022) != 0 )); then
+      echo "Refusing deploy: default backup anchor ownership or mode is unsafe: $anchor" >&2
+      return 1
+    fi
+  done
+  install -d -o root -g root -m 700 -- "$BACKUP_DIR"
+  if [[ $(stat -c '%u:%g:%a' -- "$BACKUP_DIR") != "0:0:700" ]]; then
+    echo "Refusing deploy: default backup directory must be root:root mode 0700." >&2
+    return 1
+  fi
+}
+
 backup="$BACKUP_DIR/13flow-backup-before-safe-deploy-$SHA-$(date -u +%Y%m%dT%H%M%SZ)"
 config_backup="${backup}-etc"
+# Fail before installing the rollback trap or changing any application service.
+prepare_default_backup_dir
 trap rollback ERR
 echo "==> [1/8] Backup current tree and active service configs"
 cp -a "$APP_DIR" "$backup"
