@@ -451,6 +451,14 @@ the refresh with a bounded HTTP diagnostic, preserving the prior published signa
 The existing SEC request rate is retained; a long `Retry-After` stops the run rather
 than retrying earlier than the server permits.
 
+`deploy/deploy-code-safe.sh` places rollback copies in
+`/var/backups/13flow-deploy` by default. It prepares that directory as
+`root:root` with mode `0700` before copying code or stopping services, and
+rejects unsafe ownership, permissions or symlinks in its fixed anchors.
+An explicitly supplied `BACKUP_DIR` retains its existing behavior, including
+the separate Confluence activation transaction. Existing backups are not
+moved or deleted; this destination change does not add a retention policy.
+
 For a Confluence release on Zen, use the versioned activation entrypoint from the exact
 release checkout, with the SHA currently served by `/api/version` as `--previous-sha`:
 
