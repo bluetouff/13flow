@@ -286,6 +286,22 @@ try {
   client = new Client({ name: '13flow-security-test', version: '1.0.0' });
   await client.connect(transport);
 
+  const { tools: declaredTools } = await client.listTools();
+  for (const tool of declaredTools) {
+    const hasProperties = Object.keys(tool.inputSchema.properties).length > 0;
+    assert.equal(tool.inputSchema.additionalProperties, hasProperties ? false : undefined,
+      `${tool.name}: advertised object contract`);
+  }
+  const watchlistSchema = declaredTools.find((tool) => tool.name === 'preview_watchlist').inputSchema;
+  assert.deepEqual(watchlistSchema.required, ['tickers']);
+  assert.equal(watchlistSchema.properties.tickers.minItems, 1);
+  assert.equal(watchlistSchema.properties.tickers.maxItems, 25);
+  assert.equal(watchlistSchema.properties.movement_limit.default, 3);
+  const fundsSchema = declaredTools.find((tool) => tool.name === 'list_funds').inputSchema;
+  assert.equal(fundsSchema.properties.limit.default, 25);
+  assert.equal(fundsSchema.properties.limit.maximum, 50);
+  console.log('Zod 4 advertised tool schemas, collection bounds and defaults: passed');
+
   // Small inputs exercise the pre-validation budget without stressing memory.
   for (const arguments_ of [
     Object.fromEntries(Array.from({ length: 129 }, (_, i) => [`fixture${i}`, 0])),

@@ -757,7 +757,12 @@ function removeLiveNotificationCapabilities(server) {
 }
 
 function registerInstrumentedTool(server, name, definition, handler) {
-  server.registerTool(name, definition, TELEMETRY.wrapTool(name, handler));
+  // Zod 4 input-mode JSON Schema omits this flag for stripping objects.
+  // Preserve the advertised tool contract and the existing runtime stripping.
+  const objectSchema = z.object(definition.inputSchema);
+  const inputSchema = Object.keys(definition.inputSchema).length
+    ? objectSchema.meta({ additionalProperties: false }) : objectSchema;
+  server.registerTool(name, { ...definition, inputSchema }, TELEMETRY.wrapTool(name, handler));
 }
 
 function buildServer(context = {}) {

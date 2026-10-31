@@ -9,23 +9,24 @@
   },
   "scripts": {
     "start": "node server.mjs",
-    "check": "node --check server.mjs && node --check telemetry.mjs && node --check test-client.mjs && node --check test-client-redirects.mjs && node --check test-config.mjs && node --check test-security.mjs && node --check test-telemetry.mjs && node --check verify-registry.mjs",
+    "check": "node --check server.mjs && node --check telemetry.mjs && node --check test-client.mjs && node --check test-client-redirects.mjs && node --check test-config.mjs && node --check test-dependency-security.mjs && node --check test-security.mjs && node --check test-telemetry.mjs && node --check verify-registry.mjs",
     "test": "node test-client.mjs",
     "test:config": "node test-config.mjs",
-    "test:security": "node test-security.mjs && node test-client-redirects.mjs",
+    "test:security": "node test-dependency-security.mjs && node test-security.mjs && node test-client-redirects.mjs",
     "test:telemetry": "node test-telemetry.mjs",
     "registry:verify": "node verify-registry.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
-    "zod": "3.25.76"
+    "zod": "4.6.7"
   },
   "overrides": {
     "@hono/node-server": "2.1.3",
-    "fast-uri": "3.1.8",
+    "body-parser": "2.4.0",
+    "fast-uri": "3.1.9",
     "hono": "4.13.11",
-    "ip-address": "10.7.1",
+    "ip-address": "10.7.4",
     "proxy-addr": "2.0.8",
-    "qs": "6.16.0"
+    "qs": "6.16.1"
   }
 }
